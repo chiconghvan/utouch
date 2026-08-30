@@ -194,6 +194,12 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         switchAppBeforeRunScript = [[configManager getValueFromKey:@"switch_app_before_run_script"] boolValue];
     }
 
+    BOOL showFinishedPopup = YES;
+    if ([configManager getValueFromKey:@"show_script_finished_popup"])
+    {
+        showFinishedPopup = [[configManager getValueFromKey:@"show_script_finished_popup"] boolValue];
+    }
+
     BOOL darkMode = [self darkModeEnabled];
 
     // [@{"type": ?, @"title": ?, @"content": ?, ... more depends on the cell type}]
@@ -211,6 +217,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Example Scripts", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Script Registry", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
         ],
@@ -218,7 +225,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 0.08", @"secondary_title": @"iOS 16 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 0.1.7", @"secondary_title": @"iOS 15-17 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
      
@@ -249,6 +256,12 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     BOOL switchAppBeforeRunScript = YES;
     if ([configManager getValueFromKey:@"switch_app_before_run_script"])
         switchAppBeforeRunScript = [[configManager getValueFromKey:@"switch_app_before_run_script"] boolValue];
+    BOOL showFinishedPopup = YES;
+    if ([configManager getValueFromKey:@"show_script_finished_popup"])
+    {
+        showFinishedPopup = [[configManager getValueFromKey:@"show_script_finished_popup"] boolValue];
+    }
+
     BOOL darkMode = [self darkModeEnabled];
 
     sections = @[NSLocalizedString(@"remoteManagement", nil), NSLocalizedString(@"control", nil), @"Automation", NSLocalizedString(@"script", nil), @"Appearance", @"About"];
@@ -265,6 +278,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Example Scripts", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
             @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Script Registry", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
         ],
@@ -272,7 +286,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
         ],
         @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 0.08", @"secondary_title": @"iOS 16 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 0.1.7", @"secondary_title": @"iOS 15-17 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
         ]
     ];
     [_tableView reloadData];
@@ -295,6 +309,14 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [socket send:@"902"];
     [socket recv:1024];
     [socket close];
+}
+
+- (void)handleScriptFinishedPopupToggle:(UISwitch*)s {
+    // Controls the "Script Finished" popup the tweak shows when a script ends.
+    // Stored in the SpringBoard config so Play.xm can read it; defaults to on so
+    // existing installs keep their current behaviour.
+    [configManager updateKey:@"show_script_finished_popup" forValue:@([s isOn])];
+    [configManager save];
 }
 
 - (void)handlePopupWindowDoubleClick:(UISwitch*)s {
