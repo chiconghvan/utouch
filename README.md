@@ -1,128 +1,93 @@
 # ZXTouch Rootless
 
-**iOS 15–16 Rootless (Dopamine / NathanLR) + Roothide port by [Epic0001](https://github.com/Epic0001/zxtouchrootless)**
+Rootless and roothide port of ZXTouch for iOS 15 to 17, maintained by [Epic0001](https://github.com/Epic0001/zxtouchrootless).
 
-A **system wide** touch event simulation library for iOS. Simulate touches, run scripts, and automate your device — system level, no app injection required.
+A system-wide touch simulation library for iOS. It simulates touches, plays back recordings, and runs automation scripts without injecting into any app process.
 
-> Forked from [IOS13-SimulateTouch](https://github.com/xuan32546/IOS13-SimulateTouch) by xuan32546. This fork adds full **iOS 15–16 rootless (Dopamine, NathanLR) and roothide (Serotonin)** support.
+Forked from [IOS13-SimulateTouch](https://github.com/xuan32546/IOS13-SimulateTouch) by xuan32546.
 
 Discord: https://discord.gg/acSXfyz
 
 ---
 
-## Current Revival Status
+## Compatibility
 
-This fork has been actively revived for modern rootless jailbreaks. Recent releases add:
+| Jailbreak | iOS | Status |
+|-----------|-----|--------|
+| Roothide / Serotonin | 15.8, 16.6.1 | Working |
+| Dopamine (rootless) | 16.4.1, 16.6.1 | Working |
+| NathanLR (rootless, semi-untethered) | 16.5.1 to 16.6.1 | Working, install `_rootless.deb` |
+| Dopamine 3 (rootless) | 17.0 to 17.7 | Working, tested on 17.6 |
+| Dopamine 3 (rootless) | 18.x | Untested |
 
-- Modernized Scripts, Settings, and floating panel UI
-- Separate visual treatment for Python scripts, raw scripts, folders, readmes, and normal files
-- Bundled example scripts installed under `/var/mobile/Library/ZXTouch/scripts/examples/`
-- Script registry installed at `/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist`
-- Automatic `README.md` preview inside script folders
-- Native `prompt_input(...)` support for Python scripts
-- Built-in Activator-style automation triggers
-- Easier script selection for trigger actions, without manually pasting `.bdl` paths
-- Hardened Python runtime setup for fresh installs, including better fallback paths and visible script error diagnostics
-- Floating panel script settings now persist correctly, and turning them off runs scripts once without leaking old repeat values
-- Built-in recording editor for raw recordings, with timeline editing and action insertion
-- Token-protected remote dashboard for scripts, recording, logs, assets, and live device status
-- Persistent dashboard hosting through SpringBoard, so closing the ZXTouch app does not stop the server
-- Package installs now finish before respringing, preventing interrupted dpkg transactions in Sileo
-- Touch Indicator now follows each app's exact supported orientation mask, including landscape-only apps
-- Stopping a Python script now terminates its complete process group without leaving a runaway shell or logger
+iOS 17 is tested on an iPad 7th generation running 17.6 with Dopamine 3 and ElleKit.
 
-The built-in automation system currently supports assigning actions to Volume Up, Volume Down, and Home button click patterns. Each trigger can use 1-5 clicks and can run one of these actions:
-
-- Smart Toggle
-- Toggle Panel
-- Stop Script
-- Toggle Recording
-- Run Script
+iOS 18 has not been tested. The same rootless build should install, since Dopamine 3 uses the same bootstrap layout, but nothing on 18 has been verified. Reports are welcome in Discord or the issue tracker.
 
 ---
 
-## Tested Compatibility
+## What this fork changes
 
-| Jailbreak | iOS Version | Status |
-|-----------|-------------|--------|
-| Dopamine (rootless) | 16.4.1, 16.6.1 | ✅ Working |
-| NathanLR (rootless, semi-untethered) | 16.5.1 – 16.6.1 | ✅ Working (install `_rootless.deb`) |
-| Roothide / Serotonin | 15.8, 16.6.1 | ✅ Working |
+Compared to the original ZXTouch:
 
----
-
-## What's New in This Fork
-
-- **iOS 15–16 rootless (Dopamine)** — installs under `/var/jb/`, compatible with ElleKit
-- **Roothide / Serotonin support** — native `iphoneos-arm64e` build with proper dynamic path resolution
-- **image_match now working** — reimplemented using `Accelerate.framework` (no OpenCV required, zero added size)
-- **iOS Shortcuts integration** — all ZXTouch actions available as Shortcuts actions
-- **Rebuilt panel UI** — floating script panel with ⚙️ settings popup (repeat / speed / interval), dark mode, orientation-aware layout
-- **Dark mode** — toggle in the app for both the app UI and the panel
-- **Touch indicator coordinates toggle** — show or hide (x, y) labels per finger
-- **Python scripts fully working** - auto-detects Procursus Python 3.8–3.12, prefers versioned interpreters over the generic `python3` symlink (routes around broken installs), copies the `zxtouch` module to every installed Python's site-packages, and reports real tracebacks in logs
-- **Color picker & color searcher re-enabled** — reimplemented in pure CoreGraphics
-- **OCR** working via Vision framework
-- **Volume-down stop** working for Python scripts
-- **Accurate script finished popup** — shows correct play count and script name
-- **Refreshed script browser and settings UI** — modern icons, cleaner grouping, README previews, and separate handling for Python/raw scripts
-- **Built-in automation triggers** — assign button click patterns to panel, recording, stop, or run-script actions
-- **Native script prompts** — Python scripts can request user input with `prompt_input(...)`
-- **Panel playback settings fixed** - the panel remembers whether settings mode is enabled and disabling it clears repeat/speed leakage for direct play
-- **Recording editor** - tap a raw recording bundle to edit, reorder, duplicate, delete, save, and test its actions
-- **Persistent remote dashboard** - control ZXTouch from another device on the same Wi-Fi, even while the app is closed
-- **Modern dashboard workspaces** - focused Scripts, Assets, Logs, and Device views with responsive phone and desktop layouts
-- **Orientation-aware Touch Indicator** - stays within the foreground app's supported portrait or landscape orientations and maps both landscape directions correctly
-- **Reliable script stopping** - tracks each Python run as a process group and stops its interpreter, shell, logger, and child processes together
+- Runs on iOS 15 to 17 under rootless (Dopamine, Dopamine 3, NathanLR) and roothide (Serotonin)
+- `image_match` rebuilt on `Accelerate.framework`, so OpenCV is gone and the package stays small
+- Color picker, color searcher, OCR, and volume-down stop all work again
+- Python scripts auto-detect Procursus Python 3.8 to 3.12, prefer versioned interpreters over the `python3` symlink, and report real tracebacks
+- Adds a rebuilt panel and script browser, dark mode, a recording editor, a remote dashboard, iOS Shortcuts actions, and button-pattern automation triggers
+- The "Script Finished" popup can be turned off in Settings, then Script
 
 ---
 
 ## Requirements
 
-### Dopamine (rootless)
-- iOS 15.0 – 16.6.1
-- [Dopamine](https://ellekit.space/dopamine/) jailbreak
-- **Python 3 (Procursus) is required** for `.py` scripts. Install via Sileo → search `python3`. ZXTouch no longer ships a bundled runtime — the old bundled `python3.7` aborted at dyld load on rootless because its libpython dylib pointed at a `/usr/lib` path that doesn't exist there.
+Python 3 from Procursus is required for `.py` scripts on every jailbreak. Install it from Sileo by searching for `python3`. ZXTouch no longer ships its own runtime: the bundled `python3.7` aborted at dyld load on rootless because its libpython dylib pointed at a `/usr/lib` path that does not exist there.
 
-### NathanLR (rootless, iOS 16.5.1 – 16.6.1)
-- Semi-untethered — reopen the [NathanLR](https://www.nathanlr.com/) app after each reboot to reactivate tweaks
-- Install the `_rootless.deb` (NathanLR uses the rootless bootstrap under `/var/jb`, not roothide)
-- **Python 3 (Procursus) is required** — same as Dopamine
+Dopamine and Dopamine 3 (rootless):
 
-### Roothide / Serotonin
-- iOS 15.0 – 16.6.1
-- [Serotonin](https://github.com/roothide/Serotonin) or roothide-compatible jailbreak
-- **Python 3 (Procursus) is required** for `.py` scripts. Install via Sileo → search `python3`.
+- iOS 15.0 to 17.7
+- [Dopamine](https://ellekit.space/dopamine/), with Dopamine 3 for iOS 17
+
+NathanLR (rootless, iOS 16.5.1 to 16.6.1):
+
+- Semi-untethered, so reopen the [NathanLR](https://www.nathanlr.com/) app after each reboot to reactivate tweaks
+- Install the `_rootless.deb`, because NathanLR uses the rootless bootstrap under `/var/jb` rather than roothide
+
+Roothide and Serotonin:
+
+- iOS 15.0 to 16.6.1
+- [Serotonin](https://github.com/roothide/Serotonin) or another roothide-compatible jailbreak
 
 ---
 
 ## Installation
 
-### Through GitHub Releases:
-1. Download the latest `.deb` from [Releases](https://github.com/Epic0001/zxtouchrootless/releases)
-   - `*_rootless.deb` → Dopamine
-   - `*_roothide.deb` → Roothide / Serotonin
-2. Install via Filza or SSH:
+From GitHub releases:
+
+1. Download the latest `.deb` from [Releases](https://github.com/Epic0001/zxtouchrootless/releases). Use `*_rootless.deb` for Dopamine and NathanLR, or `*_roothide.deb` for Roothide and Serotonin.
+2. Install it with Filza, or over SSH:
+
 ```sh
 dpkg -i <file>.deb && killall -9 SpringBoard
 ```
 
-### Through GitHub Actions (latest build):
-1. Go to [Actions](https://github.com/Epic0001/zxtouchrootless/actions)
-2. Open the latest successful run
+From GitHub Actions, for the latest build:
+
+1. Open [Actions](https://github.com/Epic0001/zxtouchrootless/actions)
+2. Open the most recent successful run
 3. Download the `ZXTouch-rootless-deb` or `ZXTouch-roothide-deb` artifact
 
 ---
 
-## Demo Videos (original)
+## Demo videos (original)
 
-**Remote Controlling:**
+Remote controlling:
 [![Watch the video](img/remote_control_demo.jpg)](https://youtu.be/gdSGO6rJIL4)
 
-**Instant Controlling (PUBG Mobile):**
+Instant controlling (PUBG Mobile):
 [![Watch the video](img/pubg_mobile_demo.jpg)](https://youtu.be/XvvWHL6B3Tk)
 
-**Recording & Playback:**
+Recording and playback:
 [![Watch the video](img/record_playback.jpg)](https://youtu.be/WeYMx4z8N2M)
 
 Demo #4: [OCR](https://youtu.be/xt4BvgsSGkc)
@@ -133,71 +98,27 @@ Demo #6: [Color Picker](https://youtu.be/tserB05_B9E)
 
 ---
 
-## Features
-
-1. **Touch Simulation**
-   - Multitouch supported
-   - Programmable — scripts can be written in Python or any language with socket support
-   - System-level simulation (does not inject into any app process)
-   - Touch recording and playback
-2. **GUI Application**
-3. **iOS Shortcuts Integration** — all actions available as Shortcuts actions
-4. **Recording Editor**
-   - Edit raw recording actions directly from the script list
-   - Reorder, duplicate, delete, and adjust timeline steps
-   - Insert taps, swipes, waits, toast messages, and app launches
-   - Save and test the edited recording without leaving the editor
-5. **Remote Dashboard**
-   - Run, stop, filter, and download scripts from a browser
-   - Start, stop, and save touch recordings remotely
-   - Upload image-matching assets into script bundles with path and size safeguards
-   - View, filter, copy, export, and clear live logs
-   - Inspect service state, display size, orientation, battery, foreground app, and diagnostics
-   - Token-protected access on the local network; the server remains available after the app closes
-6. **Others**
-   - Bring application to foreground
-   - System-wide alert box
-   - Shell command execution
-   - Color picker — get pixel RGB from screen
-   - Color searcher — find a color in a screen region
-   - Image matching — find a template image on screen (Accelerate.framework, no OpenCV)
-   - Device info and battery info
-   - Toast notifications
-   - OCR (text recognition)
-   - Touch indicator with optional coordinate display
-   - Accurate sleep
-
----
-
 ## Usage
 
-After installation the tweak listens on **port 6000**. Send commands in the defined format from any language. The Python client is provided for convenience.
+After installation the tweak listens on port 6000. Send commands in the defined format from any language. A Python client is included for convenience.
 
-### Panel (Volume Button)
-Double-click **volume down** to open/close the panel.
+### Panel (volume button)
+
+Double-click volume down to open or close the panel.
+
 - Tap a script to run it immediately
-- Enable **⚙️** first to set repeat count, speed, and interval before running
-- **⏺ REC** — start recording touches
-- **⏹ STOP** — stop a running script
-- Settings → **Dark Mode** to toggle dark theme on app and panel
+- Open the settings popup first to set repeat count, speed, and interval before running
+- REC starts a touch recording
+- STOP ends whichever is running, a recording or a script
+- Settings, then Dark Mode, toggles the dark theme for both the app and the panel
 
-### Scripts and Examples
+### Scripts and examples
 
-Example scripts are installed automatically with the `.deb` under:
+Example scripts install with the `.deb` under `/var/mobile/Library/ZXTouch/scripts/examples/`.
 
-```text
-/var/mobile/Library/ZXTouch/scripts/examples/
-```
+The app keeps a script registry at `/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist`, which it uses for script metadata, icons, README previews, and trigger script selection.
 
-The app keeps a script registry at:
-
-```text
-/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist
-```
-
-The registry helps the app display script metadata, icons, README previews, and script selections for automation actions.
-
-### Recording Editor
+### Recording editor
 
 Tap a `.bdl` bundle whose entry file is a raw recording to open its timeline editor. From there you can:
 
@@ -207,28 +128,17 @@ Tap a `.bdl` bundle whose entry file is a raw recording to open its timeline edi
 - Insert a tap, swipe, wait, toast, or app launch
 - Save the recording and play the edited result immediately
 
-### Remote Dashboard
+### Remote dashboard
 
-Enable **Settings -> Web Server** and tap the dashboard URL row to copy the private address. Open that address from a phone, tablet, or computer on the same Wi-Fi network.
+Enable Settings, then Web Server, and tap the dashboard URL row to copy the private address. Open that address from a phone, tablet, or computer on the same Wi-Fi network.
 
-The dashboard includes four focused workspaces:
-
-- **Scripts:** search and filter the library, run or stop scripts, download entries, and control recording
-- **Assets:** upload files such as image-matching templates directly into a selected script bundle
-- **Logs:** follow, filter, copy, export, or clear runtime output
-- **Device:** inspect live service, display, orientation, battery, foreground app, and server diagnostics
+Scripts searches and filters the library, runs or stops scripts, downloads entries, and controls recording. Assets uploads files such as image-matching templates into a selected script bundle. Logs follows, filters, copies, exports, or clears runtime output. Device shows live service state, display size, orientation, battery, foreground app, and server diagnostics.
 
 The URL contains a private access token. Do not share it outside your local network. Dashboard hosting runs inside SpringBoard, so it remains available when the ZXTouch app is closed.
 
-### Automation Triggers
+### Automation triggers
 
-Open **Settings → Automation** in the app to assign actions to button click patterns. Current trigger sources are:
-
-- Volume Up
-- Volume Down
-- Home Button
-
-Each trigger can be set to 1-5 clicks and can run Smart Toggle, Toggle Panel, Stop Script, Toggle Recording, or a selected `.bdl` script.
+Open Settings, then Automation, in the app to assign actions to button click patterns. Volume Up, Volume Down, and the Home Button can each be set to 1-5 clicks and run Smart Toggle, Toggle Panel, Stop Script, Toggle Recording, or a selected `.bdl` script.
 
 ---
 
@@ -236,11 +146,11 @@ Each trigger can be set to 1-5 clicks and can run Smart Toggle, Toggle Panel, St
 
 ### Installation
 
-**On your iOS device:** The ZXTouch Python module is installed automatically with the `.deb`.
+On an iOS device, the ZXTouch Python module installs with the `.deb`.
 
-**On a computer (remote control):** Copy the `zxtouch` folder from [`layout/usr/lib/python3.7/site-packages`](https://github.com/xuan32546/IOS13-SimulateTouch/tree/0.0.6/layout/usr/lib/python3.7/site-packages) to your Python `site-packages` directory.
+On a computer, for remote control, copy the `zxtouch` folder from [`layout/usr/lib/python3.7/site-packages`](https://github.com/xuan32546/IOS13-SimulateTouch/tree/0.0.6/layout/usr/lib/python3.7/site-packages) to your Python `site-packages` directory.
 
-### Create a ZXTouch Instance
+### Create a ZXTouch instance
 
 ```python
 from zxtouch.client import zxtouch
@@ -249,28 +159,28 @@ device = zxtouch("127.0.0.1")  # use device IP for remote control
 
 ---
 
-## Instance Methods
+## Instance methods
 
-### API Status on iOS 15–16
+### API status
 
 | Method | Status |
 |--------|--------|
-| `touch` / `touch_with_list` | ✅ Working |
-| `switch_to_app` | ✅ Working |
-| `show_alert_box` | ✅ Working |
-| `prompt_input` | ✅ Working |
-| `run_shell_command` | ✅ Working |
-| `show_toast` | ✅ Working |
-| `pick_color` | ✅ Working |
-| `search_color` | ✅ Working |
-| `accurate_usleep` | ✅ Working |
-| `play_script` / `force_stop_script_play` | ✅ Working |
-| `get_screen_size` / `get_screen_orientation` / `get_screen_scale` | ✅ Working |
-| `get_device_info` / `get_battery_info` | ✅ Working |
-| `start_touch_recording` / `stop_touch_recording` | ✅ Working |
-| `ocr` / `get_supported_ocr_languages` | ✅ Working |
-| `image_match` | ✅ Working (Accelerate.framework, no OpenCV) |
-| `insert_text` / `show_keyboard` / `hide_keyboard` / `move_cursor` | ✅ Working (via appdelegate tweak) |
+| `touch` / `touch_with_list` | Working |
+| `switch_to_app` | Working |
+| `show_alert_box` | Working |
+| `prompt_input` | Working |
+| `run_shell_command` | Working |
+| `show_toast` | Working |
+| `pick_color` | Working |
+| `search_color` | Working |
+| `accurate_usleep` | Working |
+| `play_script` / `force_stop_script_play` | Working |
+| `get_screen_size` / `get_screen_orientation` / `get_screen_scale` | Working |
+| `get_device_info` / `get_battery_info` | Working |
+| `start_touch_recording` / `stop_touch_recording` | Working |
+| `ocr` / `get_supported_ocr_languages` | Working |
+| `image_match` | Working (Accelerate.framework, no OpenCV) |
+| `insert_text` / `show_keyboard` / `hide_keyboard` / `move_cursor` | Working (via appdelegate tweak) |
 
 ---
 
@@ -299,7 +209,7 @@ def touch_with_list(self, touch_list: list):
     """
 ```
 
-**Code Example**
+Code example:
 
 ```python
 from zxtouch.client import zxtouch
@@ -331,7 +241,7 @@ device.disconnect()
 
 ---
 
-## Bring Application to Foreground
+## Bring application to foreground
 
 ```python
 def switch_to_app(bundle_identifier):
@@ -347,7 +257,7 @@ def switch_to_app(bundle_identifier):
 
 ---
 
-## Show Alert Box
+## Show alert box
 
 ```python
 def show_alert_box(title, content, duration):
@@ -365,7 +275,7 @@ def show_alert_box(title, content, duration):
 
 ---
 
-## Prompt For User Input
+## Prompt for user input
 
 ```python
 def prompt_input(title, message="", placeholder="", default_value="", secure=False):
@@ -384,7 +294,7 @@ def prompt_input(title, message="", placeholder="", default_value="", secure=Fal
     """
 ```
 
-**Code Example**
+Code example:
 
 ```python
 from zxtouch.client import zxtouch
@@ -402,7 +312,7 @@ if success:
 
 ---
 
-## Run Shell Command As Root
+## Run shell command as root
 
 ```python
 def run_shell_command(command):
@@ -418,7 +328,7 @@ def run_shell_command(command):
 
 ---
 
-## Image Matching
+## Image matching
 
 ```python
 def image_match(template_path, acceptable_value=0.8, max_try_times=2, scaleRation=0.8):
@@ -436,7 +346,7 @@ def image_match(template_path, acceptable_value=0.8, max_try_times=2, scaleRatio
     """
 ```
 
-> Implemented using `Accelerate.framework` — no OpenCV required.
+Implemented with `Accelerate.framework`, so OpenCV is not required.
 
 ---
 
@@ -459,7 +369,7 @@ def show_toast(toast_type, content, duration, position=0, fontSize=0):
 
 ---
 
-## Color Picker
+## Color picker
 
 ```python
 def pick_color(x, y):
@@ -476,7 +386,7 @@ def pick_color(x, y):
 
 ---
 
-## Color Searcher
+## Color searcher
 
 ```python
 def search_color(region, red_min, red_max, green_min, green_max, blue_min, blue_max, pixel_to_skip=0):
@@ -496,7 +406,7 @@ def search_color(region, red_min, red_max, green_min, green_max, blue_min, blue_
 
 ---
 
-## Accurate Sleep
+## Accurate sleep
 
 ```python
 def accurate_usleep(microseconds):
@@ -512,7 +422,7 @@ def accurate_usleep(microseconds):
 
 ---
 
-## Play A Script
+## Play a script
 
 ```python
 def play_script(script_absolute_path):
@@ -528,7 +438,7 @@ def play_script(script_absolute_path):
 
 ---
 
-## Force Stop Script Playing
+## Force stop script playing
 
 ```python
 def force_stop_script_play():
@@ -541,7 +451,7 @@ def force_stop_script_play():
 
 ---
 
-## Hide Keyboard
+## Hide keyboard
 
 If the keyboard is showing, hide it.
 
@@ -556,7 +466,7 @@ def hide_keyboard():
 
 ---
 
-## Show Keyboard
+## Show keyboard
 
 If the keyboard is hidden, show it.
 
@@ -571,7 +481,7 @@ def show_keyboard():
 
 ---
 
-## Text Input
+## Text input
 
 Insert text into the current text field. Use `"\b"` to delete a character.
 
@@ -589,7 +499,7 @@ def insert_text(text):
 
 ---
 
-## Move Cursor
+## Move cursor
 
 ```python
 def move_cursor(offset):
@@ -606,7 +516,7 @@ def move_cursor(offset):
 
 ---
 
-## Get Screen Size
+## Get screen size
 
 ```python
 def get_screen_size():
@@ -619,7 +529,7 @@ def get_screen_size():
 
 ---
 
-## Get Screen Orientation
+## Get screen orientation
 
 ```python
 def get_screen_orientation():
@@ -633,7 +543,7 @@ def get_screen_orientation():
 
 ---
 
-## Get Screen Scale
+## Get screen scale
 
 ```python
 def get_screen_scale():
@@ -646,7 +556,7 @@ def get_screen_scale():
 
 ---
 
-## Get Device Information
+## Get device information
 
 ```python
 def get_device_info():
@@ -660,7 +570,7 @@ def get_device_info():
 
 ---
 
-## Get Battery Information
+## Get battery information
 
 ```python
 def get_battery_info():
@@ -674,7 +584,7 @@ def get_battery_info():
 
 ---
 
-## Start Touch Recording
+## Start touch recording
 
 ```python
 def start_touch_recording():
@@ -688,7 +598,7 @@ def start_touch_recording():
 
 ---
 
-## Stop Touch Recording
+## Stop touch recording
 
 ```python
 def stop_touch_recording():
@@ -736,9 +646,9 @@ def get_supported_ocr_languages(self, recognition_level):
 
 ---
 
-## Building From Source
+## Building from source
 
-Every push to `main` triggers a GitHub Actions build — Xcode compiles the app on a macOS runner, Theos builds the tweak, and both `.deb` files are uploaded as artifacts. **No Mac required.**
+Every push to `main` triggers a GitHub Actions build. Xcode compiles the app on a macOS runner, Theos builds the tweak, and both `.deb` files are uploaded as artifacts, so you do not need a Mac.
 
 See [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
@@ -748,5 +658,5 @@ See [`.github/workflows/build.yml`](.github/workflows/build.yml).
 
 | | |
 |--|--|
-| **iOS 15–16 rootless + roothide port** | [Epic0001](https://github.com/Epic0001) |
-| **Original ZXTouch** | [xuan32546](https://github.com/xuan32546) |
+| iOS 15 to 17 rootless and roothide port | [Epic0001](https://github.com/Epic0001) |
+| Original ZXTouch | [xuan32546](https://github.com/xuan32546) |
