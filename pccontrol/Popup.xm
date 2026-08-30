@@ -149,7 +149,7 @@ static void styleIconButton(UIButton *button, NSString *symbolName, UIColor *col
         [stopBtn setImage:panelSymbol(@"stop.fill") forState:UIControlStateNormal];
         stopBtn.tintColor = [UIColor secondaryLabelColor];
         [stopBtn addAction:[UIAction actionWithTitle:@"" image:nil identifier:nil handler:^(__kindof UIAction *a) {
-            [self stopPlaying];
+            [self stopAction];
         }] forControlEvents:UIControlEventTouchUpInside];
         [cv addSubview:stopBtn];
 
@@ -382,6 +382,24 @@ void applyPanelDarkMode(BOOL dark) {
         stopScriptPlaying(&err);
         // Don't show alert here — volume button handler shows it
     });
+}
+
+- (void) stopAction {
+    // The Stop button is the only stop affordance in the panel, so it has to
+    // mirror the hotkey handler and end a recording as well as a script.
+    // It previously called -stopPlaying, which returns silently unless a script
+    // is playing, so pressing Stop while recording did nothing at all and the
+    // recording could only be ended with the hotkey.
+    if (isRecordingStart())
+    {
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_HIGH, 0), ^{
+            stopRecording();
+            showAlertBox(@"ZXTouch", @"Recording stopped and saved.", 1);
+        });
+        return;
+    }
+
+    [self stopPlaying];
 }
 
 - (void) setDarkMode:(BOOL)dark {
