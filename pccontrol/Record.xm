@@ -33,7 +33,7 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
     device_screen_width = [Screen getScreenWidth];
     device_screen_height = [Screen getScreenHeight];
 
-    if (device_screen_width == 0 || device_screen_width == 0)
+    if (device_screen_width == 0 || device_screen_height == 0)
     {
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to start recording. Cannot get screen size.\r\n"}];
         showAlertBox(@"Error", @"Unable to start recording. Cannot get screen size.", 999);
@@ -102,18 +102,34 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
 
         // show indicator
         dispatch_async(dispatch_get_main_queue(), ^{
-            _recordIndicator = [[UIWindow alloc] initWithFrame:CGRectMake(0,0,10*2,10*2)];
+            // Attach to a UIWindowScene. A scene-less UIWindow is tolerated on
+            // iOS 15-16 but is fatal from iOS 17 on, which sent SpringBoard into
+            // safe mode every time recording started. Every other window in the
+            // tweak (Toast, Popup, AlertBox, TouchIndicator) already does this.
+            CGRect indicatorFrame = CGRectMake(0, 0, 10*2, 10*2);
+            UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
+            if (scene) {
+                _recordIndicator = [[UIWindow alloc] initWithWindowScene:scene];
+                _recordIndicator.frame = indicatorFrame;
+            } else {
+                _recordIndicator = [[UIWindow alloc] initWithFrame:indicatorFrame];
+            }
+            // iOS 17 also asserts on a visible window with no root view controller.
+            UIViewController *indicatorRoot = [[UIViewController alloc] init];
+            indicatorRoot.view.backgroundColor = [UIColor clearColor];
+            _recordIndicator.rootViewController = indicatorRoot;
             _recordIndicator.windowLevel = UIWindowLevelStatusBar;
-            _recordIndicator.hidden = NO;
             [_recordIndicator setBackgroundColor:[UIColor clearColor]];
             [_recordIndicator setUserInteractionEnabled:NO];
 
-            UIView *circleView = [[UIView alloc] initWithFrame:CGRectMake(0,0,10*2,10*2)];
+            UIView *circleView = [[UIView alloc] initWithFrame:indicatorFrame];
 
             //circleView.alpha = 1;
             circleView.layer.cornerRadius = 10;  // half the width/height
             circleView.backgroundColor = [UIColor redColor];
             [_recordIndicator addSubview:circleView];
+
+            _recordIndicator.hidden = NO;
         });
 
         scriptRecordingFileHandle = [NSFileHandle fileHandleForWritingAtPath:rawFilePath];
@@ -130,6 +146,31 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
         
         recordRunLoop = CFRunLoopGetCurrent();
         CFRunLoopRun();
+
+        // CFRunLoopRun() only returns once stopRecording() calls CFRunLoopStop.
+        // Tear down here, on the same thread that scheduled the HID client:
+        // unscheduling from the caller's thread targeted a run loop the client
+        // was never scheduled on (so it silently did nothing) and raced the
+        // event callback still writing to the file handle. That is why the stop
+        // button appeared to do nothing while the hotkey sometimes worked.
+        if (ioHIDEventSystemForRecording)
+        {
+            IOHIDEventSystemClientUnregisterEventCallback(ioHIDEventSystemForRecording);
+            IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemForRecording, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+            CFRelease(ioHIDEventSystemForRecording);
+            ioHIDEventSystemForRecording = NULL;
+        }
+
+        if (scriptRecordingFileHandle)
+        {
+            [scriptRecordingFileHandle synchronizeFile];
+            [scriptRecordingFileHandle closeFile];
+            scriptRecordingFileHandle = nil;
+        }
+
+        recordRunLoop = NULL;
+        isRecording = false;
+        NSLog(@"com.zjx.springboard: recording stopped and torn down.");
     });
 }
 
@@ -137,6 +178,13 @@ void startRecording(CFWriteStreamRef requestClient, NSError **error)
 static void recordIOHIDEventCallback(void* target, void* refcon, IOHIDServiceRef service, IOHIDEventRef parentEvent) 
 {
     //NSLog(@"### com.zjx.springboard: handle_event : %d", IOHIDEventGetType(event));
+    if (!isRecording)
+    {
+        // stopRecording() has been called and the recording thread is tearing
+        // down. Drop any event still in flight rather than writing to a handle
+        // that is about to close.
+        return;
+    }
     if (!scriptRecordingFileHandle)
     {
         isRecording = false;
@@ -208,36 +256,30 @@ void stopRecording()
 {
     NSLog(@"com.zjx.springboard: stop recording.");
 
+    if (!isRecording)
+    {
+        // Nothing to stop. Bailing out here keeps a stray hotkey press or a
+        // duplicate stop request from touching half-initialised state.
+        NSLog(@"com.zjx.springboard: stopRecording called while not recording, ignoring.");
+        return;
+    }
+
+    // Stop the event callback from writing anything else before the recording
+    // thread gets a chance to close the file handle.
+    isRecording = false;
+
     // remove indicator
     dispatch_async(dispatch_get_main_queue(), ^{
         _recordIndicator.hidden = YES;
         _recordIndicator = nil;
     });
 
-    
-    if (ioHIDEventSystemForRecording)
-    {
-        IOHIDEventSystemClientUnregisterEventCallback(ioHIDEventSystemForRecording);
-        IOHIDEventSystemClientUnscheduleWithRunLoop(ioHIDEventSystemForRecording, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
-
-        ioHIDEventSystemForRecording = NULL;
-    }
-
-    if (scriptRecordingFileHandle)
-    {
-        [scriptRecordingFileHandle synchronizeFile];
-        [scriptRecordingFileHandle closeFile];
-
-        scriptRecordingFileHandle = nil;
-    }
+    // Ask the recording thread to return from CFRunLoopRun(). It unschedules the
+    // HID client and closes the file handle itself, on the thread that owns them.
     if (recordRunLoop)
     {
         CFRunLoopStop(recordRunLoop);
-        recordRunLoop = NULL;
     }
-
-    //set this at last
-    isRecording = false;
 }
 
 Boolean isRecordingStart()

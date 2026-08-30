@@ -233,18 +233,31 @@ static NSString *ZXPythonModulePath(void)
 
     // show indicator
     dispatch_async(dispatch_get_main_queue(), ^{
-        _playIndicator = [[UIWindow alloc] initWithFrame:CGRectMake(0,0,10*2,10*2)];
+        // Attach to a UIWindowScene — a scene-less UIWindow is fatal from iOS 17
+        // on. See the matching comment in Record.xm's startRecording.
+        CGRect indicatorFrame = CGRectMake(0, 0, 10*2, 10*2);
+        UIWindowScene *scene = (UIWindowScene *)[[UIApplication sharedApplication].connectedScenes anyObject];
+        if (scene) {
+            _playIndicator = [[UIWindow alloc] initWithWindowScene:scene];
+            _playIndicator.frame = indicatorFrame;
+        } else {
+            _playIndicator = [[UIWindow alloc] initWithFrame:indicatorFrame];
+        }
+        UIViewController *indicatorRoot = [[UIViewController alloc] init];
+        indicatorRoot.view.backgroundColor = [UIColor clearColor];
+        _playIndicator.rootViewController = indicatorRoot;
         _playIndicator.windowLevel = UIWindowLevelStatusBar;
-        _playIndicator.hidden = NO;
         [_playIndicator setBackgroundColor:[UIColor clearColor]];
         [_playIndicator setUserInteractionEnabled:NO];
 
-        circleView = [[UIView alloc] initWithFrame:CGRectMake(0,0,10*2,10*2)];
+        circleView = [[UIView alloc] initWithFrame:indicatorFrame];
 
         //circleView.alpha = 1;
         circleView.layer.cornerRadius = 10;  // half the width/height
         circleView.backgroundColor = [UIColor greenColor];
         [_playIndicator addSubview:circleView];
+
+        _playIndicator.hidden = NO;
     });
 
     NSString *entryFilePath = [scriptBundlePath stringByAppendingPathComponent:entryFileName];

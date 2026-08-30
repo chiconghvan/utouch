@@ -24,7 +24,15 @@ id getFrontMostApplication()
 {
     //TODO: might cause problem here. Both _accessibilityFrontMostApplication failed or front most application springboard will cause app be nil.
     __block id app = nil;
-    dispatch_sync(dispatch_get_main_queue(), ^{
+    // This is reached both from the socket server (background thread) and from
+    // the hotkey/panel handlers, which already run on the main queue. An
+    // unconditional dispatch_sync to the main queue makes the main queue wait
+    // on itself in the latter case, and libdispatch traps the process:
+    //   "BUG IN CLIENT OF LIBDISPATCH: dispatch_sync called on queue already
+    //    owned by current thread"
+    // which took SpringBoard into safe mode every time recording was toggled
+    // with the hotkey. Run the block inline when we are already on main.
+    void (^fetchBlock)(void) = ^{
         @try{
             SpringBoard *springboard = (SpringBoard*)[%c(SpringBoard) sharedApplication];
             app = [springboard _accessibilityFrontMostApplication];
@@ -33,6 +41,15 @@ id getFrontMostApplication()
         @catch (NSException *exception) {
             NSLog(@"com.zjx.springboard: Debug: %@", exception.reason);
         }
-        });
+        };
+
+    if ([NSThread isMainThread])
+    {
+        fetchBlock();
+    }
+    else
+    {
+        dispatch_sync(dispatch_get_main_queue(), fetchBlock);
+    }
     return app;
 }
