@@ -4,3 +4,4 @@ while read line;
 do
    echo "`date "+%m-%d-%Y %T"`: $line";
 done
+echo "`date "+%m-%d-%Y %T"`: Finish running script. Script path: $1"

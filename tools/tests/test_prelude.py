@@ -222,6 +222,41 @@ def test_find_text_filters():
     assert prelude.findText("zzz") == []
 
 
+def test_ocr_find_unpacks_like_lua():
+    # Lua idiom `local x, y, text = findText("Login")` maps to ocrFind in
+    # Python: unpackable triple, falsy when absent.
+    d = use_fake()
+    d.ocr_items = [{"text": "Files", "x": "100", "y": "200", "width": "60", "height": "20"}]
+    x, y, text = prelude.ocrFind("Files")
+    assert (x, y) == (130, 210)
+    assert text == "Files"
+    assert prelude.ocrFind("Files")  # truthy when found
+    assert prelude.ocr_find("files")  # case-insensitive + alias
+    x, y, text = prelude.ocrFind("zzz")
+    assert (x, y, text) == (None, None, None)
+    assert not prelude.ocrFind("zzz")  # falsy like Lua nil
+    assert prelude.ocrFind("zzz")[:2] == (None, None)
+
+
+def test_tap_text_index_is_one_based():
+    # docs/IDE/ioscontrol.md: index 1 = first. 0 stays accepted as first.
+    d = use_fake()
+    d.ocr_items = [
+        {"text": "Files", "x": "10", "y": "300", "width": "50", "height": "20"},
+        {"text": "Files", "x": "10", "y": "100", "width": "50", "height": "20"},
+    ]
+    m1 = prelude.tapText("Files", timeout=0.1, index=1)
+    assert m1["y"] == "100"  # topmost first
+    taps = [c for c in d.calls if c[0] == "touch"]
+    assert taps  # center of topmost box: (35, 110)
+    assert (taps[0][3], taps[0][4]) == (35, 110)
+    m2 = prelude.tapText("Files", timeout=0.1, index=2)
+    assert m2["y"] == "300"
+    m0 = prelude.tapText("Files", timeout=0.1, index=0)
+    assert m0["y"] == "100"  # legacy 0 == first
+    assert prelude.tapText("Files", timeout=0.1, index=5) is None
+
+
 def test_tap_image_taps_center():
     d = use_fake()
     m = prelude.tapImage("a.png", timeout=1)
@@ -326,3 +361,49 @@ def test_runner_injects_and_disconnects(tmp_path):
     assert rc == 0
     assert any(c[0] == "touch" for c in d.calls)
     assert ("disconnect",) in d.calls or prelude._DEVICE is None
+
+
+def test_touch_with_list_accepts_floats():
+    # pinch()/rotate() build float coords; '{:05d}'.format(float) raises.
+    from zxtouch import client as client_mod
+
+    sent = []
+
+    class FakeSock:
+        def send(self, data):
+            sent.append(data)
+
+        def recv(self, n):
+            return b"0\r\n"
+
+    dev = client_mod.zxtouch.__new__(client_mod.zxtouch)
+    dev.s = FakeSock()
+    dev.touch_with_list([
+        {"type": 1, "finger_index": 1, "x": 150.5, "y": 400.25},
+        {"type": 1, "finger_index": 2, "x": 250.75, "y": 400.0},
+    ])
+    assert sent  # must not raise ValueError
+
+
+def test_find_colors_multi_float_screen_size():
+    # get_screen_size replies like '1242.000000'; int() on that crashes.
+    from zxtouch import client as client_mod
+
+    sent = []
+
+    class FakeSock:
+        def send(self, data):
+            sent.append(data)
+
+        def recv(self, n):
+            if not hasattr(self, "n"):
+                self.n = 0
+            self.n += 1
+            if self.n == 1:
+                return b"0;;1242.000000;;2208.000000\r\n"
+            return b"0;;10,20\r\n"
+
+    dev = client_mod.zxtouch.__new__(client_mod.zxtouch)
+    dev.s = FakeSock()
+    ok, pts = dev.find_colors_multi("FF0000")
+    assert ok and pts == [(10, 20)]  # must not raise ValueError

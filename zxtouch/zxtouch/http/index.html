@@ -350,7 +350,7 @@
       <div class="view-heading"><div><h2>Device</h2><p>Live device and service status.</p></div></div>
       <div class="device-layout">
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Current Status</h3></div></div><div class="data-grid"><div class="data-row"><div class="data-label">Service</div><div class="data-value" id="service">Checking</div></div><div class="data-row"><div class="data-label">Activity</div><div class="data-value" id="deviceActivity">Idle</div></div><div class="data-row"><div class="data-label">Display</div><div class="data-value" id="screen">-</div></div><div class="data-row"><div class="data-label">Orientation</div><div class="data-value" id="orientation">-</div></div><div class="data-row"><div class="data-label">Battery</div><div class="data-value" id="battery">-</div></div><div class="data-row"><div class="data-label">Foreground app</div><div class="data-value" id="foreground">-</div></div></div></section>
-        <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Diagnostics</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">Socket</span><span class="diagnostic-value" id="socketState">Checking</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP port</span><span class="diagnostic-value" id="port">8080</span></div><div class="diagnostic"><span class="diagnostic-label">Scripts indexed</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">Access</span><span class="diagnostic-value">Private token</span></div><div class="diagnostic"><span class="diagnostic-label">Last error</span><span class="diagnostic-value" id="lastError">None</span></div></div></section>
+        <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Diagnostics</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">Socket</span><span class="diagnostic-value" id="socketState">Checking</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP port</span><span class="diagnostic-value" id="port">8080</span></div><div class="diagnostic"><span class="diagnostic-label">Scripts indexed</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">Access</span><span class="diagnostic-value">Open · LAN only</span></div><div class="diagnostic"><span class="diagnostic-label">Last error</span><span class="diagnostic-value" id="lastError">None</span></div></div></section>
       </div>
     </section>
 
@@ -382,15 +382,13 @@
   <div class="modal-backdrop" id="confirmModal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage"><div class="modal-body"><h3 id="confirmTitle">Confirm action</h3><p id="confirmMessage"></p></div><div class="modal-actions"><button class="button ghost" id="confirmCancel">Cancel</button><button class="button primary" id="confirmAccept">Continue</button></div></div></div>
 
   <script>
-    const token = new URLSearchParams(location.search).get('token') || '';
-    const query = path => `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
     const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, vnc: { rfb: null, connected: false, connecting: false, model: '', homeType: 'gesture' } };
     const orientationNames = { '1': 'Portrait', '2': 'Portrait upside down', '3': 'Landscape right', '4': 'Landscape left' };
 
     function escapeHTML(value) { const span = document.createElement('span'); span.textContent = String(value || ''); return span.innerHTML; }
     function showToast(message, error = false) { elements.toast.textContent = message; elements.toast.className = `toast${error ? ' error' : ''}`; elements.toast.hidden = false; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => { elements.toast.hidden = true; }, 4200); }
-    async function api(path, options = {}) { const response = await fetch(query(path), options); let payload; try { payload = await response.json(); } catch (_) { throw new Error(`Dashboard returned HTTP ${response.status}.`); } if (!response.ok || !payload.ok) throw new Error(payload.error || payload.result || 'Request failed.'); return payload; }
+    async function api(path, options = {}) { const response = await fetch(path, options); let payload; try { payload = await response.json(); } catch (_) { throw new Error(`Dashboard returned HTTP ${response.status}.`); } if (!response.ok || !payload.ok) throw new Error(payload.error || payload.result || 'Request failed.'); return payload; }
 
     function ask(title, message, actionLabel = 'Continue', danger = false) { if (state.confirming) state.confirming(false); elements.confirmTitle.textContent = title; elements.confirmMessage.textContent = message; elements.confirmAccept.textContent = actionLabel; elements.confirmAccept.className = `button ${danger ? 'danger' : 'primary'}`; elements.confirmModal.hidden = false; return new Promise(resolve => { state.confirming = resolve; }); }
     function closeConfirmation(result) { elements.confirmModal.hidden = true; const resolve = state.confirming; state.confirming = null; if (resolve) resolve(result); }
@@ -413,7 +411,7 @@
       if (!visible.length) { elements.scripts.innerHTML = '<div class="empty-state">No scripts match this view.</div>'; return; }
       elements.scripts.innerHTML = visible.map(script => { const type = scriptType(script); const encodedPath = encodeURIComponent(script.path); const encodedName = encodeURIComponent(script.name); return `<article class="script-row"><div class="script-type ${type === 'raw' ? 'raw' : ''}">${type === 'raw' ? 'RAW' : 'PY'}</div><div class="script-copy"><div class="script-name">${escapeHTML(script.name)}</div><div class="script-path">${escapeHTML(script.entry || script.path)}</div></div><div class="script-actions"><button class="button primary run-script" data-path="${encodedPath}" data-name="${encodedName}"><span class="button-symbol">&#9654;</span>Run</button><button class="icon-button download-script" data-path="${encodedPath}" title="Download script" aria-label="Download ${escapeHTML(script.name)}">&#8595;</button></div></article>`; }).join('');
       elements.scripts.querySelectorAll('.run-script').forEach(button => button.addEventListener('click', () => confirmRun(button)));
-      elements.scripts.querySelectorAll('.download-script').forEach(button => button.addEventListener('click', () => { location.href = query(`/api/download?path=${encodeURIComponent(decodeURIComponent(button.dataset.path))}`); }));
+      elements.scripts.querySelectorAll('.download-script').forEach(button => button.addEventListener('click', () => { location.href = `/api/download?path=${encodeURIComponent(decodeURIComponent(button.dataset.path))}`; }));
       if (state.status) renderStatus(state.status);
     }
 
@@ -488,7 +486,8 @@
         ['tapImage', 'tapImage("btn.png", 10)'],
         ['screenshot', 'screenshot("shot1")'],
         ['ocrText', 'ocrText(50, 200, 600, 100)'],
-        ['findText', 'findText("Login")'],
+        ['findText', 'local x, y, text = findText("Login")', 'matches = findText("Login")'],
+        ['ocrFind', 'local x, y, text = ocrFind("Login")', 'x, y, text = ocrFind("Login")'],
         ['waitForText', 'waitForText("Login", 10)'],
         ['tapText', 'tapText("Login", 10)'],
         ['swipeUntilText', 'swipeUntilText("More", "up", 5)'],
@@ -597,7 +596,14 @@
         else if ((m = line.match(/^function\s+(\w+)\s*(\(.*\))\s*$/))) { out.push(indent() + `def ${m[1]}${m[2]}:`); level++; }
         else if (/^do\s*$/.test(line)) { level++; continue; }
         else {
-          line = line.replace(/^local\s+(\w+)\s*=\s*/, '$1 = ').replace(/^local\s+(\w+)\s*$/, '$1 = None');
+          // Strip `local` (single + multi-target): `local x = 1` -> `x = 1`,
+          // `local x, y = f()` -> `x, y = f()`, `local x, y` -> `x = None; y = None`.
+          line = line.replace(/^local\s+([\w][\w\s,]*?)\s*=\s*/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).join(', ') + ' = ')
+            .replace(/^local\s+([\w][\w\s,]*?)\s*$/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).map(v => `${v} = None`).join('; '));
+          // Lua findText returns x, y, text (nil when absent); Python findText
+          // returns a match list. ocrFind() emulates the Lua shape: unpackable
+          // triple, falsy when absent.
+          line = line.replace(/\bfindText\s*\(/g, 'ocrFind(');
           line = line.replace(/~=/g, '!=');
           line = line.replace(/\.\.\./g, '\u0002').replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...');
           line = line.replace(/#([A-Za-z_][\w.]*)/g, 'len($1)');
@@ -926,7 +932,7 @@
       // NOTE: cross-origin module import from the VNC ports is impossible
       // (no CORS headers there), so there is intentionally no remote fallback.
       // The WebSocket stream itself (ws://<ip>:5901/websockify) is not CORS-gated.
-      const mod = await import(/* @vite-ignore */query('./novnc/core/rfb.js'));
+      const mod = await import(/* @vite-ignore */'./novnc/core/rfb.js');
       window.RFB = mod.default || mod.RFB || window.RFB;
       if (!window.RFB) throw new Error('novnc/core/rfb.js loaded but exports no RFB class.');
       return window.RFB;

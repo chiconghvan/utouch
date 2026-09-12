@@ -37,9 +37,9 @@ class zxtouch:
         """
         event_data = ''
         for touch_event in touch_list:
-            event_data += '{}{:02d}{:05d}{:05d}'.format(touch_event['type'], touch_event['finger_index'],
-                                                        touch_event['x'] * 10,
-                                                        touch_event['y'] * 10)
+            event_data += '{}{:02d}{:05d}{:05d}'.format(int(touch_event['type']), int(touch_event['finger_index']),
+                                                        int(float(touch_event['x']) * 10),
+                                                        int(float(touch_event['y']) * 10))
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PERFORM_TOUCH, str(len(touch_list)) + event_data))
 
     def switch_to_app(self, bundle_identifier):
@@ -518,7 +518,11 @@ class zxtouch:
                 hexs = hexs[2:]
         if region is None:
             ok, size = self.get_screen_size()
-            region = (0, 0, int(size["width"]), int(size["height"])) if ok else (0, 0, 750, 1334)
+            if ok:
+                # Daemon formats numbers as float strings ('1242.000000').
+                region = (0, 0, int(float(size["width"])), int(float(size["height"])))
+            else:
+                region = (0, 0, 750, 1334)
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_COLOR_MULTI, hexs, tolerance, count,
                                                     ",".join(map(str, region)), skip))
         result = datahandler.decode_socket_data(self.s.recv(4096))

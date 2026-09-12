@@ -361,7 +361,13 @@ def ocrText(x, y, w, h):
 
 
 def findText(text, region=None, case_sensitive=False):
-    """OCR full screen (or region) -> list of matches containing ``text``."""
+    """OCR full screen (or region) -> list of matches containing ``text``.
+
+    Each match is a dict ``{text, x, y, width, height}`` in device pixels
+    (same unit as :func:`tap`). Matches are NOT sorted; use :func:`ocrFind`
+    for the Lua-style ``x, y, text`` single result, or :func:`tapText` to
+    tap the Nth match (top-bottom, left-right).
+    """
     if region is None:
         region = _default_region()
     ok, items = get_device().ocr(region)
@@ -374,6 +380,53 @@ def findText(text, region=None, case_sensitive=False):
         if needle in hay:
             out.append(i)
     return out
+
+
+def _match_center(m):
+    """Center point of an OCR match dict (device pixels, ints)."""
+    return (_num(m.get("x", 0)) + _num(m.get("width", 0)) // 2,
+            _num(m.get("y", 0)) + _num(m.get("height", 0)) // 2)
+
+
+def _sorted_matches(matches):
+    return sorted(matches,
+                  key=lambda i: (_num(i.get("y", 0)), _num(i.get("x", 0))))
+
+
+class OcrFindResult(tuple):
+    """``(x, y, text)`` triple that is falsy when nothing matched.
+
+    Behaves like a plain 3-tuple (unpacking, indexing, slicing) but
+    ``bool()`` mirrors Lua's ``nil`` check: ``if ocrFind("OK"):`` is False
+    when the text was not found.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls, x, y, text):
+        return super(OcrFindResult, cls).__new__(cls, (x, y, text))
+
+    def __bool__(self):
+        return self[0] is not None
+
+    __nonzero__ = __bool__  # Python 2 style guard (harmless on py3)
+
+
+def ocrFind(text, region=None, case_sensitive=False):
+    """Lua-style single result: ``(x, y, matched_text)`` center in pixels.
+
+    Returns the topmost-leftmost match containing ``text``, or
+    ``(None, None, None)`` when nothing matches. This is the unpackable
+    equivalent of ``local x, y, text = findText("Login")`` in Lua, and of
+    ``x, y, text = ocrFind("Login")`` in Python. The result is falsy when
+    nothing matched, so ``if ocrFind("OK"):`` works like Lua's nil check.
+    """
+    matches = findText(text, region=region, case_sensitive=case_sensitive)
+    if not matches:
+        return OcrFindResult(None, None, None)
+    m = _sorted_matches(matches)[0]
+    cx, cy = _match_center(m)
+    return OcrFindResult(cx, cy, m.get("text", ""))
 
 
 def waitForText(text, timeout=10.0, interval=0.5, region=None):
@@ -395,15 +448,29 @@ def tapImage(path, timeout=10.0, threshold=0.8, region=None):
     return m
 
 
-def tapText(text, timeout=10.0, index=0, region=None):
-    """Wait for OCR text and tap match ``index`` (sorted top-bottom)."""
+def tapText(text, timeout=10.0, index=1, region=None):
+    """Wait for OCR text and tap match ``index`` (1-based, top-bottom).
+
+    ``index`` follows docs/IDE/ioscontrol.md: 1 = first (topmost-leftmost),
+    2 = second, ... For backward compatibility ``0`` is also accepted as
+    the first match. Returns the tapped match dict, or None on timeout.
+    The tapped point is printed so Logs show exactly where the tap landed.
+    """
+    try:
+        idx = int(index)
+    except (TypeError, ValueError):
+        idx = 1
+    if idx <= 0:
+        idx = 1  # 0 = first match (legacy Python callers)
+    want = idx - 1
     end = time.time() + timeout
     while time.time() <= end:
         matches = findText(text, region=region)
-        if len(matches) > index:
-            m = sorted(matches, key=lambda i: (_num(i.get("y", 0)), _num(i.get("x", 0))))[index]
-            tap(_num(m.get("x", 0)) + _num(m.get("width", 0)) // 2,
-                _num(m.get("y", 0)) + _num(m.get("height", 0)) // 2)
+        if len(matches) > want:
+            m = _sorted_matches(matches)[want]
+            cx, cy = _match_center(m)
+            print("tapText: %r -> (%d, %d) [%s]" % (text, cx, cy, m.get("text", "")))
+            tap(cx, cy)
             return m
         time.sleep(0.5)
     return None
@@ -851,6 +918,7 @@ delete_screenshot = deleteScreenshot
 convert_base64 = convertBase64
 ocr_text = ocrText
 find_text = findText
+ocr_find = ocrFind
 wait_for_text = waitForText
 tap_image = tapImage
 tap_text = tapText
@@ -909,7 +977,7 @@ __all__ = [
     "pinch", "rotate",
     "getColor", "getColors", "findColor", "findColors", "waitForColor",
     "findImage", "waitForImage", "screenshot", "deleteScreenshot",
-    "convertBase64", "ocrText", "findText", "waitForText", "tapImage",
+    "convertBase64", "ocrText", "findText", "ocrFind", "waitForText", "tapImage",
     "tapText", "swipeUntilImage", "swipeUntilText",
     "dialogInput", "dialogChoice", "timestamp", "md5",
     "showOverlay", "updateOverlay", "hideOverlay",
@@ -926,7 +994,7 @@ __all__ = [
     "touch_down", "touch_move", "touch_up", "long_press",
     "get_color", "get_colors", "find_color", "find_colors",
     "wait_for_color", "find_image", "wait_for_image", "delete_screenshot",
-    "convert_base64", "ocr_text", "find_text", "wait_for_text",
+    "convert_base64", "ocr_text", "find_text", "ocr_find", "wait_for_text",
     "tap_image", "tap_text", "swipe_until_image", "swipe_until_text",
     "dialog_input", "dialog_choice", "show_overlay", "update_overlay",
     "hide_overlay", "app_run", "app_kill", "app_clear", "app_state",

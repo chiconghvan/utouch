@@ -134,15 +134,22 @@ Return the string from a area
         NSString* textString = [text string];
 
         VNRectangleObservation* boundingBox = [text boundingBoxForRange:NSMakeRange(0, [textString length]) error:nil];
+        if (!boundingBox)
+        {
+            // Fall back to the whole-line box (e.g. empty/emoji strings can
+            // fail boundingBoxForRange). Never emit a degenerate (0, H) box
+            // that would tap the bottom edge of the region.
+            boundingBox = (VNRectangleObservation*)i;
+        }
 
         //test = [self drawTextRectangle:CGRectMake(100, 100, 100, 100) andText:@"test"];
 
         float rectWidth = (boundingBox.topRight.x - boundingBox.topLeft.x) * recognizeRect.size.width;
-        float rectHeight = abs(boundingBox.topLeft.y - boundingBox.bottomLeft.y) * recognizeRect.size.height;
+        float rectHeight = fabsf(boundingBox.topLeft.y - boundingBox.bottomLeft.y) * recognizeRect.size.height;
         float rectx = boundingBox.topLeft.x * recognizeRect.size.width + recognizeRect.origin.x;
         float recty = (1 - boundingBox.topLeft.y) * recognizeRect.size.height + recognizeRect.origin.y;
 
-        NSString* outputString = [NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", textString, (int)rectx, (int)recty, (int)rectWidth, (int)rectHeight];
+        NSString* outputString = [NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", textString, (int)lroundf(rectx), (int)lroundf(recty), (int)lroundf(rectWidth), (int)lroundf(rectHeight)];
 
         [stringList addObject:outputString];
     }
@@ -246,7 +253,7 @@ Return area that contain text
         //test = [self drawTextRectangle:CGRectMake(100, 100, 100, 100) andText:@"test"];
 
         float rectWidth = (boundingBox.topRight.x - boundingBox.topLeft.x) * recognizeRect.size.width;
-        float rectHeight = abs(boundingBox.topLeft.y - boundingBox.bottomLeft.y) * recognizeRect.size.height;
+        float rectHeight = fabsf(boundingBox.topLeft.y - boundingBox.bottomLeft.y) * recognizeRect.size.height;
         float rectx = boundingBox.topLeft.x * recognizeRect.size.width + recognizeRect.origin.x;
         float recty = (1 - boundingBox.topLeft.y) * recognizeRect.size.height + recognizeRect.origin.y;
 

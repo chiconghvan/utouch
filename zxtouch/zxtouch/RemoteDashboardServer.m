@@ -23,7 +23,6 @@
 
 static NSString *const ZXDashboardConfigPath = @"/var/mobile/Library/ZXTouch/config/tweak/remote_dashboard.plist";
 static NSString *const ZXDashboardEnabledKey = @"enabled";
-static NSString *const ZXDashboardTokenKey = @"token";
 static const char *ZXDashboardConfigurationNotification = "com.zjx.zxtouch.remote-dashboard-changed";
 static const unsigned long long ZXDashboardMaximumAssetSize = 25ULL * 1024ULL * 1024ULL;
 static const NSUInteger ZXDashboardMaximumLogLength = 256 * 1024;
@@ -55,29 +54,19 @@ static NSString *ZXDashboardIPAddress(void)
 
 @interface ZXRemoteDashboardServer : NSObject
 @property(nonatomic, strong) GCDWebServer *server;
-@property(nonatomic, copy) NSString *token;
 @property(nonatomic, copy) NSString *lastError;
 @property(nonatomic, copy) NSString *lastAction;
 @end
 
 @implementation ZXRemoteDashboardServer
 
-- (instancetype)initWithToken:(NSString *)token
+- (instancetype)init
 {
     self = [super init];
     if (self) {
-        _token = [token copy];
         _lastAction = @"Ready";
     }
     return self;
-}
-
-- (BOOL)requestIsAuthorized:(GCDWebServerRequest *)request
-{
-    // Open LAN dashboard: no pairing token required (ip:8080 works directly).
-    // WLAN-only exposure is the safeguard; do not port-forward this port.
-    (void)request;
-    return YES;
 }
 
 - (GCDWebServerDataResponse *)jsonResponse:(NSDictionary *)payload status:(NSInteger)status
@@ -85,11 +74,6 @@ static NSString *ZXDashboardIPAddress(void)
     GCDWebServerDataResponse *response = [GCDWebServerDataResponse responseWithJSONObject:payload];
     response.statusCode = status;
     return response;
-}
-
-- (GCDWebServerDataResponse *)unauthorizedResponse
-{
-    return [self jsonResponse:@{ @"ok": @NO, @"error": @"Invalid pairing token." } status:403];
 }
 
 - (NSString *)bundlePathForRelativePath:(NSString *)relativePath
@@ -258,8 +242,8 @@ static NSString *ZXDashboardIPAddress(void)
 
 - (GCDWebServerResponse *)novncFileResponseForRequest:(GCDWebServerRequest *)request
 {
-    // Serve bundled noVNC assets (./novnc/core/rfb.js, ...) with the same
-    // token auth as the dashboard. Rejects ".." to stay inside the app dir.
+    // Serve bundled noVNC assets (./novnc/core/rfb.js, ...) openly on the LAN
+    // like the dashboard. Rejects ".." to stay inside the app dir.
     NSString *base = [self dashboardBasePath];
     if (!base) return nil;
     NSString *relative = [request.path substringFromIndex:@"/novnc/".length];
@@ -316,16 +300,16 @@ static NSString *ZXDashboardIPAddress(void)
     __weak typeof(self) weakSelf = self;
     [self.server addHandlerForMethod:@"GET" path:@"/" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [GCDWebServerDataResponse responseWithHTML:[strongSelf dashboardHTML]];
     }];
 
-    // Bundled noVNC client (single-.deb plan): ./novnc/** served with token auth.
+    // Bundled noVNC client (single-.deb plan): ./novnc/** served openly.
     // The dashboard loads ./novnc/core/rfb.js from here, then opens a raw
     // WebSocket to the TrollVNC VNC port (:5901/websockify) for stream+input.
     [self.server addHandlerForMethod:@"GET" pathRegex:@"^/novnc/.*" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         GCDWebServerResponse *file = [strongSelf novncFileResponseForRequest:request];
         if (!file) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"noVNC asset not found. Reinstall the package." } status:404];
         return file;
@@ -333,25 +317,25 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/scripts" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"scripts": [strongSelf scripts] } status:200];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/status" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"status": [strongSelf status] } status:200];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/logs" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"logs": [strongSelf recentLogs] } status:200];
     }];
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/logs/clear" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSError *error = nil;
         [@"" writeToFile:RUNTIME_OUTPUT_PATH atomically:YES encoding:NSUTF8StringEncoding error:&error];
         if (error) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to clear logs." } status:500];
@@ -361,7 +345,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:body[@"path"]];
         if (!bundlePath) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script was not found." } status:404];
@@ -372,7 +356,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/stop" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *result = [strongSelf sendSocketCommand:@"20" expectsReply:YES];
         strongSelf.lastAction = @"Stop script";
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
@@ -380,7 +364,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/record/start" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *result = [strongSelf sendSocketCommand:@"14" expectsReply:YES];
         strongSelf.lastAction = @"Start recording";
         return [strongSelf jsonResponse:@{ @"ok": @(![result hasPrefix:@"-1"]), @"result": result ?: @"" } status:200];
@@ -388,7 +372,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/record/stop" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *result = [strongSelf sendSocketCommand:@"15" expectsReply:YES];
         strongSelf.lastAction = @"Stop recording";
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
@@ -396,7 +380,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/assets" requestClass:[GCDWebServerMultiPartFormRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerMultiPartFormRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *relativePath = [[request firstArgumentForControlName:@"script"] string];
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:relativePath];
         GCDWebServerMultiPartFile *upload = [request firstFileForControlName:@"asset"];
@@ -420,7 +404,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/download" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:request.query[@"path"]];
         NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
         NSString *entryPath = entry.length ? [bundlePath stringByAppendingPathComponent:entry] : nil;
@@ -437,7 +421,7 @@ static NSString *ZXDashboardIPAddress(void)
     // app so the run doesn't yank the user elsewhere.
     [self.server addHandlerForMethod:@"POST" path:@"/api/editor/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSDictionary *body = [((GCDWebServerDataRequest *)request).jsonObject isKindOfClass:[NSDictionary class]] ? ((GCDWebServerDataRequest *)request).jsonObject : @{};
         NSString *code = [body[@"code"] isKindOfClass:[NSString class]] ? body[@"code"] : @"";
         if (code.length == 0) {
@@ -465,7 +449,7 @@ static NSString *ZXDashboardIPAddress(void)
     // across runs, never auto-cleared). Capped per poll to bound memory.
     [self.server addHandlerForMethod:@"GET" path:@"/api/editor/logs" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         unsigned long long since = (unsigned long long)[request.query[@"since"] longLongValue];
         unsigned long long size = [[[NSFileManager defaultManager] attributesOfItemAtPath:RUNTIME_OUTPUT_PATH error:nil] fileSize];
         if (since > size) since = 0; // log rotated/cleared meanwhile — restart from head
@@ -491,7 +475,7 @@ static NSString *ZXDashboardIPAddress(void)
     // GET /api/editor/load?path=<rel.bdl> — read a library entry as text.
     [self.server addHandlerForMethod:@"GET" path:@"/api/editor/load" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:request.query[@"path"]];
         NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
         NSString *entryPath = entry.length ? [bundlePath stringByAppendingPathComponent:entry] : nil;
@@ -513,7 +497,7 @@ static NSString *ZXDashboardIPAddress(void)
     // or create "<name>.bdl". Never touches info.plist of existing bundles.
     [self.server addHandlerForMethod:@"POST" path:@"/api/editor/save" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
-        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSDictionary *body = [((GCDWebServerDataRequest *)request).jsonObject isKindOfClass:[NSDictionary class]] ? ((GCDWebServerDataRequest *)request).jsonObject : @{};
         NSString *code = [body[@"code"] isKindOfClass:[NSString class]] ? body[@"code"] : @"";
         if (code.length == 0) {
@@ -594,25 +578,17 @@ void ZXDashboardReloadConfiguration(void)
         NSDictionary *legacy = [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.zjx.zxtouch.plist"];
         NSMutableDictionary *migrated = [NSMutableDictionary dictionary];
         id legacyEnabled = legacy[@"zxtouch_remote_dashboard_enabled"];
-        NSString *legacyToken = [legacy[@"zxtouch_remote_dashboard_token"] isKindOfClass:[NSString class]] ? legacy[@"zxtouch_remote_dashboard_token"] : @"";
         if (legacyEnabled) migrated[ZXDashboardEnabledKey] = legacyEnabled;
-        if (legacyToken.length) migrated[ZXDashboardTokenKey] = legacyToken;
         if (migrated.count) [migrated writeToFile:ZXDashboardConfigPath atomically:YES];
         configuration = migrated;
     }
     BOOL enabled = [configuration[ZXDashboardEnabledKey] boolValue];
-    NSString *token = [configuration[ZXDashboardTokenKey] isKindOfClass:[NSString class]] ? configuration[ZXDashboardTokenKey] : @"";
-    (void)token; // kept for config compat; auth is open (see requestIsAuthorized:)
     if (!enabled) {
         [ZXDashboardServer stop];
         ZXDashboardServer = nil;
         return;
     }
-    if (ZXDashboardServer && ![ZXDashboardServer.token isEqualToString:token]) {
-        [ZXDashboardServer stop];
-        ZXDashboardServer = nil;
-    }
-    if (!ZXDashboardServer) ZXDashboardServer = [[ZXRemoteDashboardServer alloc] initWithToken:token];
+    if (!ZXDashboardServer) ZXDashboardServer = [[ZXRemoteDashboardServer alloc] init];
     [ZXDashboardServer start];
 }
 
@@ -628,26 +604,13 @@ static NSMutableDictionary *ZXDashboardConfiguration(void)
     NSMutableDictionary *configuration = [NSMutableDictionary dictionary];
     NSUserDefaults *legacyDefaults = [NSUserDefaults standardUserDefaults];
     id legacyEnabled = [legacyDefaults objectForKey:@"zxtouch_remote_dashboard_enabled"];
-    NSString *legacyToken = [legacyDefaults stringForKey:@"zxtouch_remote_dashboard_token"];
     if (legacyEnabled) configuration[ZXDashboardEnabledKey] = legacyEnabled;
-    if (legacyToken.length) configuration[ZXDashboardTokenKey] = legacyToken;
     return configuration;
-}
-
-static NSString *ZXDashboardToken(NSMutableDictionary *configuration)
-{
-    NSString *token = [configuration[ZXDashboardTokenKey] isKindOfClass:[NSString class]] ? configuration[ZXDashboardTokenKey] : @"";
-    if (token.length == 0) {
-        token = [[NSUUID UUID].UUIDString stringByReplacingOccurrencesOfString:@"-" withString:@""];
-        configuration[ZXDashboardTokenKey] = token;
-    }
-    return token;
 }
 
 BOOL ZXRemoteDashboardSetEnabled(BOOL enabled)
 {
     NSMutableDictionary *configuration = ZXDashboardConfiguration();
-    ZXDashboardToken(configuration);
     configuration[ZXDashboardEnabledKey] = @(enabled);
     NSError *directoryError = nil;
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:&directoryError];
@@ -664,10 +627,9 @@ BOOL ZXRemoteDashboardIsEnabled(void)
 
 NSString *ZXRemoteDashboardURL(void)
 {
-    NSMutableDictionary *configuration = ZXDashboardConfiguration();
-    NSString *token = ZXDashboardToken(configuration);
+    // No token: open http://<iphone-ip>:8080/ directly from the same Wi-Fi.
     NSString *host = ZXDashboardIPAddress() ?: @"iPad-IP-address";
-    return [NSString stringWithFormat:@"http://%@:%d/?token=%@", host, 8080, token];
+    return [NSString stringWithFormat:@"http://%@:%d/", host, 8080];
 }
 
 NSString *ZXRemoteDashboardLastError(void)

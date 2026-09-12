@@ -305,6 +305,22 @@ static NSString *ZXPythonModulePath(void)
         bringAppForeground(foregroundApp);
     }
 
+    // Mirror the python path: leave Start/Finish markers in the runtime log.
+    NSString *rawOutputLog = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output";
+    {
+        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+        fmt.dateFormat = @"MM-dd-yyyy HH:mm:ss";
+        NSString *line = [NSString stringWithFormat:@"%@: Start running script. Script path: %@\n",
+                          [fmt stringFromDate:[NSDate date]], filePath];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:rawOutputLog];
+        if (![[NSFileManager defaultManager] fileExistsAtPath:rawOutputLog])
+            [line writeToFile:rawOutputLog atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        else if (fh) {
+            @try { [fh seekToEndOfFile]; [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]]; [fh closeFile]; }
+            @catch (NSException *e) { NSLog(@"com.zjx.springboard: cannot append start marker: %@", e.reason); }
+        }
+    }
+
     FILE *file = fopen([filePath UTF8String], "r");
 
     if (!file)
@@ -351,6 +367,19 @@ static NSString *ZXPythonModulePath(void)
     }
     fclose(file);
 
+    {
+        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+        fmt.dateFormat = @"MM-dd-yyyy HH:mm:ss";
+        NSString *line = [NSString stringWithFormat:@"%@: Finish running script%@. Script path: %@\n",
+                          [fmt stringFromDate:[NSDate date]],
+                          stoppedByUser ? @" (stopped by user)" : @"",
+                          filePath];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:rawOutputLog];
+        if (fh) {
+            @try { [fh seekToEndOfFile]; [fh writeData:[line dataUsingEncoding:NSUTF8StringEncoding]]; [fh closeFile]; }
+            @catch (NSException *e) { NSLog(@"com.zjx.springboard: cannot append finish marker: %@", e.reason); }
+        }
+    }
     if (!stoppedByUser) [self playHasStopped];
 }
 
@@ -387,7 +416,7 @@ static NSString *ZXPythonModulePath(void)
     NSString *dateWrapper = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh";
     NSString *shellPath = ZXShellPath();
     if (![[NSFileManager defaultManager] fileExistsAtPath:dateWrapper]) {
-        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=/var/jb/usr/bin/date\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Start running script. Script path: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\n", shellPath];
+        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=/var/jb/usr/bin/date\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Start running script. Script path: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Finish running script. Script path: $1\" >> \"$OUTPUT\"\n", shellPath];
         [wrapper writeToFile:dateWrapper atomically:YES encoding:NSUTF8StringEncoding error:nil];
         chmod(dateWrapper.UTF8String, 0755);
     }
@@ -415,6 +444,27 @@ static NSString *ZXPythonModulePath(void)
     scriptStopRequested = 0;
     NSString *statusText = [NSString stringWithContentsOfFile:statusFile encoding:NSUTF8StringEncoding error:nil];
     int pythonExitCode = statusText ? [statusText intValue] : shellExitCode;
+    // Always leave a Finish marker in the runtime log (the shell wrapper also
+    // appends one when the pipe closes; this line adds the exit code / stop
+    // reason so "Start running script" is never left dangling).
+    {
+        NSDateFormatter *fmt = [[NSDateFormatter alloc] init];
+        fmt.dateFormat = @"MM-dd-yyyy HH:mm:ss";
+        NSString *stamp = [fmt stringFromDate:[NSDate date]];
+        NSString *finish = stoppedByUser
+            ? [NSString stringWithFormat:@"%@: Finish running script (stopped by user). Script path: %@\n", stamp, filePath]
+            : [NSString stringWithFormat:@"%@: Finish running script (exit code %d). Script path: %@\n", stamp, pythonExitCode, filePath];
+        NSFileHandle *fh = [NSFileHandle fileHandleForWritingAtPath:outputLog];
+        if (fh) {
+            @try {
+                [fh seekToEndOfFile];
+                [fh writeData:[finish dataUsingEncoding:NSUTF8StringEncoding]];
+                [fh closeFile];
+            } @catch (NSException *e) {
+                NSLog(@"com.zjx.springboard: cannot append finish marker: %@", e.reason);
+            }
+        }
+    }
     if (!stoppedByUser && pythonExitCode != 0) {
         NSString *title = @"Script Error";
         NSString *message;

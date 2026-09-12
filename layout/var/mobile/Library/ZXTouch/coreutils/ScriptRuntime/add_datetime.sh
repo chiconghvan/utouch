@@ -6,3 +6,4 @@ echo "$($DATE '+%m-%d-%Y %T'): Start running script. Script path: $1" >> "$OUTPU
 while IFS= read -r line; do
     echo "$($DATE '+%m-%d-%Y %T'): $line" >> "$OUTPUT"
 done
+echo "$($DATE '+%m-%d-%Y %T'): Finish running script. Script path: $1" >> "$OUTPUT"
