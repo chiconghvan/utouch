@@ -2,9 +2,13 @@
 
 Run:  python -m pytest tools/tests/test_prelude.py -q
 """
+import json
+import re
 import sys
 import types
 from pathlib import Path
+
+import pytest
 
 PY_MOD = Path(__file__).resolve().parents[2] / "layout" / "usr" / "share" / "zxtouch" / "python"
 sys.path.insert(0, str(PY_MOD))
@@ -369,6 +373,355 @@ def test_runner_injects_and_disconnects(tmp_path):
     assert rc == 0
     assert any(c[0] == "touch" for c in d.calls)
     assert ("disconnect",) in d.calls or prelude._DEVICE is None
+
+
+# ------------------------------------------------------------- httpGet/httpPost
+
+class _HttpFixture:
+    """Tiny local server so the HTTP paths are tested without internet.
+
+    Records the request headers the prelude actually sent, which is how the
+    User-Agent regression (Cloudflare 403 "error code: 1010") stays caught.
+    """
+
+    def __init__(self):
+        import http.server
+        import threading
+
+        outer = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def _respond(self):
+                outer.requests.append({
+                    "method": self.command,
+                    "path": self.path,
+                    "headers": {k.lower(): v for k, v in self.headers.items()},
+                })
+                code, body = outer.reply_for(self.path)
+                raw = body.encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "text/plain")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            do_GET = _respond
+            do_POST = _respond
+
+        self.server = http.server.HTTPServer(("127.0.0.1", 0), Handler)
+        self.port = self.server.server_address[1]
+        self.requests = []
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def reply_for(self, path):
+        if path.startswith("/403"):
+            return 403, "error code: 1010"
+        if path.startswith("/tok"):
+            return 200, '{"token":"159244"}'
+        return 200, "pong"
+
+    def url(self, suffix=""):
+        return "http://127.0.0.1:%d/%s" % (self.port, suffix)
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+@pytest.fixture
+def http_srv():
+    srv = _HttpFixture()
+    try:
+        yield srv
+    finally:
+        srv.close()
+
+
+@pytest.fixture
+def urllib_only(monkeypatch):
+    """Force the urllib fallback: Procursus installs Python without requests."""
+    monkeypatch.setattr(prelude, "_load_requests", lambda: None)
+
+
+@pytest.fixture
+def fake_requests(monkeypatch):
+    """Stand in for the requests module, backed by urllib under the hood."""
+    import urllib.error
+    import urllib.request
+
+    class R:
+        def __init__(self, raw, code, url):
+            self.text = raw.decode("utf-8", "replace")
+            self.status_code = code
+            self.url = url
+            self.headers = {}
+
+    def request(method, url, data=None, headers=None, timeout=None):
+        req = urllib.request.Request(url, data=data, headers=headers or {}, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return R(resp.read(), resp.getcode(), resp.geturl())
+        except urllib.error.HTTPError as e:
+            return R(e.read() or b"", e.code, url)
+
+    monkeypatch.setattr(prelude, "_load_requests", lambda: types.SimpleNamespace(request=request))
+
+
+def test_httpget_sends_browser_user_agent(http_srv, urllib_only):
+    # The 403 regression: urllib's default "Python-urllib/3.x" UA is blocked by
+    # Cloudflare, so the old httpGet aborted scripts on 2fa.live-style APIs.
+    resp = prelude.httpGet(http_srv.url("tok"))
+    assert resp.status == 200
+    assert "Mozilla/5.0" in http_srv.requests[0]["headers"]["user-agent"]
+    assert "Python-urllib" not in http_srv.requests[0]["headers"]["user-agent"]
+
+
+def test_httpget_body_is_string_with_status(http_srv, urllib_only):
+    resp = prelude.httpGet(http_srv.url("tok"))
+    assert isinstance(resp, str) and resp == '{"token":"159244"}'
+    assert json.loads(resp)["token"] == "159244"  # old call sites keep working
+    assert resp.ok is True
+    assert (resp + "!").endswith("!")
+
+
+def test_httpget_does_not_raise_on_http_error(http_srv, urllib_only):
+    # Before the fix this raised HTTPError and killed the whole script run.
+    resp = prelude.httpGet(http_srv.url("403"))
+    assert resp.status == 403
+    assert resp.ok is False
+    assert "1010" in resp
+    assert not resp.ok and not resp.startswith("ok")
+
+
+def test_httpget_returns_falsy_on_connection_failure(monkeypatch):
+    monkeypatch.setattr(prelude, "_load_requests", lambda: None)
+    resp = prelude.httpGet("http://127.0.0.1:1/nope", None, 2)
+    assert not resp and resp.status == 0  # Lua-like nil check
+
+
+def test_httpget_custom_headers_win(http_srv, urllib_only):
+    prelude.httpGet(http_srv.url("tok"), {"User-Agent": "utouch-test/1", "X-Key": "abc"})
+    h = http_srv.requests[0]["headers"]
+    assert h["user-agent"] == "utouch-test/1" and h["x-key"] == "abc"
+
+
+def test_httppost_sends_body_and_never_raises(http_srv, urllib_only):
+    resp = prelude.httpPost(http_srv.url("login"), json.dumps({"a": 1}),
+                            {"Content-Type": "application/json"})
+    assert resp == "pong" and resp.status == 200
+    assert http_srv.requests[-1]["method"] == "POST"
+    bad = prelude.httpPost(http_srv.url("403"), "x")
+    assert bad.status == 403 and "1010" in bad
+
+
+def test_httpget_works_with_requests_installed(http_srv, fake_requests):
+    # Both backends share one contract: string body, .status, no exceptions.
+    ok = prelude.httpGet(http_srv.url("tok"))
+    assert ok == '{"token":"159244"}' and ok.status == 200 and ok.ok
+    err = prelude.httpGet(http_srv.url("403"))
+    assert err.status == 403 and not err.ok and "1010" in err
+
+
+def test_http_response_names_are_exported():
+    assert "HttpResponse" in prelude.__all__
+    assert "httpGet" in prelude.__all__ and "http_post" in prelude.__all__
+
+
+# ------------------------------------------------------- sec-util (network/radio/proxy)
+
+class ShellDevice:
+    """Fake daemon whose run_shell_command honours the '>out 2>&1' redirect.
+
+    Mirrors the real TASK_RUN_SHELL contract: output is dropped by the daemon,
+    so _shellCapture must redirect to a file and read it back.
+    """
+
+    def __init__(self, replies=None):
+        self.replies = replies or {}
+        self.calls = []
+
+    def run_shell_command(self, cmd):
+        self.calls.append(cmd)
+        for needle, out in self.replies.items():
+            if needle in cmd:
+                # _shellCapture emits "<cmd> ><file> 2>&1"; take the file from
+                # the first redirect, not the 2>&1 that follows it.
+                m = re.search(r">\s*(\S+)\s+2>&1\s*$", cmd)
+                if not m:
+                    return (True, "")
+                try:
+                    with open(m.group(1), "w", encoding="utf-8") as f:
+                        f.write(out)
+                except OSError:
+                    pass
+                return (True, "")
+        return (True, "")
+
+    def accurate_usleep(self, us):
+        return (True, "")
+
+    def get_screen_size(self):
+        return (True, {"width": "100", "height": "200"})
+
+
+def test_shellcapture_forwards_redirect_and_reads_back():
+    dev = ShellDevice({"ipconfig": "10.0.0.5\n"})
+    prelude.set_device(dev)
+    try:
+        ok, out = prelude._shellCapture("/usr/sbin/ipconfig getifaddr en0")
+        assert ok and out == "10.0.0.5"
+        assert any("ipconfig" in c and c.rstrip().endswith("2>&1") for c in dev.calls)
+    finally:
+        prelude.disconnect()
+
+
+def test_shellcapture_rejects_double_quotes():
+    # The daemon wraps commands in sh -c "..."; a quote would break out of it.
+    ok, why = prelude._shellCapture('echo "hi"')
+    assert not ok and "double quote" in why
+
+
+def test_wifiinfo_uses_shell_ip_and_keeps_ssid_none():
+    dev = ShellDevice({"ipconfig": "192.168.1.77\n"})
+    prelude.set_device(dev)
+    try:
+        info = prelude.wifiInfo()
+        assert info["ip"] == "192.168.1.77" and info["ssid"] is None
+    finally:
+        prelude.disconnect()
+
+
+def test_wifiinfo_falls_back_when_shell_unusable():
+    class DeadShell(ShellDevice):
+        def run_shell_command(self, cmd):
+            return (False, "daemon unreachable")
+
+    prelude.set_device(DeadShell())
+    try:
+        info = prelude.wifiInfo()  # UDP-socket fallback; must not raise
+        assert isinstance(info["ip"], str) and "ssid" in info
+    finally:
+        prelude.disconnect()
+
+
+def test_rootpython_blocks_bad_interpreter_and_metacharacters(monkeypatch):
+    monkeypatch.setattr(prelude.sys, "executable", "relative/python.exe")
+    ok, why = prelude._rootPython(["pref-set", "/x.plist", "k", "1"])
+    assert not ok and "interpreter" in why
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+    ok, why = prelude._rootPython(["pref-set", "/x.plist", "k", "1; rm -rf /"])
+    assert not ok and "metacharacter" in why
+
+
+def test_rootpython_parses_zxok_and_zxerr(monkeypatch):
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+    captured = {"cmd": "", "out": ""}
+
+    def fake_capture(cmd, timeout=15):
+        captured["cmd"] = cmd
+        return True, captured["out"]
+
+    monkeypatch.setattr(prelude, "_shellCapture", fake_capture)
+
+    captured["out"] = "ZXOK 1"
+    assert prelude._rootPython(["pref-set", "/x.plist", "k", "1"]) == (True, "1")
+    assert captured["cmd"].endswith("pref-set /x.plist k 1")
+
+    captured["out"] = "ZXERR FileNotFoundError"
+    ok, why = prelude._rootPython(["pref-set", "/x.plist", "k", "1"])
+    assert not ok and "FileNotFoundError" in why
+
+    captured["out"] = ""  # silent helper == inconclusive, never a success
+    ok, _ = prelude._rootPython(["pref-set", "/x.plist", "k", "1"])
+    assert not ok
+
+
+def test_helper_writes_and_verifies_real_plists(tmp_path):
+    # End-to-end on the shipped helper source: no device, real plistlib.
+    import plistlib
+    import subprocess
+
+    helper = prelude._utilHelperDir()
+    assert open(helper, encoding="utf-8").read() == prelude._UTIL_HELPER
+
+    radio = str(tmp_path / "commcenter.plist")
+    with open(radio, "wb") as f:
+        plistlib.dump({"preflightAirplaneModeEnabled": 0, "KeepMe": {"a": 1}}, f)
+    p = subprocess.run([sys.executable, helper, "pref-set", radio,
+                        "preflightAirplaneModeEnabled", "1"],
+                       capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0 and "ZXOK 1" in p.stdout, p.stdout + p.stderr
+    with open(radio, "rb") as f:
+        d = plistlib.load(f)
+    assert d["preflightAirplaneModeEnabled"] == 1
+    assert d["KeepMe"] == {"a": 1}  # unrelated keys survive
+
+    prefs = str(tmp_path / "preferences.plist")
+    with open(prefs, "wb") as f:
+        plistlib.dump({"Global": {"Services": {"x": 1}}, "UserDefined": {"y": 2}}, f)
+    p = subprocess.run([sys.executable, helper, "proxy-set", prefs, "160.25.77.31", "8770"],
+                       capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0, p.stdout + p.stderr
+    with open(prefs, "rb") as f:
+        d = plistlib.load(f)
+    assert d["Global"]["Proxy"]["HTTPProxy"] == "160.25.77.31"
+    assert d["Global"]["Proxy"]["HTTPPort"] == 8770
+    assert d["Global"]["Services"] == {"x": 1} and d["UserDefined"] == {"y": 2}
+
+    p = subprocess.run([sys.executable, helper, "proxy-clear", prefs],
+                       capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0, p.stdout + p.stderr
+    with open(prefs, "rb") as f:
+        d = plistlib.load(f)
+    assert "Proxy" not in d["Global"] and d["Global"]["Services"] == {"x": 1}
+
+    missing = str(tmp_path / "nope.plist")
+    p = subprocess.run([sys.executable, helper, "pref-set", missing, "k", "1"],
+                       capture_output=True, text=True, timeout=60)
+    assert p.returncode == 1 and "ZXERR" in (p.stdout + p.stderr)  # reported, not a crash
+
+
+def test_proxy_input_validation():
+    # Rejections happen before any daemon round-trip: no device needed.
+    assert prelude.setProxySystem("bad host", 80) is False
+    assert prelude.setProxySystem("1.2.3.4; rm", 80) is False
+    assert prelude.setProxySystem("1.2.3.4", 0) is False
+    assert prelude.setProxySystem("1.2.3.4", 70000) is False
+    assert prelude.setProxySystem("1.2.3.4", "abc") is False
+
+
+def test_util_toggles_fail_soft_without_device(monkeypatch, capsys):
+    # No daemon reachable: every toggle returns False, logs a reason and does
+    # NOT raise — the httpGet lesson: a script must survive a failed call.
+    monkeypatch.setattr(prelude, "_shellCapture",
+                        lambda cmd, timeout=15: (False, "daemon unreachable"))
+    assert prelude.setAirplaneMode(True) is False
+    assert prelude.setCellularData(False) is False
+    assert prelude.setProxySystem("1.2.3.4", 8080) is False
+    assert prelude.clearProxySystem() is False
+    assert "daemon unreachable" in capsys.readouterr().out
+
+
+def test_getip_validates_lookup(monkeypatch):
+    monkeypatch.setattr(prelude, "httpGet",
+                        lambda url, headers=None, timeout=15: prelude.HttpResponse("203.0.113.9", 200))
+    assert prelude.getIP() == "203.0.113.9"
+    monkeypatch.setattr(prelude, "httpGet",
+                        lambda url, headers=None, timeout=15: prelude.HttpResponse("<html>blocked</html>", 403))
+    assert prelude.getIP() == ""  # never raises, never returns HTML
+
+
+def test_util_exports_and_aliases():
+    for name in ["wifiInfo", "getIP", "setAirplaneMode", "setCellularData",
+                 "setProxySystem", "clearProxySystem",
+                 "wifi_info", "get_ip", "set_airplane_mode", "set_cellular_data",
+                 "set_proxy_system", "clear_proxy_system"]:
+        assert name in prelude.__all__, name
+        assert callable(getattr(prelude, name)), name
 
 
 def test_log_accepts_multiple_values(capsys):

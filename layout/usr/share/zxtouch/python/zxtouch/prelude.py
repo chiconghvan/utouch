@@ -22,6 +22,9 @@ import json
 import math
 import os
 import random
+import re
+import sys
+import tempfile
 import time
 
 from zxtouch.client import zxtouch
@@ -33,6 +36,15 @@ TOUCH_UP = touchtypes.TOUCH_UP
 
 _DEVICE = None
 _DEVICE_IP = "127.0.0.1"
+
+# Default User-Agent for httpGet/httpPost. urllib sends "Python-urllib/3.x",
+# which Cloudflare-fronted APIs answer with 403 "error code: 1010"; a Safari
+# UA on an iOS device is both honest and accepted. Scripts can still override
+# it via the headers argument.
+_HTTP_USER_AGENT = (
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_6 like Mac OS X) "
+    "AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148"
+)
 
 # ---------------------------------------------------------------- Debug visual
 # Vẽ debug trực tiếp lên màn hình iPhone (module native DebugOverlay,
@@ -784,29 +796,108 @@ def deviceInfo():
 
 # ---------------------------------------------------------------- HTTP / file / json
 
+class HttpResponse(str):
+    """Response body that still behaves like a plain string.
+
+    Scripts keep working unchanged — ``jsonDecode(httpGet(url))``,
+    ``if not resp:`` and ``resp + "x"`` all treat it as the body — while the
+    HTTP details ride along as attributes:
+
+        resp = httpGet("https://api.example.com/data")
+        if resp.status != 200:
+            log("HTTP %s" % resp.status)
+
+    ``bool(resp)`` is False when the body is empty, so a failed request
+    (``status == 0``, empty body) reads as falsy the way Lua's ``nil`` does.
+    """
+
+    __slots__ = ("status", "headers", "url")
+
+    def __new__(cls, body, status=0, headers=None, url=""):
+        obj = super(HttpResponse, cls).__new__(cls, body if body is not None else "")
+        obj.status = int(status or 0)
+        obj.headers = headers or {}
+        obj.url = url
+        return obj
+
+    @property
+    def ok(self):
+        return 200 <= self.status < 400
+
+
 def httpGet(url, headers=None, timeout=15):
-    try:
-        import requests
-        r = requests.get(url, headers=headers or {}, timeout=timeout)
-        return r.text
-    except ImportError:
-        import urllib.request
-        req = urllib.request.Request(url, headers=headers or {})
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", "replace")
+    """HTTP GET. Returns :class:`HttpResponse` (body string + ``.status``).
+
+    Never raises for an HTTP error: a 403/404 comes back with its body and
+    ``status`` set, a network failure comes back empty with ``status == 0``.
+    """
+    return _httpRequest("GET", url, None, headers, timeout)
 
 
 def httpPost(url, body=None, headers=None, timeout=15):
+    """HTTP POST. Same return contract and error behaviour as :func:`httpGet`."""
+    return _httpRequest("POST", url, body, headers, timeout)
+
+
+def _load_requests():
+    """Return the `requests` module, or None when it is not installed.
+
+    Procursus ships Python without `requests`, so the urllib path is the
+    common case on device and stays fully covered by the tests.
+    """
     try:
         import requests
-        r = requests.post(url, data=body, headers=headers or {}, timeout=timeout)
-        return r.text
+        return requests
     except ImportError:
-        import urllib.request
-        data = body.encode("utf-8") if isinstance(body, str) else body
-        req = urllib.request.Request(url, data=data, headers=headers or {})
+        return None
+
+
+def _httpRequest(method, url, body=None, headers=None, timeout=15):
+    # A real browser-ish UA first: urllib's default "Python-urllib/3.x" gets
+    # 403 "error code: 1010" from Cloudflare-protected endpoints (2fa.live and
+    # friends), which is what made httpGet look broken on devices without
+    # `requests` installed. A caller-supplied User-Agent still wins.
+    hdrs = {"User-Agent": _HTTP_USER_AGENT}
+    for k, v in (headers or {}).items():
+        hdrs[str(k)] = str(v)
+    data = body.encode("utf-8") if isinstance(body, str) else body
+    if method == "GET":
+        data = None
+
+    requests = _load_requests()
+    if requests is not None:
+        try:
+            r = requests.request(method, url, data=data, headers=hdrs, timeout=timeout)
+            return HttpResponse(r.text, r.status_code, dict(r.headers), r.url)
+        except Exception as e:  # requests raises on transport errors too
+            log("httpGet: %s %s failed: %s" % (method, url, e))
+            return HttpResponse("", 0, {}, url)
+
+    import urllib.error
+    import urllib.request
+
+    req = urllib.request.Request(url, data=data, headers=hdrs, method=method)
+    try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return resp.read().decode("utf-8", "replace")
+            raw = resp.read()
+            code = getattr(resp, "status", None) or resp.getcode()
+            url_out = resp.geturl()
+            try:
+                hdrs_out = dict(resp.headers.items())
+            except Exception:
+                hdrs_out = {}
+            return HttpResponse(raw.decode("utf-8", "replace"), code, hdrs_out, url_out)
+    except urllib.error.HTTPError as e:
+        # Non-2xx is data, not an exception: the body usually explains why.
+        try:
+            raw = e.read() or b""
+        except Exception:
+            raw = b""
+        return HttpResponse(raw.decode("utf-8", "replace"), e.code,
+                            dict(getattr(e, "headers", None) or {}), url)
+    except Exception as e:
+        log("httpGet: %s %s failed: %s" % (method, url, e))
+        return HttpResponse("", 0, {}, url)
 
 
 def readFile(path):
@@ -840,6 +931,350 @@ def randomInt(mins, maxs):
 
 def randomFloat(mins, maxs):
     return random.uniform(mins, maxs)
+
+
+# ---------------------------------------------------------------- Network / device utilities
+# Pure-Python, best-effort implementation of the IOSControl sec-util group.
+#
+# Why "best-effort": airplane mode, cellular data and the Wi-Fi proxy have no
+# public CLI. The real switches live in CoreWireless / CTCellularPlanManager and
+# are applied by CommCenter and wifid. These helpers make the targeted
+# preference writes through the daemon's root shell (TASK_RUN_SHELL runs as
+# root), then read the value back and return True/False. They NEVER raise, so a
+# device that cannot apply a toggle logs the reason instead of killing the
+# script — the same error contract as httpGet.
+#
+# Two mechanics worth knowing:
+#  * TASK_RUN_SHELL hands the string to ``sh -c "..."`` in the daemon and drops
+#    its output, so (a) the command may not contain a double quote, and (b) any
+#    result is captured by redirecting to a file Python then reads back.
+#  * Anything needing nesting or plist structure goes into _UTIL_HELPER, run by
+#    the same interpreter executing this script (sys.executable: absolute,
+#    quote-free), which keeps the command line trivially safe and lets
+#    plistlib do the real work with verification.
+
+# Root-side helper: applies one preference edit and verifies it. Shipped as a
+# string so the whole feature lives in this file — no new native task, nothing
+# to rebuild in the tweak.
+_UTIL_HELPER = """
+import os
+import plistlib
+import sys
+
+
+def fail(msg):
+    print("ZXERR " + msg)
+    sys.exit(1)
+
+
+def load(path):
+    with open(path, "rb") as f:
+        return plistlib.load(f)
+
+
+def main():
+    action, path = sys.argv[1], sys.argv[2]
+    data = load(path)
+    if not isinstance(data, dict):
+        fail("root of %s is not a dict" % path)
+
+    key = None
+    want = None
+    if action == "pref-set":
+        key, want = sys.argv[3], int(sys.argv[4])
+        data[key] = want
+    elif action == "proxy-set":
+        host, port = sys.argv[3], int(sys.argv[4])
+        g = data.setdefault("Global", {})
+        if not isinstance(g, dict):
+            fail("Global is not a dict")
+        g["Proxy"] = {
+            "HTTPEnable": 1, "HTTPProxy": host, "HTTPPort": port,
+            "HTTPSEnable": 1, "HTTPSPriority": 0,
+            "SecureHTTPEnable": 1, "SecureHTTPProxy": host, "SecureHTTPPort": port,
+        }
+        want = host
+    elif action == "proxy-clear":
+        g = data.get("Global")
+        if isinstance(g, dict):
+            g.pop("Proxy", None)
+    else:
+        fail("unknown action " + action)
+
+    tmp = path + ".zxutil.tmp"
+    with open(tmp, "wb") as f:
+        plistlib.dump(data, f)
+    os.replace(tmp, path)
+
+    check = load(path)
+    if action == "pref-set":
+        got = str(check.get(key, "MISSING"))
+    else:
+        proxy = ((check.get("Global") or {}).get("Proxy") or {})
+        got = str(proxy.get("HTTPProxy", "MISSING"))
+
+    if action == "proxy-clear":
+        if got != "MISSING":
+            fail("proxy still present after removal (" + got + ")")
+        print("ZXOK cleared")
+        return 0
+    if got != str(want):
+        fail("wrote %s but read back %s" % (want, got))
+    print("ZXOK " + got)
+    return 0
+
+
+try:
+    sys.exit(main())
+except SystemExit:
+    raise
+except Exception as exc:
+    fail(type(exc).__name__ + ": " + str(exc))
+"""
+
+# Airplane mode and cellular data both live in commcenter's preferences plist.
+_UTIL_RADIO_PLIST = "/var/wireless/Library/Preferences/com.apple.commcenter.plist"
+# Device-wide (Wi-Fi) proxy, read by wifid from SystemConfiguration.
+_UTIL_PROXY_PLIST = "/var/Preferences/SystemConfiguration/preferences.plist"
+_IPV4_RE = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
+
+
+def _shellCapture(cmd, timeout=15):
+    """Run a root shell command on the device, returning ``(ok, stdout)``.
+
+    ``cmd`` must not contain a double quote: the daemon wraps it in
+    ``sh -c "..."``. Never raises — failures come back as ``(False, reason)``.
+    """
+    if '"' in cmd:
+        return False, "command must not contain a double quote (daemon wraps it in sh -c)"
+    out_path = None
+    try:
+        fd, out_path = tempfile.mkstemp(prefix="zxsh_", suffix=".out")
+        os.close(fd)
+        os.chmod(out_path, 0o666)  # the root shell must be able to overwrite it
+        ok, res = get_device().run_shell_command("%s >%s 2>&1" % (cmd, out_path))
+        if not ok:
+            return False, str(res)
+        try:
+            with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except IOError:
+            text = ""
+        return True, text.strip()
+    except Exception as e:
+        return False, "%s: %s" % (type(e).__name__, e)
+    finally:
+        if out_path:
+            try:
+                os.unlink(out_path)
+            except OSError:
+                pass
+
+
+def _utilHelperPath():
+    """Materialise _UTIL_HELPER on disk (once) and return its path.
+
+    It persists under /tmp rather than being deleted, because the delayed
+    auto-restore of setAirplaneMode/setCellularData runs it after this script
+    has exited.
+    """
+    path = _utilHelperDir()
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            if f.read() == _UTIL_HELPER:
+                return path
+    except IOError:
+        pass
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(_UTIL_HELPER)
+    os.chmod(path, 0o644)
+    return path
+
+
+def _utilHelperDir():
+    """First writable temp dir that yields a shell-safe (quote/space-free) path."""
+    cands = []
+    for env in ("TMPDIR", "TEMP", "TMP"):
+        v = os.environ.get(env)
+        if v:
+            cands.append(v)
+    cands += [tempfile.gettempdir(), "/tmp"]
+    for d in cands:
+        d = str(d).rstrip("/\\")
+        if not d or re.search(r"[\s'\"`;|&$()<>]", d):
+            continue
+        probe = os.path.join(d, "zxtouch_util.py")
+        try:
+            with open(probe, "a", encoding="utf-8"):
+                pass
+            return probe
+        except OSError:
+            continue
+    raise RuntimeError("no writable temp directory for the root helper script")
+
+
+def _rootPython(args, timeout=30):
+    """Run the helper as root: ``<this interpreter> <helper> args...``.
+
+    Returns ``(True, value)`` when the helper printed ZXOK, else ``(False, why)``.
+    """
+    interp = (sys.executable or "").strip()
+    # Must be an absolute path free of shell metacharacters: it is typed into
+    # ``sh -c`` on the device, where it also has to survive as root. POSIX and
+    # Windows absolutes are both accepted so the guard is testable off-device
+    # (os.path.isabs("/bin/python3") is False on Windows, hence the prefix test).
+    if not interp or not (interp.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", interp)):
+        return False, "unsafe interpreter path %r" % (interp,)
+    if re.search(r"[\s'\"`;|&$()<>]", interp):
+        return False, "unsafe interpreter path %r" % (interp,)
+    for a in args:
+        if re.search(r"[\s'\"`;|&$()<>]", str(a)):
+            return False, "argument must avoid shell metacharacters: %r" % (a,)
+    try:
+        helper = _utilHelperPath()
+    except Exception as e:
+        return False, "helper write failed: %s" % (e,)
+    ok, out = _shellCapture("%s %s %s" % (interp, helper, " ".join(str(a) for a in args)), timeout)
+    if not ok:
+        return False, out
+    for line in out.splitlines():
+        if line.startswith("ZXOK"):
+            return True, line[4:].strip()
+        if line.startswith("ZXERR"):
+            return False, line[5:].strip()
+    return False, out or "helper produced no output (interpreter unreachable as root?)"
+
+
+def _restoreLater(args, delay):
+    """Re-run the helper after ``delay`` seconds on a device-side timer.
+
+    Backgrounded inside the root shell (``sleep N; ... &``) so the restore still
+    happens when the script exits first — a Python thread would die with it.
+    """
+    try:
+        helper = _utilHelperPath()
+    except Exception as e:
+        log("auto-restore: %s" % (e,))
+        return False
+    cmd = "( sleep %s ; %s %s %s ) >/dev/null 2>&1 &" % (
+        float(delay), sys.executable, helper, " ".join(str(a) for a in args))
+    ok, res = get_device().run_shell_command(cmd)
+    if not ok:
+        log("auto-restore after %ss not scheduled: %s" % (delay, res))
+    return bool(ok)
+
+
+def wifiInfo():
+    """Wi-Fi info as ``{ssid, ip}`` — the same shape the Lua version returns.
+
+    ``ip`` is the device's LAN address (real). ``ssid`` is always None from
+    Python: it lives in CoreWiFi private APIs with no CLI equivalent, so
+    scripts must not branch on it.
+    """
+    ip = ""
+    ok, out = _shellCapture("/usr/sbin/ipconfig getifaddr en0")
+    if ok and out:
+        last = out.splitlines()[-1].strip()
+        if _IPV4_RE.match(last):
+            ip = last
+    if not ip:
+        # Shell-independent fallback: a connected UDP socket reports the source
+        # address the kernel picks for that route, and sends no traffic.
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 53))
+            ip = s.getsockname()[0]
+        except OSError:
+            ip = ""
+        finally:
+            s.close()
+    return {"ssid": None, "ip": ip}
+
+
+def getIP(timeout=15):
+    """Public IP address as a string, via api.ipify.org (as IOSControl does).
+
+    Returns "" when the lookup fails rather than raising.
+    """
+    for url in ("https://api.ipify.org", "https://api64.ipify.org"):
+        resp = httpGet(url, None, timeout)
+        ip = str(resp).strip()
+        if resp.status != 200 or not ip or " " in ip:
+            continue
+        if _IPV4_RE.match(ip) or ":" in ip:
+            return ip
+    log("getIP: public IP lookup failed")
+    return ""
+
+
+def _toggleRadio(label, key, flag, delay):
+    """Write + verify one integer radio preference; True only if it took effect."""
+    ok, out = _rootPython(["pref-set", _UTIL_RADIO_PLIST, key, int(flag)])
+    if not ok:
+        log("%s: %s — no public iOS API for this toggle, so %s=%d could not be "
+            "applied (returning False, script continues)" % (label, out, key, flag))
+        return False
+    # The pref is stored, but only CommCenter re-reads it: bounce it so the
+    # radio reacts. A failed killall does not undo the write.
+    _shellCapture("killall -m -q CommCenter")
+    if delay:
+        _restoreLater(["pref-set", _UTIL_RADIO_PLIST, key, 1 - int(flag)], delay)
+    return True
+
+
+def setAirplaneMode(enabled, delay=None):
+    """Best-effort airplane-mode toggle. Returns True only when applied+verified.
+
+    ``delay`` restores the opposite state after N seconds using a device-side
+    timer, so it survives the script exiting. Logs the reason and returns False
+    when the device refuses; never raises.
+    """
+    return _toggleRadio("setAirplaneMode", "preflightAirplaneModeEnabled",
+                        1 if enabled else 0, delay)
+
+
+def setCellularData(enabled, delay=None):
+    """Best-effort cellular-data toggle. Same contract as :func:`setAirplaneMode`."""
+    return _toggleRadio("setCellularData", "PrefEnableCellularData",
+                        1 if enabled else 0, delay)
+
+
+def setProxySystem(host, port):
+    """Best-effort device-wide HTTP/HTTPS proxy. Returns True when applied.
+
+    Host + port only, matching the IOSControl limit. Writes the Wi-Fi proxy into
+    SystemConfiguration preferences as root, then bounces en0 so wifid re-reads
+    it. Never raises.
+    """
+    host = str(host).strip()
+    if not host or not re.match(r"^[A-Za-z0-9._:-]+$", host):
+        log("setProxySystem: unsupported host %r (IP or hostname, no spaces)" % (host,))
+        return False
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        log("setProxySystem: port must be a number, got %r" % (port,))
+        return False
+    if not 0 < port < 65536:
+        log("setProxySystem: port out of range: %d" % (port,))
+        return False
+    ok, out = _rootPython(["proxy-set", _UTIL_PROXY_PLIST, host, port])
+    if not ok:
+        log("setProxySystem: %s" % (out,))
+        return False
+    _shellCapture("ifconfig en0 down; sleep 1; ifconfig en0 up")
+    return True
+
+
+def clearProxySystem():
+    """Remove the system proxy set by :func:`setProxySystem`; restores direct."""
+    ok, out = _rootPython(["proxy-clear", _UTIL_PROXY_PLIST])
+    if not ok:
+        log("clearProxySystem: %s" % (out,))
+        return False
+    _shellCapture("ifconfig en0 down; sleep 1; ifconfig en0 up")
+    return True
 
 
 # ---------------------------------------------------------------- Record
@@ -1041,6 +1476,12 @@ json_decode = jsonDecode
 json_encode = jsonEncode
 random_int = randomInt
 random_float = randomFloat
+wifi_info = wifiInfo
+get_ip = getIP
+set_airplane_mode = setAirplaneMode
+set_cellular_data = setCellularData
+set_proxy_system = setProxySystem
+clear_proxy_system = clearProxySystem
 record_start = recordStart
 record_stop = recordStop
 record_play = recordPlay
@@ -1078,9 +1519,11 @@ __all__ = [
     "inputText", "keyDown", "keyUp", "getClipboard", "setClipboard",
     "toast", "alert", "vibrate", "log",
     "sleep", "usleep", "randomSleep", "screenSize", "deviceInfo",
-    "httpGet", "httpPost",
+    "httpGet", "httpPost", "HttpResponse",
     "readFile", "writeFile", "appendFile", "jsonDecode", "jsonEncode",
     "randomInt", "randomFloat",
+    "wifiInfo", "getIP", "setAirplaneMode", "setCellularData",
+    "setProxySystem", "clearProxySystem",
     "recordStart", "recordStop", "recordPlay", "recordSave", "recordLoad",
     "crane",
     # snake_case aliases
@@ -1096,6 +1539,8 @@ __all__ = [
     "random_sleep", "screen_size", "device_info",
     "http_get", "http_post", "read_file", "write_file", "append_file",
     "json_decode", "json_encode", "random_int", "random_float",
+    "wifi_info", "get_ip", "set_airplane_mode", "set_cellular_data",
+    "set_proxy_system", "clear_proxy_system",
     "record_start", "record_stop", "record_play", "record_save",
     "record_load", "set_debug_visual", "clear_debug_visual",
 ]

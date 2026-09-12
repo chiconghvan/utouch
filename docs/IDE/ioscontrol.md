@@ -1617,7 +1617,7 @@ _Gọi HTTP request từ script đến API bên ngoài._
 - Type: `func`
 - EN: HTTP GET request
 - VI: Gửi yêu cầu HTTP GET
-- Return: `body, statusCode`
+- Return: Lua `body, statusCode` — Python `body` (string, with `.status` / `.ok`)
 
 **Params:**
 
@@ -1642,6 +1642,22 @@ local body = httpGet("https://api.example.com", {
 -- Custom timeout 30s (for slow APIs)
 local body = httpGet("https://slow-api.com/data", nil, 30)
 ```
+
+**Example (Python):**
+
+```python
+# Python returns the body as a string; the status code rides along as
+# .status, and a failed request is falsy instead of raising an exception.
+resp = httpGet("https://api.example.com/data")
+if not resp.ok:
+    log("HTTP %s: %s" % (resp.status, resp))
+else:
+    cfg = jsonDecode(resp)
+
+# A browser User-Agent is sent for you: Cloudflare answers urllib's default
+# "Python-urllib/3.x" with 403 "error code: 1010". Override per-call:
+resp = httpGet(url, {"X-Api-Key": "abc"}, 30)
+```
 ---
 
 ### `httpPost(url, body, headers, timeout)`
@@ -1649,7 +1665,7 @@ local body = httpGet("https://slow-api.com/data", nil, 30)
 - Type: `func`
 - EN: HTTP POST request
 - VI: Gửi yêu cầu HTTP POST
-- Return: `body, statusCode`
+- Return: Lua `body, statusCode` — Python `body` (string, with `.status` / `.ok`)
 
 **Params:**
 
@@ -1828,6 +1844,18 @@ local s = jsonEncode({score=100})
 
 <a id="sec-util"></a>
 ## Utilities
+
+> **ZXTouch Python runtime (`.py` scripts):** the six network controls of this
+> group (`wifiInfo`, `getIP`, `setAirplaneMode`, `setCellularData`,
+> `setProxySystem`, `clearProxySystem`) are implemented **best-effort in pure
+> Python**. iOS exposes no public API for the radio/proxy switches, so the
+> helpers write the system preferences through the ZXTouch daemon's root shell
+> and read the value back. They return `True`/`False` (never raise) and log the
+> reason on failure. Caveats: `wifiInfo()` always returns `ssid = nil` from
+> Python (CoreWiFi private API only); the radio toggles need CommCenter to be
+> reachable, and the proxy needs `/var/Preferences/SystemConfiguration`. The
+> scheduler (`schedule`, `scheduleAfter`, `onNotification`) and the whole
+> `spoof.*` group are **not** available in ZXTouch scripts.
 
 _Tiện ích_
 

@@ -558,11 +558,15 @@
         ['getColor', 'getColor(200, 300)'],
         ['getColors', 'getColors({{200, 300}, {100, 100}})', 'getColors([(200, 300), (100, 100)])'],
         ['findColor', 'findColor(0xFF0000, 5)'],
+        ['findColors', 'findColors({{0xFF0000, 0x00FF00}}, 10)', 'findColors([0xFF0000, 0x00FF00], 10)'],
         ['waitForColor', 'waitForColor(200, 300, 0xFF0000, 10)'],
       ]},
       { g: 'Image & OCR', items: [
         ['findImage', 'findImage("btn.png", 1, 0.8)'],
         ['waitForImage', 'waitForImage("btn.png", 10)'],
+        ['swipeUntilImage', 'swipeUntilImage("btn.png", "up", 5)'],
+        ['deleteScreenshot', 'deleteScreenshot("shot1.jpg")'],
+        ['convertBase64', 'convertBase64("shot1.jpg")'],
         ['tapImage', 'tapImage("btn.png", 10)'],
         ['screenshot', 'screenshot("shot1")'],
         ['ocrText', 'ocrText(50, 200, 600, 100)'],
@@ -578,6 +582,11 @@
         ['toast', 'toast("Hello", 2)'],
         ['alert', 'alert("Hello")'],
         ['vibrate', 'vibrate()'],
+        ['showOverlay', 'showOverlay({title = "Status", value = "run 1"})', 'showOverlay({"title": "Status", "value": "run 1"})'],
+        ['updateOverlay', 'updateOverlay("Status", "run 2")'],
+        ['hideOverlay', 'hideOverlay()'],
+        ['setDebugVisual', 'setDebugVisual(true)'],
+        ['clearDebugVisual', 'clearDebugVisual()'],
         ['log', 'log("done")'],
         ['timestamp', 'timestamp()'],
         ['md5', 'md5("abc")'],
@@ -591,7 +600,8 @@
       ]},
       { g: 'Input', items: [
         ['inputText', 'inputText("hello")'],
-        ['keyDown/Up', 'keyDown("home")\nsleep(0.2)\nkeyUp("home")'],
+        ['keyDown', 'keyDown("home")'],
+        ['keyUp', 'keyUp("home")'],
         ['getClipboard', 'getClipboard()'],
         ['setClipboard', 'setClipboard("hi")'],
       ]},
@@ -602,22 +612,40 @@
         ['screenSize', 'screenSize()'],
         ['deviceInfo', 'deviceInfo()'],
         ['randomInt', 'randomInt(1, 10)'],
+        ['randomFloat', 'randomFloat(0.5, 1.5)'],
       ]},
       { g: 'File & HTTP', items: [
         ['readFile', 'readFile("/tmp/a.txt")'],
         ['writeFile', 'writeFile("/tmp/a.txt", "hi")'],
         ['jsonEncode', 'jsonEncode({a = 1})', 'jsonEncode({"a": 1})'],
         ['jsonDecode', 'jsonDecode(s)'],
-        ['httpGet', 'httpGet("https://example.com")'],
+        ['httpGet', 'httpGet("https://example.com")', 'resp = httpGet("https://example.com")\nlog(resp.status)', 'httpGet("https://example.com")'],
+        ['httpPost', 'httpPost("https://example.com", jsonEncode({a = 1}))', 'httpPost("https://example.com", jsonEncode({"a": 1}))'],
+        ['appendFile', 'appendFile("log.txt", "done\\n")'],
+      ]},
+      { g: 'Network', items: [
+        ['wifiInfo', 'local w = wifiInfo()\nlog(w.ip)', 'w = wifiInfo()\nlog(w["ip"])'],
+        ['getIP', 'log(getIP())'],
+        ['setAirplaneMode', 'setAirplaneMode(true, 3)\nsleep(5)'],
+        ['setCellularData', 'setCellularData(false, 5)'],
+        ['setProxySystem', 'setProxySystem("160.25.77.31", 8770)'],
+        ['clearProxySystem', 'clearProxySystem()'],
       ]},
       { g: 'Record', items: [
         ['recordStart', 'recordStart()'],
         ['recordStop', 'recordStop()'],
+        ['recordPlay', 'recordPlay(recordLoad("login_flow"))'],
+        ['recordSave', 'recordSave("login_flow")'],
+        ['recordLoad', 'recordLoad("login_flow")'],
       ]},
       { g: 'Crane', items: [
         ['crane.list', 'crane.list("com.facebook.Facebook")'],
         ['crane.switch', 'crane.switch("com.facebook.Facebook", "Account1")\nsleep(2)\nappRun("com.facebook.Facebook")'],
         ['crane.create', 'crane.create("com.facebook.Facebook", "Account2")'],
+        ['crane.rename', 'crane.rename("com.facebook.Facebook", "Account1", "Main")'],
+        ['crane.delete', 'crane.delete("com.facebook.Facebook", "Account2")'],
+        ['crane.wipe', 'crane.wipe("com.facebook.Facebook", "Account2")'],
+        ['crane.restore', 'crane.restore("com.facebook.Facebook", "/var/mobile/backups/1.tar")'],
         ['crane.clearData', 'crane.clearData("com.facebook.Facebook")'],
         ['crane.backup', 'crane.backup("com.facebook.Facebook")'],
         ['crane.size', 'crane.size("com.facebook.Facebook")'],
@@ -722,19 +750,91 @@
       // Lua expression → Python, run on protected text (placeholders are
       // \u0001-digit sequences, so keywords like `true`/`nil` never live
       // inside them and word-boundary replaces are safe).
-      const pyExpr = s => s.replace(/~=/g, '!=')
+      // Lua table constructor → Python dict. pyExpr leaves `{a = 1}` verbatim,
+      // which is a Python SyntaxError, so the palette's own snippets and the
+      // documented headers form (`httpGet(url, {["Authorization"] = "Bearer"})`)
+      // both died on transpile. Handles `{k = v}` and `{[expr] = v}`; a brace
+      // group whose parts are all positional is left alone (arrays keep the
+      // pre-existing behaviour rather than silently becoming dicts).
+      const splitParts = inner => {
+        const parts = [];
+        let depth = 0, cur = '';
+        for (const ch of inner) {            // strings are already placeholders
+          if (ch === '(' || ch === '[' || ch === '{') depth++;
+          else if (ch === ')' || ch === ']' || ch === '}') depth--;
+          if (ch === ',' && depth === 0) { parts.push(cur); cur = ''; }
+          else cur += ch;
+        }
+        parts.push(cur);
+        return parts;
+      };
+      const convertOneTable = inner => {
+        const parts = splitParts(inner);
+        let sawPair = false;
+        const conv = parts.map(part => {
+          const t = part.trim();
+          let m = t.match(/^\[([\s\S]+)\]\s*=\s*([\s\S]+)$/);
+          if (m) { sawPair = true; return `${m[1].trim()}: ${m[2].trim()}`; }
+          m = t.match(/^([A-Za-z_]\w*)\s*=(?!=)\s*([\s\S]+)$/);
+          if (m) { sawPair = true; return `"${m[1]}": ${m[2].trim()}`; }
+          return t;
+        }).filter((v, idx) => v || idx < parts.length - 1);
+        return sawPair ? '{' + conv.join(', ') + '}' : null;
+      };
+      // Post-order walk over brace regions: children convert before their
+      // parent, so nesting of any depth converges in a single pass (a regex
+      // loop cannot: once the parent is rewritten its children stop matching).
+      const luaTableToPy = s => {
+        let out = '';
+        for (let i = 0; i < s.length; i++) {
+          if (s[i] !== '{') { out += s[i]; continue; }
+          let depth = 0, j = i;
+          for (; j < s.length; j++) {
+            if (s[j] === '{') depth++;
+            else if (s[j] === '}') { depth--; if (!depth) break; }
+          }
+          if (j >= s.length) { out += s.slice(i); return out; } // unbalanced
+          const inner = luaTableToPy(s.slice(i + 1, j));        // children first
+          out += convertOneTable(inner) || ('{' + inner + '}');
+          i = j;
+        }
+        return out;
+      };
+      const pyExpr = s => luaTableToPy(s.replace(/~=/g, '!=')
         .replace(/\.\.\./g, '\u0002').replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...')
         .replace(/#([A-Za-z_][\w.]*)/g, 'len($1)')
         .replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None')
         // Lua findText returns x, y, text (nil when absent); Python findText
         // returns a match list. ocrFind() emulates the Lua shape: unpackable
         // triple, falsy when absent.
-        .replace(/\bfindText\s*\(/g, 'ocrFind(');
+        .replace(/\bfindText\s*\(/g, 'ocrFind('));
       // Strip `local` (single + multi-target): `local x = 1` -> `x = 1`,
       // `local x, y = f()` -> `x, y = f()`, `local x, y` -> `x = None; y = None`.
-      const stripLocal = line => line
+      // The `x, y = httpGet/httpPost(...)` form needs more than a comma split:
+      // Python httpGet returns the body string (Lua returns two values), so it
+      // becomes `x = httpGet(...); y = x.status`. Prefix-only match keeps the
+      // argument list untouched, so nested parens and strings cannot confuse it.
+      const HTTP_PAIR = /^([\w][\w.]*)\s*,\s*([\w][\w.]*)\s*=\s*(httpGet|httpPost)\s*\(/;
+      // Set when the call opens a paren that this line does not close (the
+      // docs' own multi-line httpPost shape): the `.status` half is appended by
+      // the continuation pass on the line that finally closes the call, so the
+      // emitted Python stays syntactically valid.
+      let pendingStatus = null;
+      const rewriteHttpPair = line => {
+        const m = line.match(HTTP_PAIR);
+        if (!m) return line;
+        const head = line.replace(m[0], `${m[1]} = ${m[3]}(`);
+        const opens = (line.match(/\(/g) || []).length;
+        const closes = (line.match(/\)/g) || []).length;
+        if (opens !== closes) {
+          pendingStatus = `${m[2]} = ${m[1]}.status`;
+          return head;
+        }
+        return head + `; ${m[2]} = ${m[1]}.status`;
+      };
+      const stripLocal = line => rewriteHttpPair(line
         .replace(/^local\s+([\w][\w\s,]*?)\s*=\s*/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).join(', ') + ' = ')
-        .replace(/^local\s+([\w][\w\s,]*?)\s*$/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).map(v => `${v} = None`).join('; '));
+        .replace(/^local\s+([\w][\w\s,]*?)\s*$/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).map(v => `${v} = None`).join('; ')));
       // Lua numeric-for header → Python range() header. Shared by the
       // block and one-line paths. Returns '' when the form is unsupported.
       const pyForHead = cond => {
@@ -753,7 +853,7 @@
       const ONE_LINE_IF = /^if\s+(.+?)\s+then\s+(.+?)\s+end$/;
       const ONE_LINE_LOOP = /^(while|for)\s+(.+?)\s+do\s+(.+?)\s+end$/;
       const out = [];
-      let level = 0, bracketDepth = 0;
+      let level = 0, bracketDepth = 0, contBuf = [];
       const lines = src.split('\n');
       for (let ln = 0; ln < lines.length; ln++) {
         let raw = lines[ln];
@@ -767,9 +867,25 @@
         if (/^repeat\s*$/.test(line)) fail('repeat/until is not supported, use while');
         if (/^until\b/.test(line)) fail('repeat/until is not supported, use while');
         const openDepth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
-        if (bracketDepth > 0) { // continuation line: keep verbatim (re-indent later pass skips)
-          out.push('    '.repeat(level) + restore(line));
+        if (bracketDepth > 0) {
+          // Inside a multi-line call: buffer raw (protected) lines instead of
+          // emitting each one. A Lua table may span these lines, and
+          // `{["Content-Type"] = ...}` only converts correctly when seen as a
+          // whole — per-line conversion leaves `=` behind, i.e. invalid Python.
+          contBuf.push(line);
           bracketDepth += openDepth;
+          if (bracketDepth === 0) {
+            const joined = luaTableToPy(contBuf.join('\n'));
+            joined.split('\n').forEach((seg, idx) => {
+              let text = restore(seg);
+              if (idx === joined.split('\n').length - 1 && pendingStatus) {
+                text += `; ${pendingStatus}`; // close out `x, y = httpGet(` pairs
+                pendingStatus = null;
+              }
+              out.push('    '.repeat(level) + text);
+            });
+            contBuf = [];
+          }
           continue;
         }
         let m;
@@ -819,9 +935,28 @@
         else if ((m = line.match(/^function\s+(\w+)\s*(\(.*\))\s*$/))) { emit(`def ${m[1]}${pyExpr(m[2])}:`); level++; }
         else if (/^do\s*$/.test(line)) { level++; continue; }
         else {
-          emit(pyExpr(stripLocal(line)));
+          // Bare (non-local) `body, status = httpGet(...)` needs the same
+          // rewrite stripLocal applies to the `local` form.
+          const norm = rewriteHttpPair(pyExpr(stripLocal(line)));
+          if (openDepth > 0) {
+            // The statement keeps a paren open (e.g. a Lua table spread over
+            // several argument lines). Defer it into the continuation buffer so
+            // the whole call is converted and emitted as one unit — see the
+            // buffer flush above.
+            contBuf = [norm];
+            bracketDepth = openDepth;
+            continue;
+          }
+          emit(norm);
         }
         bracketDepth += openDepth;
+      }
+      // Never swallow a deferred statement: an unterminated call at EOF used to
+      // be emitted (invalid, but visible). With the continuation buffer it would
+      // vanish silently, so flush whatever is pending before reporting errors.
+      if (contBuf.length) {
+        contBuf.forEach(seg => out.push('    '.repeat(level) + restore(seg)));
+        contBuf = [];
       }
       if (level > 0) throw { line: lines.length, message: `${level} unclosed block(s), missing "end"` };
       return out.join('\n');
