@@ -314,7 +314,7 @@
     </section>
 
     <section class="view" id="view-editor" role="tabpanel" hidden>
-      <div class="view-heading"><div><h2>Script Editor</h2><p>Write Lua or Python, run it on the device immediately. No boilerplate needed — <code>tap()</code>, <code>sleep()</code>, <code>log()</code> work directly.</p></div></div>
+      <div class="view-heading"><div><h2>Script Editor</h2><p>Write Lua or Python, run it on the device immediately. No boilerplate needed — <code>tap()</code>, <code>sleep()</code>, <code>log()</code> work directly. Autocomplete: type or press <code>Ctrl+Space</code>.</p></div></div>
       <div class="editor-layout">
         <div class="editor-main">
           <div class="editor-left">
@@ -582,8 +582,48 @@
         area.value = area.value.slice(0, s) + text + area.value.slice(area.selectionEnd ?? s);
       }
     }
-    function renderFuncPane() {
-      const lang = editorLang();
+    // Autocomplete: same FUNC_GROUPS data drives Monaco suggestions.
+    // Registered once after Monaco boots; per-language insert text.
+    let autocompleteRegistered = false;
+    function registerEditorAutocomplete() {
+      if (autocompleteRegistered || !editorState.monaco) return;
+      autocompleteRegistered = true;
+      const monaco = editorState.monaco;
+      const toSuggestions = lang => {
+        const items = [];
+        FUNC_GROUPS.forEach(group => {
+          group.items.forEach(([name, lua, py]) => {
+            const tpl = lang === 'python' ? (py || lua) : lua;
+            items.push({
+              label: name,
+              kind: monaco.languages.CompletionItemKind.Function,
+              detail: group.g,
+              documentation: { value: '```' + (lang === 'python' ? 'python' : 'lua') + '\n' + tpl + '\n```' },
+              insertText: tpl,
+              insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+              range: undefined, // filled by Monaco at request time
+            });
+          });
+        });
+        return items;
+      };
+      ['lua', 'python'].forEach(lang => {
+        monaco.languages.registerCompletionItemProvider(lang, {
+          triggerCharacters: ['.', '('],
+          provideCompletionItems: (model, position) => {
+            const word = model.getWordUntilPosition(position);
+            const range = {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endColumn: word.endColumn,
+            };
+            return { suggestions: toSuggestions(lang).map(s => ({ ...s, range })) };
+          },
+        });
+      });
+    }
+    function renderFuncPane() {      const lang = editorLang();
       elements.funcPane.innerHTML = '';
       FUNC_GROUPS.forEach(group => {
         const div = document.createElement('div');
@@ -774,6 +814,7 @@
                 editorState.model = ed.getModel();
                 editorState.view = ed;
                 editorState.ready = true;
+                registerEditorAutocomplete();
                 resolve();
               } catch (e) { reject(e); }
             }, reject);
