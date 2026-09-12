@@ -4,6 +4,7 @@
 #include "ExtTasks.h"
 #include "libCrane/libCrane.h"
 #include <dlfcn.h>
+#include <objc/message.h>
 #include <roothide.h>
 
 // ---------------------------------------------------------------- loader
@@ -36,9 +37,17 @@ static CraneManager *ZXCraneManager(NSError **error) {
     }
     id mgr = nil;
     @try {
-        // Cast through the vendored CraneManager interface so all selectors
-        // resolve at compile time; the class itself is loaded dynamically.
-        mgr = [(CraneManager *)cls sharedManager];
+        // NOTE: +sharedManager must NOT be written as [(CraneManager *)cls
+        // sharedManager] — cls is a class object, and looking a class method
+        // up on an instance-typed pointer is a hard error here. objc_msgSend
+        // keeps the dynamic lookup with no static reference (important: no
+        // link-time dependency on libcrane). All instance calls below resolve
+        // normally through the vendored libCrane.h interface.
+        Class clsObj = cls ? cls : NSClassFromString(@"CraneManager");
+        if (clsObj) {
+            mgr = ((id (*)(id, SEL))objc_msgSend)((id)clsObj,
+                NSSelectorFromString(@"sharedManager"));
+        }
     } @catch (NSException *e) {
         NSLog(@"com.zjx.springboard: CraneManager sharedManager: %@", e.reason);
     }
