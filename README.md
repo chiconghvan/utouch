@@ -155,7 +155,7 @@ touch control (Pure-VNC, no extra backend). Three buttons:
   light up a dark screen.
 
 `./novnc/core/rfb.js` is bundled in the app and served by the dashboard with
-token auth; the canvas connects to `ws://<iphone-ip>:5801/websockify`.
+token auth; the canvas connects to `ws://<iphone-ip>:5901/websockify` (LibVNCServer upgrades WebSocket on the VNC port itself; `:5801` is only its file server).
 Set a VNC password via `TROLLVNC_PASSWORD` on device if exposed beyond your LAN.
 
 ### Automation triggers

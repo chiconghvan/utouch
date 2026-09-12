@@ -280,7 +280,7 @@ static NSString *ZXDashboardIPAddress(void)
 
     // Bundled noVNC client (single-.deb plan): ./novnc/** served with token auth.
     // The dashboard loads ./novnc/core/rfb.js from here, then opens a raw
-    // WebSocket to the TrollVNC HTTP port (:5801/websockify) for stream+input.
+    // WebSocket to the TrollVNC VNC port (:5901/websockify) for stream+input.
     [self.server addHandlerForMethod:@"GET" pathRegex:@"^/novnc/.*" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];

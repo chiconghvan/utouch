@@ -160,6 +160,10 @@
     .vnc-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(57, 203, 132, .13); }
     .vnc-select, .vnc-input { width: 100%; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); font-size: 12px; }
     .vnc-hint { color: var(--muted); font-size: 11px; }
+    .vnc-debug { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+    .vnc-debug summary { color: var(--muted-strong); font-size: 12px; cursor: pointer; }
+    .vnc-debug-log { max-height: 150px; overflow: auto; margin: 6px 0; padding: 8px; color: #d5dbe3; background: #090b0e; font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .vnc-debug .button { width: 100%; font-size: 11px; }
     @media (min-width: 1024px) {
       .vnc-dock { position: fixed; z-index: 15; top: 110px; bottom: 0; left: 0; width: 344px; overflow-y: auto; }
       body main { margin-left: 344px; }
@@ -229,13 +233,14 @@
       <div class="vnc-meta"><span class="vnc-dot" id="vncDot"></span><span id="vncStatus">Disconnected</span><span class="vnc-badge" id="homeBadge">Home: …</span></div>
       <div class="vnc-row"><button class="button primary" id="vncConnect">Connect</button><button class="button ghost" id="vncDisconnect">Disconnect</button></div>
       <div class="vnc-row"><select class="vnc-select" id="vncQuality" aria-label="Stream quality"><option value="0.5">Quality 0.5 (saver)</option><option value="0.66">Quality 0.66</option><option value="0.75" selected>Quality 0.75 (LAN)</option><option value="1.0">Quality 1.0 (pixel)</option></select></div>
-      <input class="vnc-input" id="vncUrl" type="text" inputmode="url" placeholder="ws://<iphone-ip>:5801/websockify (auto)" aria-label="VNC WebSocket URL override">
+      <input class="vnc-input" id="vncUrl" type="text" inputmode="url" placeholder="ws://<iphone-ip>:5901/websockify (auto)" aria-label="VNC WebSocket URL override">
       <div class="vnc-grid">
         <button class="button" id="btnHome" title="Home"><span class="button-symbol">⌂</span>Home</button>
         <button class="button" id="btnSwitcher" title="Show running apps (App Switcher)"><span class="button-symbol">▦</span>Switcher</button>
         <button class="button" id="btnWake" title="Wake up screen when display is off"><span class="button-symbol">⏻</span>Wake</button>
       </div>
       <div class="vnc-hint">Tap/drag directly on the screen to control iOS (Pure-VNC: left=touch, Home=right-click, Wake=power). No extra backend calls.</div>
+      <details class="vnc-debug"><summary>VNC debug log</summary><pre class="vnc-debug-log" id="vncDebug">No VNC attempts yet.</pre><button class="button ghost" id="vncCopyDebug" type="button">Copy debug</button></details>
     </div>
   </aside>
   <div class="offline-banner" id="offlineBanner" hidden><strong>ZXTouch service unavailable.</strong> Controls will resume when the local service reconnects.</div>
@@ -370,6 +375,17 @@
     }
     function vncCanvas() { return elements.vncScreen.querySelector('canvas'); }
     function setVncStatus(text, online) { elements.vncStatus.textContent = text; elements.vncDot.classList.toggle('online', Boolean(online)); }
+    // Debug trail: every VNC step lands here (and console) so the next
+    // survey can pinpoint the failing hop without guessing.
+    function vncLog(step, detail = '') {
+      const line = `[${new Date().toISOString().slice(11, 19)}] ${step}${detail ? ` — ${detail}` : ''}`;
+      try { console.log(`[vnc] ${line}`); } catch (_) {}
+      if (!elements.vncDebug) return;
+      if (elements.vncDebug.dataset.empty !== undefined || elements.vncDebug.textContent.startsWith('No VNC')) elements.vncDebug.textContent = '';
+      const lines = (elements.vncDebug.textContent + '\n' + line).split('\n').slice(-60);
+      elements.vncDebug.textContent = lines.join('\n');
+      elements.vncDebug.scrollTop = elements.vncDebug.scrollHeight;
+    }
     function updateVncDevice(status) {
       const model = status.model || '';
       const sys = status.systemVersion ? `iOS ${status.systemVersion}` : '';
@@ -379,16 +395,18 @@
       elements.homeBadge.textContent = `Home: ${state.vnc.homeType === 'physical' ? 'physical button' : 'swipe up'}`;
     }
     function defaultWsUrl() {
+      // LibVNCServer answers WebSocket upgrades on the VNC port itself
+      // (:5901/websockify). :5801 is the plain HTTP file server — ws there 404s.
       const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-      return `${proto}://${location.hostname}:5801/websockify`;
+      return `${proto}://${location.hostname}:5901/websockify`;
     }
     async function loadRfbClass() {
       if (window.RFB) return window.RFB;
       // Bundled asset (./novnc/core + ./novnc/vendor) served by the dashboard
       // itself (RemoteDashboardServer /novnc/* handler, same origin).
-      // NOTE: cross-origin module import from :5801 is impossible (no CORS
-      // headers there), so there is intentionally no :5801 fallback here.
-      // The :5801 port is only used for the WebSocket stream (not CORS-gated).
+      // NOTE: cross-origin module import from the VNC ports is impossible
+      // (no CORS headers there), so there is intentionally no remote fallback.
+      // The WebSocket stream itself (ws://<ip>:5901/websockify) is not CORS-gated.
       const mod = await import(/* @vite-ignore */query('./novnc/core/rfb.js'));
       window.RFB = mod.default || mod.RFB || window.RFB;
       if (!window.RFB) throw new Error('novnc/core/rfb.js loaded but exports no RFB class.');
@@ -422,37 +440,49 @@
       await wait(80);
       dispatchMouse(c, 'mouseup', b.x, b.y, 0, 0);
     }
-    async function doHome() { state.vnc.homeType === 'physical' ? vncClick(2) : vncSwipe(); }
-    async function doSwitcher() { state.vnc.homeType === 'physical' ? (await vncClick(2), await wait(350), await vncClick(2)) : vncSwipe({ holdMs: 650 }); }
-    async function doWake() { await vncClick(1); } // middle = Power short-press; always allowed (screen may be off)
+    async function doHome() { vncLog('button', `Home (${state.vnc.homeType}, connected=${state.vnc.connected})`); state.vnc.homeType === 'physical' ? vncClick(2) : vncSwipe(); }
+    async function doSwitcher() { vncLog('button', `Switcher (${state.vnc.homeType}, connected=${state.vnc.connected})`); state.vnc.homeType === 'physical' ? (await vncClick(2), await wait(350), await vncClick(2)) : vncSwipe({ holdMs: 650 }); }
+    async function doWake() { vncLog('button', `Wake (connected=${state.vnc.connected})`); await vncClick(1); } // middle = Power short-press; always allowed (screen may be off)
     async function vncConnect() {
       if (state.vnc.connecting || state.vnc.connected) return;
       state.vnc.connecting = true;
       setVncStatus('Connecting…', false);
       elements.vncOverlay.hidden = false;
       try {
+        vncLog('step 1/3', 'loading bundled novnc/core/rfb.js');
         const RFB = await loadRfbClass();
+        vncLog('step 1/3 ok', 'RFB class loaded');
         const wsUrl = elements.vncUrl.value.trim() || defaultWsUrl();
+        vncLog('step 2/3', `opening ${wsUrl} (secureContext=${window.isSecureContext})`);
         if (state.vnc.rfb) { try { state.vnc.rfb.disconnect(); } catch (_) {} }
         const rfb = new RFB(elements.vncScreen, wsUrl, { shared: true });
         state.vnc.rfb = rfb;
         rfb.viewOnly = false;
         rfb.scaleViewport = true;
-        rfb.addEventListener('connect', () => { state.vnc.connected = true; state.vnc.connecting = false; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); showToast('VNC connected — tap the screen to control iOS.'); });
-        rfb.addEventListener('disconnect', () => { state.vnc.connected = false; state.vnc.connecting = false; elements.vncOverlay.hidden = false; setVncStatus('Disconnected', false); });
+        rfb.addEventListener('connect', e => { state.vnc.connected = true; state.vnc.connecting = false; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); vncLog('step 3/3 ok', `connected, desktop="${(e && e.detail && e.detail.name) || ''}"`); showToast('VNC connected — tap the screen to control iOS.'); });
+        rfb.addEventListener('disconnect', e => {
+          const d = (e && e.detail) || {};
+          state.vnc.connected = false; state.vnc.connecting = false; elements.vncOverlay.hidden = false; setVncStatus('Disconnected', false);
+          vncLog('disconnect', `clean=${d.clean} msg="${d.message || d.reason || 'n/a'}"`);
+        });
+        rfb.addEventListener('credentialsrequired', () => vncLog('auth', 'server requested credentials — set TROLLVNC_PASSWORD on device or leave empty if none'));
+        rfb.addEventListener('securityfailure', e => vncLog('auth failed', (e && e.detail && (e.detail.message || e.detail.reason)) || 'n/a'));
+        rfb.addEventListener('desktopname', e => vncLog('desktop', (e && e.detail && e.detail.name) || 'n/a'));
       } catch (error) {
         state.vnc.connecting = false;
         setVncStatus('RFB missing', false);
+        vncLog('FAILED', error.message);
         elements.vncOverlay.innerHTML = 'Bundled <code>novnc/core/rfb.js</code> failed to load.<br>Update to the latest package, or open <code>http://&lt;ip&gt;:5801/</code> directly.';
         showToast(`VNC connect failed: ${error.message}`, true);
       }
     }
-    function vncDisconnect() { try { state.vnc.rfb && state.vnc.rfb.disconnect(); } catch (_) {} state.vnc.connected = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
+    function vncDisconnect() { vncLog('button', 'Disconnect'); try { state.vnc.rfb && state.vnc.rfb.disconnect(); } catch (_) {} state.vnc.connected = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
     elements.vncConnect.addEventListener('click', vncConnect);
     elements.vncDisconnect.addEventListener('click', vncDisconnect);
     elements.btnHome.addEventListener('click', doHome);
     elements.btnSwitcher.addEventListener('click', doSwitcher);
     elements.btnWake.addEventListener('click', doWake);
+    elements.vncCopyDebug.addEventListener('click', async () => { try { await copyText(elements.vncDebug.textContent); showToast('VNC debug copied.'); } catch (_) { showToast('Unable to copy debug log.', true); } });
     setVncStatus('Disconnected', false);
     // ── end TrollVNC dock ────────────────────────────────────────────────
 
