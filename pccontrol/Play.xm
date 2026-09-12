@@ -94,13 +94,12 @@ BOOL isScriptPlaying()
 
 void playHasStoppedCallBack()
 {
-    // Users can turn the "Script Finished" popup off in the app's settings
-    // (Script -> Script Finished Popup). Absent key means on, so existing
-    // installs keep the previous behaviour.
+    // "Script Finished" popup is OFF by default (it interrupts automation).
+    // Users can turn it back on in the app's settings
+    // (Script -> Script Finished Popup).
     NSDictionary *tweakCfg = [[NSDictionary alloc] initWithContentsOfFile:@"/var/mobile/Library/ZXTouch/config/tweak/config.plist"];
     id showFinishedPopup = tweakCfg[@"show_script_finished_popup"];
-    if (showFinishedPopup != nil && ![showFinishedPopup boolValue]) {
-        NSLog(@"com.zjx.springboard: Script Finished popup disabled in settings.");
+    if (![showFinishedPopup boolValue]) {
         return;
     }
 

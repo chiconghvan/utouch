@@ -168,6 +168,14 @@ def rotate(x, y, angle=90.0, duration=0.5):
 
 # ---------------------------------------------------------------- Color
 
+def _num(v):
+    """int() for device values: daemon formats numbers as '1242.000000'."""
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return int(v)
+
+
 def _color_to_rgb(color):
     if isinstance(color, int):
         return ((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)
@@ -188,7 +196,7 @@ def getColor(x, y):
     ok, res = get_device().pick_color(x, y)
     if not ok:
         raise RuntimeError("getColor failed: %s" % (res,))
-    return _rgb_to_int(res["red"], res["green"], res["blue"])
+    return _rgb_to_int(_num(res["red"]), _num(res["green"]), _num(res["blue"]))
 
 
 def getColors(locations):
@@ -200,7 +208,7 @@ def _default_region():
     ok, res = get_device().get_screen_size()
     if not ok:
         raise RuntimeError("get_screen_size failed: %s" % (res,))
-    return (0, 0, int(res["width"]), int(res["height"]))
+    return (0, 0, _num(res["width"]), _num(res["height"]))
 
 
 def findColor(color, count=1, region=None, tolerance=0):
@@ -226,7 +234,7 @@ def findColor(color, count=1, region=None, tolerance=0):
             region, r - t, r + t, g - t, g + t, b - t, b + t)
         if not ok:
             break
-        out.append((int(res["x"]), int(res["y"])))
+        out.append((_num(res["x"]), _num(res["y"])))
         if len(out) >= 1:  # legacy native returns first match; avoid infinite loop
             break
     return out
@@ -382,8 +390,8 @@ def tapImage(path, timeout=10.0, threshold=0.8, region=None):
     m = waitForImage(path, timeout=timeout, threshold=threshold)
     if not m:
         return None
-    tap(int(m["x"]) + int(m.get("width", 0)) // 2,
-        int(m["y"]) + int(m.get("height", 0)) // 2)
+    tap(_num(m["x"]) + _num(m.get("width", 0)) // 2,
+        _num(m["y"]) + _num(m.get("height", 0)) // 2)
     return m
 
 
@@ -393,9 +401,9 @@ def tapText(text, timeout=10.0, index=0, region=None):
     while time.time() <= end:
         matches = findText(text, region=region)
         if len(matches) > index:
-            m = sorted(matches, key=lambda i: (int(i.get("y", 0)), int(i.get("x", 0))))[index]
-            tap(int(m.get("x", 0)) + int(m.get("width", 0)) // 2,
-                int(m.get("y", 0)) + int(m.get("height", 0)) // 2)
+            m = sorted(matches, key=lambda i: (_num(i.get("y", 0)), _num(i.get("x", 0))))[index]
+            tap(_num(m.get("x", 0)) + _num(m.get("width", 0)) // 2,
+                _num(m.get("y", 0)) + _num(m.get("height", 0)) // 2)
             return m
         time.sleep(0.5)
     return None
@@ -601,7 +609,7 @@ def screenSize():
     ok, res = get_device().get_screen_size()
     if not ok:
         raise RuntimeError("screenSize failed: %s" % (res,))
-    return {"width": int(res["width"]), "height": int(res["height"])}
+    return {"width": _num(res["width"]), "height": _num(res["height"])}
 
 
 def deviceInfo():
@@ -710,16 +718,16 @@ def recordPlay(events, speed=1.0):
         if kind in ("sleep", "delay", "wait"):
             time.sleep(float(ev.get("delay", ev.get("seconds", 0.5))) / speed)
         elif kind in ("tap", "touch"):
-            tap(int(ev["x"]), int(ev["y"]),
-                int(ev.get("finger", ev.get("finger_index", 1))))
+            tap(_num(ev["x"]), _num(ev["y"]),
+                _num(ev.get("finger", ev.get("finger_index", 1))))
         elif kind == "down":
-            touchDown(int(ev.get("finger", 1)), int(ev["x"]), int(ev["y"]))
+            touchDown(_num(ev.get("finger", 1)), _num(ev["x"]), _num(ev["y"]))
         elif kind == "move":
-            touchMove(int(ev.get("finger", 1)), int(ev["x"]), int(ev["y"]))
+            touchMove(_num(ev.get("finger", 1)), _num(ev["x"]), _num(ev["y"]))
         elif kind == "up":
-            touchUp(int(ev.get("finger", 1)), int(ev["x"]), int(ev["y"]))
+            touchUp(_num(ev.get("finger", 1)), _num(ev["x"]), _num(ev["y"]))
         elif kind == "swipe":
-            swipe(int(ev["x1"]), int(ev["y1"]), int(ev["x2"]), int(ev["y2"]),
+            swipe(_num(ev["x1"]), _num(ev["y1"]), _num(ev["x2"]), _num(ev["y2"]),
                   float(ev.get("duration", 0.5)))
         if "delay" in ev and kind not in ("sleep", "delay", "wait"):
             time.sleep(float(ev["delay"]) / speed)

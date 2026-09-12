@@ -174,13 +174,22 @@
     }
 
     .editor-layout { display: grid; gap: 14px; }
+    .editor-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, .7fr); gap: 14px; align-items: start; }
+    .editor-left { display: grid; gap: 14px; min-width: 0; }
+    .funcpane-body { max-height: 62vh; min-height: 300px; overflow: auto; padding: 6px 0 12px; }
+    .func-group { padding: 2px 13px 0; }
+    .func-group > h4 { margin: 10px 0 7px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
+    .func-group > h4:first-child { margin-top: 4px; }
+    .func-list { display: flex; flex-wrap: wrap; gap: 5px; }
+    .func-item { min-height: 28px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted-strong); background: var(--field); cursor: pointer; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .func-item:hover { border-color: var(--blue); color: var(--text); }
+    .runlog .panel-head { min-height: 56px; }
+    .runlog-output { height: 30vh; min-height: 220px; margin: 0; overflow: auto; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .runlog-sep { color: var(--blue); }
     .editor-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
     .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-lang { min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-open { min-height: 34px; max-width: 260px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
-    .editor-snippets { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    .snippet { min-height: 30px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 20px; color: var(--muted-strong); background: var(--field); cursor: pointer; font-size: 12px; }
-    .snippet:hover { border-color: var(--blue); color: var(--text); }
     .editor-box { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; }
     #monacoHost { height: 46vh; min-height: 340px; }
     #editorFallback { width: 100%; height: 46vh; min-height: 340px; padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
@@ -202,7 +211,8 @@
     .modal-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 14px; border-top: 1px solid var(--line); background: #171a20; }
 
     @media (max-width: 820px) {
-      .asset-layout, .device-layout { grid-template-columns: 1fr; }
+      .asset-layout, .device-layout, .editor-main { grid-template-columns: 1fr; }
+      .funcpane-body { max-height: 300px; min-height: 0; }
       .asset-notes { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
       .script-list { max-height: 560px; }
     }
@@ -306,18 +316,23 @@
     <section class="view" id="view-editor" role="tabpanel" hidden>
       <div class="view-heading"><div><h2>Script Editor</h2><p>Write Lua or Python, run it on the device immediately. No boilerplate needed — <code>tap()</code>, <code>sleep()</code>, <code>log()</code> work directly.</p></div></div>
       <div class="editor-layout">
-        <div class="editor-toolbar">
-          <select class="editor-open" id="editorOpen" aria-label="Open script from library"><option value="">Open from library…</option></select>
-          <input class="editor-name" id="editorName" type="text" placeholder="Script name (for Save)" aria-label="Script name for save" maxlength="64">
-          <select class="editor-lang" id="editorLang" aria-label="Editor language"><option value="lua" selected>Lua</option><option value="python">Python</option></select>
-          <button class="button primary" id="editorRun"><span class="button-symbol">&#9654;</span>Run</button>
-          <button class="button danger" id="editorStop"><span class="button-symbol">&#9632;</span>Stop</button>
-          <button class="button" id="editorSave"><span class="button-symbol">&#8595;</span>Save</button>
+        <div class="editor-main">
+          <div class="editor-left">
+            <div class="editor-toolbar">
+              <select class="editor-open" id="editorOpen" aria-label="Open script from library"><option value="">Open from library…</option></select>
+              <input class="editor-name" id="editorName" type="text" placeholder="Script name (for Save)" aria-label="Script name for save" maxlength="64">
+              <select class="editor-lang" id="editorLang" aria-label="Editor language"><option value="lua" selected>Lua</option><option value="python">Python</option></select>
+              <button class="button primary" id="editorRun"><span class="button-symbol">&#9654;</span>Run</button>
+              <button class="button danger" id="editorStop"><span class="button-symbol">&#9632;</span>Stop</button>
+              <button class="button" id="editorSave"><span class="button-symbol">&#8595;</span>Save</button>
+            </div>
+            <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
+            <details class="transpiled" id="transpiledWrap" hidden><summary>Transpiled Python preview (Lua runs via transpile → Python)</summary><pre id="transpiledView"></pre></details>
+            <div class="editor-status"><span id="editorStatus">Ready — Monaco loads from CDN, offline falls back to plain text.</span><span class="editor-note">Lua subset: <code>--</code> comments, <code>local</code>, <code>if/elseif/else/end</code>, numeric <code>for</code>, <code>while/do</code>, <code>~=</code>, <code>..</code>, <code>#len</code>.</span></div>
+          </div>
+          <aside class="funcpane panel" aria-label="Function palette"><div class="panel-head"><div class="panel-title"><h3>Functions</h3><p>Click to insert at cursor</p></div></div><div class="funcpane-body" id="funcPane"></div></aside>
         </div>
-        <div class="editor-snippets" id="editorSnippets" aria-label="Insert snippet"></div>
-        <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
-        <details class="transpiled" id="transpiledWrap" hidden><summary>Transpiled Python preview (Lua runs via transpile → Python)</summary><pre id="transpiledView"></pre></details>
-        <div class="editor-status"><span id="editorStatus">Ready — Monaco loads from CDN, offline falls back to plain text.</span><span class="editor-note">Lua subset: <code>--</code> comments, <code>local</code>, <code>if/elseif/else/end</code>, numeric <code>for</code>, <code>while/do</code>, <code>~=</code>, <code>..</code>, <code>#len</code>. Output streams to Logs.</span></div>
+        <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
       </div>
     </section>
   </main>
@@ -400,15 +415,85 @@
     const editorState = { monaco: null, model: null, ready: false, useFallback: false, running: false };
     const LUA_SAMPLE = '-- Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     const PY_SAMPLE = '# Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
-    const SNIPPETS = [
-      { label: 'tap', lua: 'tap(200, 300)', py: 'tap(200, 300)' },
-      { label: 'swipe', lua: 'swipe(200, 600, 200, 200, 0.3)', py: 'swipe(200, 600, 200, 200, 0.3)' },
-      { label: 'sleep+log', lua: 'sleep(1)\nlog("done")', py: 'sleep(1)\nlog("done")' },
-      { label: 'color check', lua: 'local c = getColor(200, 300)\nif c ~= 0xFFFFFF then\n  log("changed")\nend', py: 'c = getColor(200, 300)\nif c != 0xFFFFFF:\n    log("changed")' },
-      { label: 'image tap', lua: 'tapImage("btn.png", 10)', py: 'tapImage("btn.png", 10)' },
-      { label: 'ocr tap', lua: 'tapText("Login", 10)', py: 'tapText("Login", 10)' },
-      { label: 'app run', lua: 'appRun("com.apple.mobilesafari")\nsleep(2)', py: 'appRun("com.apple.mobilesafari")\nsleep(2)' },
-      { label: 'loop taps', lua: 'for i = 1, 5 do\n  tap(200, 300 + i * 10)\n  sleep(0.5)\nend', py: 'for i in range(1, 6):\n    tap(200, 300 + i * 10)\n    sleep(0.5)' },
+    // Function palette: [name, luaTpl, pyTpl?]. Click inserts at cursor.
+    const FUNC_GROUPS = [
+      { g: 'Touch', items: [
+        ['tap(x, y)', 'tap(200, 300)'],
+        ['touchDown', 'touchDown(0, 200, 300)'],
+        ['touchMove', 'touchMove(0, 200, 300)'],
+        ['touchUp', 'touchUp(0, 200, 300)'],
+        ['swipe', 'swipe(200, 600, 200, 200, 0.3)'],
+        ['longPress', 'longPress(200, 300, 1.0)'],
+        ['pinch', 'pinch(200, 400, 0.5, 0.5)'],
+        ['rotate', 'rotate(200, 400, 90, 0.5)'],
+      ]},
+      { g: 'Color', items: [
+        ['getColor', 'getColor(200, 300)'],
+        ['getColors', 'getColors({{200, 300}, {100, 100}})', 'getColors([(200, 300), (100, 100)])'],
+        ['findColor', 'findColor(0xFF0000, 5)'],
+        ['waitForColor', 'waitForColor(200, 300, 0xFF0000, 10)'],
+      ]},
+      { g: 'Image & OCR', items: [
+        ['findImage', 'findImage("btn.png", 1, 0.8)'],
+        ['waitForImage', 'waitForImage("btn.png", 10)'],
+        ['tapImage', 'tapImage("btn.png", 10)'],
+        ['screenshot', 'screenshot("shot1")'],
+        ['ocrText', 'ocrText(50, 200, 600, 100)'],
+        ['findText', 'findText("Login")'],
+        ['waitForText', 'waitForText("Login", 10)'],
+        ['tapText', 'tapText("Login", 10)'],
+        ['swipeUntilText', 'swipeUntilText("More", "up", 5)'],
+      ]},
+      { g: 'Dialog & Overlay', items: [
+        ['dialogInput', 'dialogInput("Title", "Message", "")', 'dialogInput("Title", "Message", "")'],
+        ['dialogChoice', 'dialogChoice("Pick", "A", "B")'],
+        ['toast', 'toast("Hello", 2)'],
+        ['alert', 'alert("Hello")'],
+        ['vibrate', 'vibrate()'],
+        ['log', 'log("done")'],
+        ['timestamp', 'timestamp()'],
+        ['md5', 'md5("abc")'],
+      ]},
+      { g: 'App', items: [
+        ['appRun', 'appRun("com.apple.mobilesafari")'],
+        ['appKill', 'appKill("com.apple.mobilesafari")'],
+        ['appState', 'appState("com.apple.mobilesafari")'],
+        ['appClear', 'appClear("com.apple.mobilesafari")'],
+        ['openURL', 'openURL("https://apple.com")'],
+      ]},
+      { g: 'Input', items: [
+        ['inputText', 'inputText("hello")'],
+        ['keyDown/Up', 'keyDown("home")\nsleep(0.2)\nkeyUp("home")'],
+        ['getClipboard', 'getClipboard()'],
+        ['setClipboard', 'setClipboard("hi")'],
+      ]},
+      { g: 'Timing & Info', items: [
+        ['sleep', 'sleep(1)'],
+        ['usleep', 'usleep(50000)'],
+        ['randomSleep', 'randomSleep(0.5, 1.5)'],
+        ['screenSize', 'screenSize()'],
+        ['deviceInfo', 'deviceInfo()'],
+        ['randomInt', 'randomInt(1, 10)'],
+      ]},
+      { g: 'File & HTTP', items: [
+        ['readFile', 'readFile("/tmp/a.txt")'],
+        ['writeFile', 'writeFile("/tmp/a.txt", "hi")'],
+        ['jsonEncode', 'jsonEncode({a = 1})', 'jsonEncode({"a": 1})'],
+        ['jsonDecode', 'jsonDecode(s)'],
+        ['httpGet', 'httpGet("https://example.com")'],
+      ]},
+      { g: 'Record', items: [
+        ['recordStart', 'recordStart()'],
+        ['recordStop', 'recordStop()'],
+      ]},
+      { g: 'Crane', items: [
+        ['crane.list', 'crane.list("com.facebook.Facebook")'],
+        ['crane.switch', 'crane.switch("com.facebook.Facebook", "Account1")\nsleep(2)\nappRun("com.facebook.Facebook")'],
+        ['crane.create', 'crane.create("com.facebook.Facebook", "Account2")'],
+        ['crane.clearData', 'crane.clearData("com.facebook.Facebook")'],
+        ['crane.backup', 'crane.backup("com.facebook.Facebook")'],
+        ['crane.size', 'crane.size("com.facebook.Facebook")'],
+      ]},
     ];
 
     // Best-effort Lua→Python for the automation subset. Throws {line, message}.
@@ -497,17 +582,69 @@
         area.value = area.value.slice(0, s) + text + area.value.slice(area.selectionEnd ?? s);
       }
     }
-    function renderSnippets() {
+    function renderFuncPane() {
       const lang = editorLang();
-      elements.editorSnippets.innerHTML = '';
-      SNIPPETS.forEach(sn => {
-        const b = document.createElement('button');
-        b.className = 'snippet';
-        b.type = 'button';
-        b.textContent = '+ ' + sn.label;
-        b.addEventListener('click', () => editorInsert(lang === 'python' ? sn.py : sn.lua));
-        elements.editorSnippets.appendChild(b);
+      elements.funcPane.innerHTML = '';
+      FUNC_GROUPS.forEach(group => {
+        const div = document.createElement('div');
+        div.className = 'func-group';
+        const h = document.createElement('h4');
+        h.textContent = group.g;
+        div.appendChild(h);
+        const list = document.createElement('div');
+        list.className = 'func-list';
+        group.items.forEach(([name, lua, py]) => {
+          const b = document.createElement('button');
+          b.className = 'func-item';
+          b.type = 'button';
+          b.textContent = name;
+          b.title = (lang === 'python' ? (py || lua) : lua);
+          b.addEventListener('click', () => editorInsert(lang === 'python' ? (py || lua) : lua));
+          list.appendChild(b);
+        });
+        div.appendChild(list);
+        elements.funcPane.appendChild(div);
       });
+    }
+    // Run Log pane: script output only (sliced by server offset), accumulated
+    // across runs, never auto-cleared. Polls while a run is active.
+    const runLog = { offset: 0, timer: null, emptyStreak: 0, runs: 0, started: false };
+    function runLogAppend(text) {
+      if (!text) return;
+      if (elements.runLogOut.dataset.empty !== undefined) { elements.runLogOut.textContent = ''; delete elements.runLogOut.dataset.empty; }
+      elements.runLogOut.textContent += text;
+      const total = elements.runLogOut.textContent.split('\n').length;
+      elements.runLogSummary.textContent = `${total} lines — ${runLog.runs} run${runLog.runs === 1 ? '' : 's'}`;
+      if (elements.runLogFollow.checked) elements.runLogOut.scrollTop = elements.runLogOut.scrollHeight;
+    }
+    function runLogSeparator() {
+      runLog.runs++;
+      const stamp = new Date().toLocaleTimeString();
+      runLogAppend(`\n──── Run #${runLog.runs} · ${stamp} ────\n`);
+    }
+    async function runLogTick() {
+      try {
+        const payload = await api(`/api/editor/logs?since=${runLog.offset}`);
+        runLog.offset = Number(payload.offset || runLog.offset);
+        if (payload.logs) { runLogAppend(payload.logs); runLog.emptyStreak = 0; }
+        else runLog.emptyStreak++;
+        await loadStatus().catch(() => {});
+        const playing = Boolean(state.status && state.status.scriptPlaying);
+        if (!playing && runLog.emptyStreak >= 2) runLogStop();
+      } catch (_) { runLog.emptyStreak++; }
+    }
+    function runLogStart(offset) {
+      runLogStop();
+      runLog.offset = Number(offset || 0);
+      runLog.emptyStreak = 0;
+      runLog.started = true;
+      runLogSeparator();
+      runLog.timer = setInterval(runLogTick, 1000);
+      runLogTick();
+    }
+    function runLogStop() {
+      runLog.started = false;
+      if (runLog.timer) { clearInterval(runLog.timer); runLog.timer = null; }
     }
     function setEditorStatus(text) { elements.editorStatus.textContent = text; }
     function currentPayload() {
@@ -533,19 +670,20 @@
       let code;
       try { code = currentPayload(); } catch (e) { showToast(e.message, true); setEditorStatus('Transpile failed — ' + e.message); return; }
       setButtonBusy(elements.editorRun, true, 'Running…');
-      setEditorStatus('Running on device… watch Logs for output.');
+      setEditorStatus('Running on device… output appears below.');
       try {
         const payload = await api('/api/editor/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
         if (payload.result && !String(payload.result).startsWith('0')) throw new Error(String(payload.result).replace(/^(-1;;|\r\n)/g, ''));
         showToast('Editor script started.');
-        setEditorStatus('Started — output streams to Logs.');
+        setEditorStatus('Running — run log accumulates below.');
+        runLogStart(payload.logOffset || 0);
         await loadStatus();
       } catch (error) { showToast(error.message, true); setEditorStatus('Run failed — ' + error.message); }
       finally { setButtonBusy(elements.editorRun, false); }
     }
     async function editorStop() {
       setButtonBusy(elements.editorStop, true, 'Stopping…');
-      try { await api('/api/stop', { method: 'POST' }); showToast('Stop requested.'); await loadStatus(); }
+      try { await api('/api/stop', { method: 'POST' }); showToast('Stop requested.'); runLogStop(); await loadStatus(); }
       catch (error) { showToast(error.message, true); }
       finally { setButtonBusy(elements.editorStop, false); }
     }
@@ -593,13 +731,20 @@
     }
     function applyEditorLanguage() {
       const lang = editorLang();
-      renderSnippets();
+      renderFuncPane();
       if (editorState.monaco && editorState.model) editorState.monaco.editor.setModelLanguage(editorState.model, lang === 'python' ? 'python' : 'lua');
       if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
       if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);
     }
     function initEditor() {
-      renderSnippets();
+      renderFuncPane();
+      elements.runLogOut.dataset.empty = '1';
+      elements.runLogClear.addEventListener('click', () => {
+        runLogStop();
+        elements.runLogOut.textContent = 'Run log cleared.';
+        elements.runLogOut.dataset.empty = '1';
+        elements.runLogSummary.textContent = 'Script output only — accumulates across runs';
+      });
       elements.editorRun.addEventListener('click', editorRun);
       elements.editorStop.addEventListener('click', editorStop);
       elements.editorSave.addEventListener('click', editorSave);

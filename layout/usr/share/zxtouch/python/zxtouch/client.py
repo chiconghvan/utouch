@@ -340,7 +340,7 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(1024))
         if not result[0]:
             return False, result[1]
-        battery_state_return = int(result[1][0])
+        battery_state_return = int(float(result[1][0]))
         battery_state_list = ["Unknown", "Unplugged", "Charging", "Full"]
 
         return True, {"battery_state": result[1][0], "battery_level": str(int(float(result[1][1]))),
@@ -442,7 +442,7 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
             return False, result[1]
-        return True, int(result[1][0])
+        return True, int(float(result[1][0]))
 
     def show_overlay(self, data):
         """Show transparent stats overlay (Phase 2: TASK_OVERLAY=32)."""
@@ -476,7 +476,7 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(1024))
         if not result[0]:
             return False, result[1]
-        return True, int(result[1][0])
+        return True, int(float(result[1][0]))
 
     def open_url(self, url):
         """Open a URL/scheme (Phase 2: TASK_OPEN_URL=35)."""
@@ -493,7 +493,7 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(1024))
         if not result[0]:
             return False, result[1]
-        return True, int(result[1][0])
+        return True, int(float(result[1][0]))
 
     def key_press(self, key_name, action="down"):
         """Press/release hardware key: home|volumeUp|volumeDown|power
@@ -555,7 +555,7 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
             return False, result[1]
-        return True, (int(result[1][0]), int(result[1][1]))
+        return True, (int(float(result[1][0])), int(float(result[1][1])))
 
     def find_image_in_region(self, template_path, region, threshold=0.8, max_try_times=2, scale=0.8):
         """Template match inside a region (Phase 2: TASK_IMAGE_REGION=41)."""
@@ -587,7 +587,7 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
             return False, result[1]
-        return True, int(result[1][0])
+        return True, int(float(result[1][0]))
 
     def record_save(self, name, events):
         """Save event table on-device (Phase 2: TASK_RECORD_SAVE=43)."""

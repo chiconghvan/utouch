@@ -17,7 +17,9 @@ class FakeDevice:
         self.calls = []
         self.ocr_items = []
         self.pick = {"red": 255, "green": 0, "blue": 0}
-        self.screen = {"width": "750", "height": "1334"}
+        # Daemon formats numbers as float strings ('1242.000000') — see
+        # tapText('Files') ValueError regression.
+        self.screen = {"width": "1242.000000", "height": "2208.000000"}
 
     # raw client API surface used by prelude
     def touch(self, t, finger, x, y):
@@ -40,7 +42,7 @@ class FakeDevice:
 
     def image_match(self, *a):
         self.calls.append(("image", a))
-        return (True, {"x": "5", "y": "6", "width": "10", "height": "10"})
+        return (True, {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"})
 
     def ocr(self, region):
         self.calls.append(("ocr", region))
@@ -223,8 +225,20 @@ def test_find_text_filters():
 def test_tap_image_taps_center():
     d = use_fake()
     m = prelude.tapImage("a.png", timeout=1)
-    assert m == {"x": "5", "y": "6", "width": "10", "height": "10"}
+    assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
     assert any(c[0] == "touch" for c in d.calls)
+
+
+def test_float_string_device_numbers():
+    # Regression: daemon replies like '1242.000000', int() on that crashes.
+    use_fake()
+    assert prelude.screenSize() == {"width": 1242, "height": 2208}
+    assert prelude.getColor(1, 1) == 0xFF0000
+    assert prelude.findColor(0xFF0000) == [(10, 20)]
+    m = prelude.tapText("hello", timeout=0.1)
+    assert m is None or isinstance(m, dict)  # must not raise ValueError
+    assert prelude._num("1242.000000") == 1242
+    assert prelude._num(7) == 7
 
 
 def test_native_wiring():
@@ -249,7 +263,7 @@ def test_native_wiring():
 def test_fallbacks_against_old_daemon():
     d = use_fake()  # FakeDevice raises for multi/region/record-device paths
     assert prelude.findColor(0xFF0000) == [(10, 20)]  # legacy single-point
-    assert prelude.findImage("a.png") == {"x": "5", "y": "6", "width": "10", "height": "10"}
+    assert prelude.findImage("a.png") == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
     evs = [{"type": "tap", "x": 1, "y": 2}]
     prelude.recordPlay(evs)  # local replay
     assert any(c[0] == "touch" for c in d.calls)

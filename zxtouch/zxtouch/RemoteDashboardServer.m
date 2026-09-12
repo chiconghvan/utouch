@@ -451,9 +451,41 @@ static NSString *ZXDashboardIPAddress(void)
         if (!bundlePath) {
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to stage editor script." } status:500];
         }
+        // Byte offset BEFORE the run so the Editor tab can poll ONLY this
+        // run's output (script prints, not older system/log lines).
+        unsigned long long logOffset = [[[NSFileManager defaultManager] attributesOfItemAtPath:RUNTIME_OUTPUT_PATH error:nil] fileSize];
         NSString *result = [strongSelf sendSocketCommand:[@"19" stringByAppendingString:bundlePath] expectsReply:YES];
         strongSelf.lastAction = @"Editor run";
-        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
+        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"", @"logOffset": @(logOffset) } status:200];
+    }];
+
+    // GET /api/editor/logs?since=<bytes> — bytes appended to the runtime
+    // log since the offset (returned by /api/editor/run). Editor tab polls
+    // this while its script runs and appends to its own pane (accumulates
+    // across runs, never auto-cleared). Capped per poll to bound memory.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/editor/logs" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        unsigned long long since = (unsigned long long)[request.query[@"since"] longLongValue];
+        unsigned long long size = [[[NSFileManager defaultManager] attributesOfItemAtPath:RUNTIME_OUTPUT_PATH error:nil] fileSize];
+        if (since > size) since = 0; // log rotated/cleared meanwhile — restart from head
+        NSString *text = @"";
+        if (size > since) {
+            NSFileHandle *handle = [NSFileHandle fileHandleForReadingAtPath:RUNTIME_OUTPUT_PATH];
+            @try {
+                [handle seekToFileOffset:since];
+                NSData *data = [handle readDataOfLength:(NSUInteger)MIN(size - since, 65536)];
+                // Advance by raw bytes (not string length) so a multi-byte
+                // char split across polls is re-read, never skipped.
+                since += data.length;
+                text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
+            } @catch (NSException *e) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Unable to read logs." } status:500];
+            } @finally {
+                [handle closeFile];
+            }
+        }
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"logs": text, @"offset": @(since) } status:200];
     }];
 
     // GET /api/editor/load?path=<rel.bdl> — read a library entry as text.
