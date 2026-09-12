@@ -124,7 +124,7 @@
     .log-filter { width: 190px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .toggle { height: 34px; display: inline-flex; align-items: center; gap: 7px; padding: 0 9px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted-strong); background: var(--field); font-size: 12px; cursor: pointer; }
     .toggle input { accent-color: var(--blue); }
-    .log-output { height: calc(100vh - 260px); min-height: 360px; margin: 0; overflow: auto; padding: 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .log-output { height: calc(100vh - 260px); min-height: 360px; max-height: calc(100vh - 260px); margin: 0; overflow: auto; padding: 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 
     .device-layout { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(300px, .7fr); gap: 14px; }
     .data-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -152,21 +152,63 @@
     .vnc-overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; color: var(--muted-strong); background: rgba(0,0,0,.72); font-size: 12px; text-align: center; }
     .vnc-row { display: flex; gap: 6px; }
     .vnc-row .button { flex: 1; padding-right: 4px; padding-left: 4px; font-size: 12px; }
-    .vnc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
-    .vnc-grid .button { flex-direction: column; gap: 2px; min-height: 52px; font-size: 11px; }
-    .vnc-grid .button-symbol { font-size: 16px; }
+    .vnc-nav { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .vnc-nav .button { min-height: 44px; padding: 6px 4px; font-size: 18px; line-height: 1; }
+    .vnc-nav .button-symbol { font-size: 18px; line-height: 1; display: inline-grid; place-items: center; }
+    .vnc-nav .button-symbol svg { display: block; width: 18px; height: 18px; }
     .vnc-meta { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
     .vnc-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--red); }
     .vnc-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(57, 203, 132, .13); }
-    .vnc-select, .vnc-input { width: 100%; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); font-size: 12px; }
-    .vnc-hint { color: var(--muted); font-size: 11px; }
-    .vnc-debug { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
-    .vnc-debug summary { color: var(--muted-strong); font-size: 12px; cursor: pointer; }
-    .vnc-debug-log { max-height: 150px; overflow: auto; margin: 6px 0; padding: 8px; color: #d5dbe3; background: #090b0e; font: 10.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .vnc-debug .button { width: 100%; font-size: 11px; }
+    .vnc-select { width: 100%; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); font-size: 12px; }
+    .vnc-log-embedded { height: auto; min-height: 120px; max-height: 220px; }
     @media (min-width: 1024px) {
       .vnc-dock { position: fixed; z-index: 15; top: 110px; bottom: 0; left: 0; width: 344px; overflow-y: auto; }
       body main { margin-left: 344px; }
+      /* Editor view uses the full remaining width (no dead space on the right) */
+      body.editor-wide main { width: auto; max-width: none; margin-right: 0; }
+      /* Editor + Logs: fit exactly in viewport, no page scroll — panes scroll inside */
+      body.editor-wide main, body.logs-wide main {
+        height: calc(100vh - 111px);
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        padding-bottom: 14px;
+      }
+      body.editor-wide .view, body.logs-wide .view {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      body.editor-wide .view-heading, body.logs-wide .view-heading {
+        flex: 0 0 auto;
+        margin-bottom: 12px;
+      }
+      /* — Editor fit — */
+      body.editor-wide .editor-layout { flex: 1; min-height: 0; }
+      body.editor-wide .editor-main { flex: 1; min-height: 0; align-items: stretch; }
+      body.editor-wide .editor-left { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
+      body.editor-wide .editor-toolbar, body.editor-wide .editor-status { flex: 0 0 auto; }
+      body.editor-wide .editor-box { flex: 1 1 62%; min-height: 140px; max-height: none; display: flex; flex-direction: column; }
+      body.editor-wide #monacoHost, body.editor-wide #editorFallback { flex: 1; height: auto !important; min-height: 0; max-height: none; }
+      body.editor-wide .transpiled { flex: 0 0 auto; }
+      body.editor-wide .runlog { flex: 1 1 38%; min-height: 130px; display: flex; flex-direction: column; overflow: hidden; }
+      body.editor-wide .runlog .panel-head { flex: 0 0 auto; }
+      body.editor-wide .runlog-output { flex: 1; height: auto; min-height: 0; max-height: none; }
+      body.editor-wide .funcpane { position: static; top: auto; height: 100%; max-height: none; }
+      body.editor-wide .funcpane-body { flex: 1; min-height: 0; max-height: none; }
+      /* — Logs fit: live output fills, VNC debug capped — */
+      body.logs-wide #view-logs { gap: 12px; }
+      body.logs-wide #view-logs .log-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+      body.logs-wide #view-logs .log-panel .panel-head { flex: 0 0 auto; }
+      body.logs-wide #view-logs .log-panel:first-of-type { flex: 1 1 auto; }
+      body.logs-wide #view-logs .log-panel:last-of-type { flex: 0 1 28%; min-height: 130px; }
+      body.logs-wide #view-logs .log-output { flex: 1; height: auto; min-height: 0; max-height: none; }
+      /* Offline banner visible: shrink main so still no page scroll */
+      body.editor-wide:has(#offlineBanner:not([hidden])) main,
+      body.logs-wide:has(#offlineBanner:not([hidden])) main { height: calc(100vh - 111px - 62px); }
     }
     @media (max-width: 1023px) {
       .vnc-dock { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -174,9 +216,10 @@
     }
 
     .editor-layout { display: grid; gap: 14px; }
-    .editor-main { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(240px, .7fr); gap: 14px; align-items: start; }
+    .editor-main { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
     .editor-left { display: grid; gap: 14px; min-width: 0; }
-    .funcpane-body { max-height: 62vh; min-height: 300px; overflow: auto; padding: 6px 0 12px; }
+    .funcpane { position: sticky; top: 122px; max-height: calc(100vh - 140px); display: flex; flex-direction: column; overflow: hidden; }
+    .funcpane-body { max-height: calc(100vh - 210px); min-height: 200px; overflow: auto; overscroll-behavior: contain; padding: 6px 0 12px; }
     .func-group { padding: 2px 13px 0; }
     .func-group > h4 { margin: 10px 0 7px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
     .func-group > h4:first-child { margin-top: 4px; }
@@ -184,15 +227,15 @@
     .func-item { min-height: 28px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted-strong); background: var(--field); cursor: pointer; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
     .func-item:hover { border-color: var(--blue); color: var(--text); }
     .runlog .panel-head { min-height: 56px; }
-    .runlog-output { height: 30vh; min-height: 220px; margin: 0; overflow: auto; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .runlog-sep { color: var(--blue); }
     .editor-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
     .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-lang { min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-open { min-height: 34px; max-width: 260px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
-    .editor-box { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; }
-    #monacoHost { height: 46vh; min-height: 340px; }
-    #editorFallback { width: 100%; height: 46vh; min-height: 340px; padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+    .editor-box { overflow: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; max-height: calc(100vh - 280px); }
+    #monacoHost { height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); }
+    #editorFallback { width: 100%; height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; overflow: auto; }
     .editor-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 12px; }
     .editor-status strong { color: var(--muted-strong); }
     .transpiled { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
@@ -241,7 +284,7 @@
       .log-tools { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
       .log-filter { width: 100%; grid-column: 1 / -1; }
       .log-tools .button { width: 100%; }
-      .log-output { height: calc(100vh - 390px); min-height: 340px; }
+      .log-output { height: calc(100vh - 390px); min-height: 340px; max-height: calc(100vh - 390px); }
       .data-grid { grid-template-columns: 1fr; }
       .data-row, .data-row:nth-child(2n), .data-row:nth-last-child(-n + 2) { border-right: 0; border-bottom: 1px solid var(--line); }
       .data-row:last-child { border-bottom: 0; }
@@ -259,17 +302,14 @@
     <div class="vnc-dock-inner">
       <div class="vnc-dock-head"><h2>Live Screen</h2><span class="vnc-model" id="vncModel">VNC :5901</span></div>
       <div class="vnc-screen" id="vncScreen"><div class="vnc-overlay" id="vncOverlay">Connecting to TrollVNC…<br>Stream + touch control appear here.</div></div>
+      <div class="vnc-nav" aria-label="iOS hardware keys">
+        <button class="button" id="btnSwitcher" title="App Switcher" aria-label="App Switcher"><span class="button-symbol">▢</span></button>
+        <button class="button" id="btnHome" title="Home" aria-label="Home"><span class="button-symbol">○</span></button>
+        <button class="button" id="btnWake" title="Wake" aria-label="Wake"><span class="button-symbol"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v8" /><path d="M6.3 6.3a8 8 0 1 0 11.4 0" /></svg></span></button>
+      </div>
       <div class="vnc-meta"><span class="vnc-dot" id="vncDot"></span><span id="vncStatus">Disconnected</span><span class="vnc-badge" id="homeBadge">Home: …</span></div>
       <div class="vnc-row"><button class="button primary" id="vncConnect">Connect</button><button class="button ghost" id="vncDisconnect">Disconnect</button></div>
       <div class="vnc-row"><select class="vnc-select" id="vncQuality" aria-label="Stream quality"><option value="0.5">Quality 0.5 (saver)</option><option value="0.66">Quality 0.66</option><option value="0.75" selected>Quality 0.75 (LAN)</option><option value="1.0">Quality 1.0 (pixel)</option></select></div>
-      <input class="vnc-input" id="vncUrl" type="text" inputmode="url" placeholder="ws://<iphone-ip>:5901/websockify (auto)" aria-label="VNC WebSocket URL override">
-      <div class="vnc-grid">
-        <button class="button" id="btnHome" title="Home"><span class="button-symbol">⌂</span>Home</button>
-        <button class="button" id="btnSwitcher" title="Show running apps (App Switcher)"><span class="button-symbol">▦</span>Switcher</button>
-        <button class="button" id="btnWake" title="Wake up screen when display is off"><span class="button-symbol">⏻</span>Wake</button>
-      </div>
-      <div class="vnc-hint">Tap/drag directly on the screen to control iOS (Pure-VNC: left=touch, Home=right-click, Wake=power). No extra backend calls.</div>
-      <details class="vnc-debug"><summary>VNC debug log</summary><pre class="vnc-debug-log" id="vncDebug">No VNC attempts yet.</pre><button class="button ghost" id="vncCopyDebug" type="button">Copy debug</button></details>
     </div>
   </aside>
   <div class="offline-banner" id="offlineBanner" hidden><strong>ZXTouch service unavailable.</strong> Controls will resume when the local service reconnects.</div>
@@ -303,6 +343,7 @@
     <section class="view" id="view-logs" role="tabpanel" hidden>
       <div class="view-heading"><div><h2>Runtime Logs</h2><p id="logSummary">Waiting for output</p></div></div>
       <section class="panel log-panel"><div class="panel-head"><div class="panel-title"><h3>Live Output</h3></div><div class="log-tools"><input class="log-filter" id="logFilter" type="search" placeholder="Filter output" aria-label="Filter log output"><label class="toggle"><input id="autoFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="copyLogs">Copy</button><button class="button ghost" id="downloadLogs"><span class="button-symbol">&#8595;</span>Export</button><button class="button danger" id="clearLogs">Clear</button></div></div><pre class="log-output" id="logs">Loading runtime logs...</pre></section>
+      <section class="panel log-panel" style="margin-top: 14px;"><div class="panel-head"><div class="panel-title"><h3>VNC Debug</h3><p>Stream + touch diagnostics</p></div><div class="log-tools"><button class="button ghost" id="vncCopyDebug" type="button">Copy debug</button></div></div><pre class="log-output vnc-log-embedded" id="vncDebug">No VNC attempts yet.</pre></section>
     </section>
 
     <section class="view" id="view-device" role="tabpanel" hidden>
@@ -329,10 +370,10 @@
             <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
             <details class="transpiled" id="transpiledWrap" hidden><summary>Transpiled Python preview (Lua runs via transpile → Python)</summary><pre id="transpiledView"></pre></details>
             <div class="editor-status"><span id="editorStatus">Ready — Monaco loads from CDN, offline falls back to plain text.</span><span class="editor-note">Lua subset: <code>--</code> comments, <code>local</code>, <code>if/elseif/else/end</code>, numeric <code>for</code>, <code>while/do</code>, <code>~=</code>, <code>..</code>, <code>#len</code>.</span></div>
+            <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
           </div>
           <aside class="funcpane panel" aria-label="Function palette"><div class="panel-head"><div class="panel-title"><h3>Functions</h3><p>Click to insert at cursor</p></div></div><div class="funcpane-body" id="funcPane"></div></aside>
         </div>
-        <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
       </div>
     </section>
   </main>
@@ -358,6 +399,8 @@
 
     function selectView(name) {
       const valid = ['scripts', 'editor', 'assets', 'logs', 'device'].includes(name) ? name : 'scripts';
+      document.body.classList.toggle('editor-wide', valid === 'editor');
+      document.body.classList.toggle('logs-wide', valid === 'logs');
       document.querySelectorAll('.view').forEach(view => { view.hidden = view.id !== `view-${valid}`; });
       document.querySelectorAll('.tab').forEach(tab => { const active = tab.dataset.view === valid; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); });
       if (location.hash !== `#${valid}`) history.replaceState(null, '', `${location.pathname}${location.search}#${valid}`);
@@ -417,6 +460,12 @@
     const PY_SAMPLE = '# Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     // Function palette: [name, luaTpl, pyTpl?]. Click inserts at cursor.
     const FUNC_GROUPS = [
+      { g: 'Control', items: [
+        ['if', 'if COND then\n  \nend', 'if COND:\n    '],
+        ['if/else', 'if COND then\n  \nelse\n  \nend', 'if COND:\n    \nelse:\n    '],
+        ['for', 'for i = 1, 5 do\n  \nend', 'for i in range(1, 6):\n    '],
+        ['while', 'while COND do\n  \nend', 'while COND:\n    '],
+      ]},
       { g: 'Touch', items: [
         ['tap(x, y)', 'tap(200, 300)'],
         ['touchDown', 'touchDown(0, 200, 300)'],
@@ -922,7 +971,7 @@
         vncLog('step 1/3', 'loading bundled novnc/core/rfb.js');
         const RFB = await loadRfbClass();
         vncLog('step 1/3 ok', 'RFB class loaded');
-        const wsUrl = elements.vncUrl.value.trim() || defaultWsUrl();
+        const wsUrl = elements.vncUrl?.value?.trim() || defaultWsUrl();
         vncLog('step 2/3', `opening ${wsUrl} (secureContext=${window.isSecureContext})`);
         if (state.vnc.rfb) { try { state.vnc.rfb.disconnect(); } catch (_) {} }
         const rfb = new RFB(elements.vncScreen, wsUrl, { shared: true });
