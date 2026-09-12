@@ -1,13 +1,14 @@
 #include "CraneBridge.h"
 #include "Common.h"
 #include "Process.h"
+#include "ExtTasks.h"
 #include "libCrane/libCrane.h"
 #include <dlfcn.h>
 #include <roothide.h>
 
 // ---------------------------------------------------------------- loader
 
-static id ZXCraneManager(NSError **error) {
+static CraneManager *ZXCraneManager(NSError **error) {
     static Class cls = Nil;
     static BOOL probed = NO;
     static void *handle = NULL;
@@ -33,7 +34,14 @@ static id ZXCraneManager(NSError **error) {
                 @"-1;;Crane not installed (requires paid Crane tweak, not Crane Lite).\r\n"}];
         return nil;
     }
-    id mgr = [cls sharedManager];
+    id mgr = nil;
+    @try {
+        // Cast through the vendored CraneManager interface so all selectors
+        // resolve at compile time; the class itself is loaded dynamically.
+        mgr = [(CraneManager *)cls sharedManager];
+    } @catch (NSException *e) {
+        NSLog(@"com.zjx.springboard: CraneManager sharedManager: %@", e.reason);
+    }
     if (!mgr && error) {
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey: @"-1;;CraneManager unavailable.\r\n"}];
@@ -70,7 +78,7 @@ static NSString *ZXReply(id obj) {
 }
 
 // Resolve a container id-or-display-name to its identifier.
-static NSString *ZXResolveContainer(id mgr, NSString *bundleId, NSString *nameOrId) {
+static NSString *ZXResolveContainer(CraneManager *mgr, NSString *bundleId, NSString *nameOrId) {
     NSArray *ids = @[];
     @try { ids = [mgr containerIdentifiersOfApplicationWithIdentifier:bundleId] ?: @[]; }
     @catch (NSException *e) { return nil; }
@@ -148,7 +156,7 @@ NSString *craneFromRawData(UInt8 *eventData, NSError **error) {
         return nil;
     }
     NSString *op = [p objectForKey:@"op"] ?: @"";
-    id mgr = ZXCraneManager(error);
+    CraneManager *mgr = ZXCraneManager(error);
     if (!mgr) return nil;
 
     @try {

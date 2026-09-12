@@ -54,4 +54,19 @@ NSString *recordLoadFromRawData(UInt8 *eventData, NSError **error);
 // 46: "" -> "0;;ok;;<version>"
 NSString *pingFromRawData(UInt8 *eventData, NSError **error);
 
+// Private SpringBoard classes (forward declarations so Logos %c lookups
+// compile cleanly; all uses are respondsToSelector-guarded at runtime).
+@interface SBApplicationController : NSObject
++ (instancetype)sharedInstance;
+- (id)applicationWithBundleIdentifier:(NSString *)bundleId;
+@end
+
+@interface SBApplication : NSObject
+- (id)process;
+@end
+
+@interface FBProcess : NSObject
+- (int)pid;
+@end
+
 #endif

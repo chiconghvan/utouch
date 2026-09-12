@@ -462,7 +462,7 @@ NSString *colorMultiFromRawData(UInt8 *eventData, NSError **error) {
         return nil;
     }
     int rowBytes = w * 4;
-    unsigned char *buf = malloc(rowBytes * h);
+    unsigned char *buf = (unsigned char *)malloc(rowBytes * h);
     CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
     CGContextRef ctx = CGBitmapContextCreate(buf, w, h, 8, rowBytes, cs,
         kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
@@ -694,9 +694,15 @@ static int ZXPlayEventTable(NSArray *events, float speed) {
     for (id ev in events) {
         if (![ev isKindOfClass:[NSDictionary class]]) continue;
         NSDictionary *e = ev;
-        NSString *kind = [[[e objectForKey:@"type"] ?: [e objectForKey:@"action"] ?: @"tap"] lowercaseString];
+        NSString *kind = [e objectForKey:@"type"];
+        if (!kind) kind = [e objectForKey:@"action"];
+        if (!kind) kind = @"tap";
+        kind = [kind lowercaseString];
         if ([kind isEqualToString:@"sleep"] || [kind isEqualToString:@"delay"] || [kind isEqualToString:@"wait"]) {
-            float d = [[e objectForKey:@"delay"] ?: [e objectForKey:@"seconds"] ?: @0.5 floatValue] / MAX(speed, 0.01);
+            NSNumber *delayNum = [e objectForKey:@"delay"];
+            if (!delayNum) delayNum = [e objectForKey:@"seconds"];
+            if (!delayNum) delayNum = @0.5;
+            float d = [delayNum floatValue] / MAX(speed, 0.01);
             usleep((useconds_t)(d * 1000000));
             played++;
         } else if ([kind isEqualToString:@"swipe"]) {
@@ -725,7 +731,10 @@ static int ZXPlayEventTable(NSArray *events, float speed) {
             else if ([k isEqualToString:@"move"]) t = 2;
             else if ([k isEqualToString:@"up"]) t = 0;
             else t = 1; // "tap"/"touch" handled as down below
-            finger = [[e objectForKey:@"finger"] ?: [e objectForKey:@"finger_index"] ?: @1 intValue];
+            NSNumber *fingerNum = [e objectForKey:@"finger"];
+            if (!fingerNum) fingerNum = [e objectForKey:@"finger_index"];
+            if (!fingerNum) fingerNum = @1;
+            finger = [fingerNum intValue];
             float x = [[e objectForKey:@"x"] floatValue], y = [[e objectForKey:@"y"] floatValue];
             if ([k isEqualToString:@"tap"] || [k isEqualToString:@"touch"]) {
                 NSString *d = [NSString stringWithFormat:@"11%02d%05d%05d", finger, (int)(x * 10), (int)(y * 10)];
