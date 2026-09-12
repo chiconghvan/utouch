@@ -139,6 +139,10 @@ class FakeDevice:
     def vibrate(self):
         self.calls.append(("vibrate",))
 
+    def debug_mark(self, op, coords, duration=1.5):
+        self.calls.append(("debug", op, tuple(coords), duration))
+        return (True, "")
+
     def find_colors_multi(self, *a):
         raise RuntimeError("old daemon")
 
@@ -189,7 +193,9 @@ def use_fake():
 
 def test_tap_sends_down_up():
     d = use_fake()
+    prelude.setDebugVisual(False)
     prelude.tap(200, 300)
+    prelude.setDebugVisual(True)
     kinds = [c[0] for c in d.calls]
     assert kinds == ["touch", "touch"]
     assert d.calls[0][1] == 1 and d.calls[1][1] == 0  # DOWN then UP
@@ -197,7 +203,9 @@ def test_tap_sends_down_up():
 
 def test_swipe_interpolates():
     d = use_fake()
+    prelude.setDebugVisual(False)
     prelude.swipe(0, 0, 100, 0, 0.04)
+    prelude.setDebugVisual(True)
     assert d.calls[0][0] == "touch"
     assert any(c[0] == "touch" and c[1] == 2 for c in d.calls)  # has MOVE
 
@@ -361,6 +369,70 @@ def test_runner_injects_and_disconnects(tmp_path):
     assert rc == 0
     assert any(c[0] == "touch" for c in d.calls)
     assert ("disconnect",) in d.calls or prelude._DEVICE is None
+
+
+def test_log_accepts_multiple_values(capsys):
+    # log("10", "20", "30", 50, x, y) prints space-separated.
+    assert prelude.log("10", "20", "30", 50, 60, 70) is True
+    out = capsys.readouterr().out
+    assert out.strip() == "10 20 30 50 60 70"
+    assert prelude.log("done") is True
+    assert capsys.readouterr().out.strip() == "done"
+
+
+def test_debug_visual_tap_swipe_ocr_image():
+    # Debug overlay đỏ: tap -> circle, swipe -> line, OCR/image -> rect.
+    # Daemon cũ (không có debug_mark) cũng không được làm crash script.
+    d = use_fake()
+    prelude.setDebugVisual(True, 1.5)
+    prelude.tap(100, 200)
+    assert ("debug", "circle", (100, 200, 60), 1.5) in d.calls
+    prelude.swipe(10, 20, 30, 40, 0.04)
+    assert ("debug", "line", (10, 20, 30, 40), 1.5) in d.calls
+    d.ocr_items = [{"text": "Notes", "x": "400", "y": "1100",
+                    "width": "100", "height": "40"}]
+    matches = prelude.findText("notes")
+    assert len(matches) == 1
+    assert ("debug", "rect", (400, 1100, 100, 40), 1.5) in d.calls
+    m = prelude.tapText("notes", timeout=0.1)
+    assert m["text"] == "Notes"
+    # tapText -> findText (rect) + tap (circle)
+    assert any(c[0] == "debug" and c[1] == "circle" for c in d.calls)
+    # Tắt debug: không còn gọi native nữa.
+    prelude.setDebugVisual(False)
+    n = len(d.calls)
+    prelude.tap(1, 2)
+    assert len([c for c in d.calls[n:] if c[0] == "debug"]) == 0
+    prelude.setDebugVisual(True)
+    # Daemon cũ không có debug_mark -> nuốt lỗi, tap vẫn chạy.
+    prelude.disconnect()
+    class OldDaemon(FakeDevice):
+        def debug_mark(self, *a, **k):
+            raise RuntimeError("old daemon")
+    old = prelude.set_device(OldDaemon())
+    prelude.tap(5, 6)  # must not raise
+    assert any(c[0] == "touch" for c in old.calls)
+    prelude.setDebugVisual(True)
+
+
+def test_client_debug_mark_wire_format():
+    from zxtouch import client as client_mod
+    sent = []
+
+    class FakeSock:
+        def send(self, data):
+            sent.append(data)
+
+        def recv(self, n):
+            return b"0\r\n"
+
+    dev = client_mod.zxtouch.__new__(client_mod.zxtouch)
+    dev.s = FakeSock()
+    ok, _ = dev.debug_mark("rect", (1, 2, 3, 4), 1.5)
+    assert ok
+    raw = sent[0].decode()
+    assert raw.startswith("48")  # TASK_DEBUG_MARK
+    assert "rect" in raw and "1,2,3,4" in raw
 
 
 def test_touch_with_list_accepts_floats():

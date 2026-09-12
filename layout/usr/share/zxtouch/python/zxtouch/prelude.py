@@ -34,6 +34,75 @@ TOUCH_UP = touchtypes.TOUCH_UP
 _DEVICE = None
 _DEVICE_IP = "127.0.0.1"
 
+# ---------------------------------------------------------------- Debug visual
+# Vẽ debug trực tiếp lên màn hình iPhone (module native DebugOverlay,
+# TASK_DEBUG_MARK=48 — giống module Toast: fire-and-forget, không chặn touch).
+#  * OCR / findImage (có match) -> hình chữ nhật (bounding box) đỏ
+#  * tap / longPress            -> vòng tròn đỏ (r=60px, >=20pt sau convert)
+#  * swipe                      -> đoạn thẳng đỏ + 2 đầu mút
+# Mặc định BẬT để user thấy runtime chạm vào đâu; tắt bằng
+# setDebugVisual(False). Daemon cũ chưa có task 48 -> tự bỏ qua, script
+# vẫn chạy bình thường.
+_DEBUG_VISUAL = True
+_DEBUG_DURATION = 1.5
+_DEBUG_TAP_RADIUS = 60
+
+
+def setDebugVisual(enabled=True, duration=1.5):
+    """Bật/tắt vẽ debug lên màn hình iPhone.
+
+    :param enabled: True = vẽ bbox/circle/line đỏ, False = tắt hẳn.
+    :param duration: số giây mỗi hình tồn tại (0.3..5, mặc định 1.5).
+    """
+    global _DEBUG_VISUAL, _DEBUG_DURATION
+    _DEBUG_VISUAL = bool(enabled)
+    try:
+        _DEBUG_DURATION = float(duration)
+    except (TypeError, ValueError):
+        _DEBUG_DURATION = 1.5
+    if _DEBUG_DURATION < 0.3:
+        _DEBUG_DURATION = 0.3
+    elif _DEBUG_DURATION > 5.0:
+        _DEBUG_DURATION = 5.0
+    return _DEBUG_VISUAL
+
+
+def clearDebugVisual():
+    """Xóa ngay mọi hình debug đang hiển thị."""
+    try:
+        get_device().debug_mark("clear", ())
+    except Exception:
+        pass
+    return True
+
+
+def _dbg_rect(x, y, w, h):
+    if not _DEBUG_VISUAL:
+        return
+    try:
+        get_device().debug_mark("rect", (x, y, w, h), _DEBUG_DURATION)
+    except Exception:
+        pass
+
+
+def _dbg_circle(x, y, r=None):
+    if not _DEBUG_VISUAL:
+        return
+    try:
+        get_device().debug_mark("circle", (x, y, r or _DEBUG_TAP_RADIUS),
+                                _DEBUG_DURATION)
+    except Exception:
+        pass
+
+
+def _dbg_line(x1, y1, x2, y2):
+    if not _DEBUG_VISUAL:
+        return
+    try:
+        get_device().debug_mark("line", (x1, y1, x2, y2), _DEBUG_DURATION)
+    except Exception:
+        pass
+
 # All IOSControl-parity funcs are implemented natively (socket tasks 30-47)
 # with local fallbacks where noted. No stubs remain.
 
@@ -78,6 +147,7 @@ def disconnect():
 
 def tap(x, y, finger=1):
     """Tap at coordinates (DOWN + short hold + UP)."""
+    _dbg_circle(x, y)
     d = get_device()
     d.touch(TOUCH_DOWN, finger, x, y)
     time.sleep(0.05)
@@ -98,6 +168,7 @@ def touchUp(fid, x, y):
 
 def swipe(x1, y1, x2, y2, duration=0.5):
     """Swipe from point A to B over ``duration`` seconds."""
+    _dbg_line(x1, y1, x2, y2)
     d = get_device()
     steps = max(2, int(duration / 0.02))
     d.touch(TOUCH_DOWN, 1, x1, y1)
@@ -109,6 +180,7 @@ def swipe(x1, y1, x2, y2, duration=0.5):
 
 
 def longPress(x, y, duration=1.0):
+    _dbg_circle(x, y)
     d = get_device()
     d.touch(TOUCH_DOWN, 1, x, y)
     time.sleep(duration)
@@ -119,6 +191,8 @@ def pinch(x, y, scale=0.5, duration=0.5):
     """Pinch gesture. scale<1 zooms in, scale>1 zooms out."""
     d = get_device()
     r0, r1 = 50.0, 50.0 * scale
+    _dbg_circle(x - r0, y)
+    _dbg_circle(x + r0, y)
     steps = max(2, int(duration / 0.02))
     d.touch_with_list([
         {"type": TOUCH_DOWN, "finger_index": 1, "x": x - r0, "y": y},
@@ -140,6 +214,7 @@ def pinch(x, y, scale=0.5, duration=0.5):
 
 def rotate(x, y, angle=90.0, duration=0.5):
     """Rotate two fingers around (x, y) by ``angle`` degrees."""
+    _dbg_circle(x, y)
     d = get_device()
     r = 50.0
     a1 = math.radians(angle)
@@ -300,6 +375,8 @@ def findImage(path, count=1, threshold=0.8, region=None):
         try:
             ok, res = get_device().find_image_in_region(path, region, threshold)
             if ok:
+                _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
+                          _num(res.get("width", 0)), _num(res.get("height", 0)))
                 return res
         except Exception:
             pass
@@ -307,12 +384,16 @@ def findImage(path, count=1, threshold=0.8, region=None):
         try:
             ok, res = get_device().image_match_multi(path, threshold, count)
             if ok and res:
+                _dbg_rect(_num(res[0].get("x", 0)), _num(res[0].get("y", 0)),
+                          _num(res[0].get("width", 0)), _num(res[0].get("height", 0)))
                 return res[0]
         except Exception:
             pass
     ok, res = get_device().image_match(path, threshold, 2, 0.8)
     if not ok:
         return None
+    _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
+              _num(res.get("width", 0)), _num(res.get("height", 0)))
     return res
 
 
@@ -379,6 +460,10 @@ def findText(text, region=None, case_sensitive=False):
         hay = str(i.get("text", "")) if case_sensitive else str(i.get("text", "")).lower()
         if needle in hay:
             out.append(i)
+    # Debug: vẽ bbox đỏ cho tối đa 10 match để user thấy OCR bắt được chữ nào.
+    for m in out[:10]:
+        _dbg_rect(_num(m.get("x", 0)), _num(m.get("y", 0)),
+                  _num(m.get("width", 0)), _num(m.get("height", 0)))
     return out
 
 
@@ -650,8 +735,13 @@ def vibrate():
     get_device().vibrate()
 
 
-def log(message):
-    print(message)
+def log(*args):
+    """Print to the script output log. Accepts multiple values.
+
+    Example: ``log("10", "20", "30", 50, x, y)`` prints them separated
+    by spaces, like Lua's multi-arg ``log``.
+    """
+    print(*args)
     return True
 
 
@@ -956,6 +1046,8 @@ record_stop = recordStop
 record_play = recordPlay
 record_save = recordSave
 record_load = recordLoad
+set_debug_visual = setDebugVisual
+clear_debug_visual = clearDebugVisual
 
 
 def install(namespace=None):
@@ -973,6 +1065,7 @@ def install(namespace=None):
 
 __all__ = [
     "get_device", "set_device", "disconnect",
+    "setDebugVisual", "clearDebugVisual",
     "tap", "touchDown", "touchMove", "touchUp", "swipe", "longPress",
     "pinch", "rotate",
     "getColor", "getColors", "findColor", "findColors", "waitForColor",
@@ -1004,5 +1097,5 @@ __all__ = [
     "http_get", "http_post", "read_file", "write_file", "append_file",
     "json_decode", "json_encode", "random_int", "random_float",
     "record_start", "record_stop", "record_play", "record_save",
-    "record_load",
+    "record_load", "set_debug_visual", "clear_debug_visual",
 ]

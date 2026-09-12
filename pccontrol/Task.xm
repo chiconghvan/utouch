@@ -20,6 +20,7 @@
 #include "Screen.h"
 #include "ExtTasks.h"
 #include "CraneBridge.h"
+#include "DebugOverlay.h"
 
 extern CFRunLoopRef recordRunLoop;
 
@@ -578,6 +579,21 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
         @autoreleasepool {
             NSError *err = nil;
             NSString *result = craneFromRawData(eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)[result UTF8String], writeStreamRef);
+            }
+        }
+    }
+    else if (taskType == TASK_DEBUG_MARK)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            NSString *result = debugMarkFromRawData(eventData, &err);
             if (err)
             {
                 notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);

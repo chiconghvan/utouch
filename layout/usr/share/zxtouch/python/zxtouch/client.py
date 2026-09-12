@@ -616,6 +616,24 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PING))
         return datahandler.decode_socket_data(self.s.recv(1024))
 
+    def debug_mark(self, op, coords, duration=1.5):
+        """Runtime debug shape (TASK_DEBUG_MARK=48, fire-and-forget safe).
+
+        :param op: rect|circle|line|clear
+        :param coords: rect -> (x,y,w,h); circle -> (x,y,r);
+                       line -> (x1,y1,x2,y2); clear -> ()
+        All coords are DEVICE PIXELS (same unit as tap/OCR).
+        Drawn in solid red on a non-interactive overlay, auto-fades.
+        Returns (True, '') on ack; (False, err) on old daemons — callers
+        must swallow the failure so scripts keep running.
+        """
+        if op == "clear":
+            self.s.send(datahandler.format_socket_data(tasktypes.TASK_DEBUG_MARK, "clear"))
+        else:
+            self.s.send(datahandler.format_socket_data(
+                tasktypes.TASK_DEBUG_MARK, op, ",".join(map(str, coords)), duration))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
     def crane(self, op, **params):
         """Crane container management (TASK_CRANE=47, JSON base64 protocol).
 

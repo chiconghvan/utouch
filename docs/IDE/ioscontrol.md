@@ -1415,6 +1415,52 @@ vibrate()
 ```
 ---
 
+### `setDebugVisual(enabled, duration)`
+
+- Type: `func`
+- EN: Toggle runtime debug shapes drawn directly on the iPhone screen (separate module, like Toast). OCR / image match -> red bounding box, tap / longPress -> red circle (r=60px), swipe -> red line with endpoint caps. ON by default, auto-fades after `duration` seconds, never blocks touches. Old daemons without TASK_DEBUG_MARK=48 are safely ignored.
+- VI: Bật/tắt vẽ debug trực tiếp lên màn hình iPhone (module riêng như Toast). OCR / tìm ảnh có match -> hình chữ nhật đỏ, tap / longPress -> vòng tròn đỏ (r=60px), swipe -> đoạn thẳng đỏ có 2 đầu mút. Mặc định BẬT, tự mờ sau `duration` giây, không chặn cảm ứng. Daemon cũ chưa có TASK_DEBUG_MARK=48 sẽ tự bỏ qua.
+- Return: `boolean`
+
+**Params:**
+
+| Name | Type | Required | EN | VI |
+|---|---|---|---|---|
+| `enabled` | `boolean` | no | true = draw, false = off (default: true) | true = vẽ, false = tắt (mặc định: true) |
+| `duration` | `number` | no | Seconds each shape stays (0.3-5, default: 1.5) | Số giây mỗi hình tồn tại (0.3-5, mặc định: 1.5) |
+
+**Example (Lua/cURL):**
+
+```lua
+-- Tắt vẽ debug cho script chạy ngầm
+setDebugVisual(false)
+
+-- Chỉ hiện 0.8s cho đỡ rối
+setDebugVisual(true, 0.8)
+
+tap(200, 300)            -- vòng tròn đỏ tại (200,300)
+swipe(200, 600, 200, 200) -- đoạn thẳng đỏ từ (200,600) đến (200,200)
+tapText("Login")         -- bbox đỏ quanh chữ + vòng tròn đỏ chỗ tap
+clearDebugVisual()       -- xóa ngay mọi hình đang hiện
+```
+---
+
+### `clearDebugVisual()`
+
+- Type: `func`
+- EN: Immediately clear all debug shapes from the screen
+- VI: Xóa ngay mọi hình debug đang hiển thị
+- Return: `boolean`
+
+**Params:** none
+
+**Example (Lua/cURL):**
+
+```lua
+clearDebugVisual()
+```
+---
+
 ### `log(message)`
 
 - Type: `func`

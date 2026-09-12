@@ -486,8 +486,8 @@
         ['tapImage', 'tapImage("btn.png", 10)'],
         ['screenshot', 'screenshot("shot1")'],
         ['ocrText', 'ocrText(50, 200, 600, 100)'],
-        ['findText', 'local x, y, text = findText("Login")', 'matches = findText("Login")'],
-        ['ocrFind', 'local x, y, text = ocrFind("Login")', 'x, y, text = ocrFind("Login")'],
+        ['findText', 'local x, y, text = findText("Login")', 'matches = findText("Login")', 'findText("Login")'],
+        ['ocrFind', 'local x, y, text = ocrFind("Login")', 'x, y, text = ocrFind("Login")', 'ocrFind("Login")'],
         ['waitForText', 'waitForText("Login", 10)'],
         ['tapText', 'tapText("Login", 10)'],
         ['swipeUntilText', 'swipeUntilText("More", "up", 5)'],
@@ -647,14 +647,17 @@
       const toSuggestions = lang => {
         const items = [];
         FUNC_GROUPS.forEach(group => {
-          group.items.forEach(([name, lua, py]) => {
+          // Item shape: [name, luaTpl, pyTpl?, acTpl?]. acTpl (when present)
+          // is the short signature inserted by autocomplete, while the
+          // palette button still inserts the full usage snippet.
+          group.items.forEach(([name, lua, py, ac]) => {
             const tpl = lang === 'python' ? (py || lua) : lua;
             items.push({
               label: name,
               kind: monaco.languages.CompletionItemKind.Function,
               detail: group.g,
               documentation: { value: '```' + (lang === 'python' ? 'python' : 'lua') + '\n' + tpl + '\n```' },
-              insertText: tpl,
+              insertText: ac || tpl,
               insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
               range: undefined, // filled by Monaco at request time
             });
