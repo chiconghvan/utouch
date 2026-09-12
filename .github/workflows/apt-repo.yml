@@ -10,6 +10,11 @@ name: Publish APT repo to GitHub Pages
 on:
   release:
     types: [published]
+  # Releases created by GITHUB_TOKEN (build.yml) do NOT fire `release: published`
+  # for other workflows, so also trigger on build completion for tags.
+  workflow_run:
+    workflows: ["Build ZXTouch Package"]
+    types: [completed]
   workflow_dispatch:
     inputs:
       tag:
@@ -26,6 +31,8 @@ concurrency:
 
 jobs:
   publish:
+    # Skip workflow_run events from non-tag builds or failed builds.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && startsWith(github.event.workflow_run.head_branch, 'v')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout main
@@ -38,10 +45,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           EVENT_TAG: ${{ github.event.release.tag_name }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           if [ -n "$EVENT_TAG" ]; then
             echo "value=$EVENT_TAG" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_run" ] && [ -n "$RUN_TAG" ]; then
+            echo "value=$RUN_TAG" >> "$GITHUB_OUTPUT"
           elif [ -n "$INPUT_TAG" ]; then
             echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
