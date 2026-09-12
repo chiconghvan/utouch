@@ -136,6 +136,28 @@ Scripts searches and filters the library, runs or stops scripts, downloads entri
 
 The URL contains a private access token. Do not share it outside your local network. Dashboard hosting runs inside SpringBoard, so it remains available when the ZXTouch app is closed.
 
+### Live screen (TrollVNC, bundled)
+
+The same `.deb` ships TrollVNC (`owngoal-dev/TrollVNC`, GPLv2 — see
+`vendor/trollvnc/README.md`) started at boot via
+`com.zjx.trollvnc.plist`: VNC on `5901`, browser client on `5801`
+(`-s 0.75 -F 30:60:120 -O on -B off -A 15`).
+
+The dashboard shows a fixed leftside **Live Screen** panel: stream + direct
+touch control (Pure-VNC, no extra backend). Three buttons:
+
+- **Home** — auto-detected from `/api/status` `model` (`uname.machine`):
+  physical click (iPhone 8 / SE2 / SE3 and older, via VNC right-click) vs
+  swipe-up-from-bottom (iPhone X and newer, via VNC left-drag).
+- **Switcher** — double Home press (physical) or swipe-up-and-hold (gesture),
+  opens the iOS app switcher so you see running apps on the stream.
+- **Wake** — VNC middle-click (Power short-press), always enabled so you can
+  light up a dark screen.
+
+`./novnc/core/rfb.js` is bundled in the app and served by the dashboard with
+token auth; the canvas connects to `ws://<iphone-ip>:5801/websockify`.
+Set a VNC password via `TROLLVNC_PASSWORD` on device if exposed beyond your LAN.
+
 ### Automation triggers
 
 Open Settings, then Automation, in the app to assign actions to button click patterns. Volume Up, Volume Down, and the Home Button can each be set to 1-5 clicks and run Smart Toggle, Toggle Panel, Stop Script, Toggle Recording, or a selected `.bdl` script.

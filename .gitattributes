@@ -1,0 +1,4 @@
+# Keep Unix line endings for on-device scripts and plists (CRLF breaks /bin/sh).
+*.sh text eol=lf
+layout/DEBIAN/* text eol=lf
+*.plist text eol=lf

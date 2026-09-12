@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- TrollVNC bundled in the same (rootless) .deb as ZXTouch.
+         Theos rootless scheme prefixes layout/ with /var/jb on device,
+         so /usr/bin below resolves to /var/jb/usr/bin/trollvncserver. -->
+    <key>Label</key><string>com.zjx.trollvnc</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/jb/usr/bin/trollvncserver</string>
+        <string>-p</string><string>5901</string>
+        <string>-H</string><string>5801</string>
+        <string>-n</string><string>ZXTouch</string>
+        <string>-s</string><string>0.75</string>
+        <string>-F</string><string>30:60:120</string>
+        <string>-d</string><string>0.008</string>
+        <string>-Q</string><string>1</string>
+        <string>-O</string><string>on</string>
+        <string>-B</string><string>off</string>
+        <string>-A</string><string>15</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/trollvnc.log</string>
+    <key>StandardErrorPath</key><string>/var/mobile/Library/ZXTouch/trollvnc.log</string>
+</dict>
+</plist>

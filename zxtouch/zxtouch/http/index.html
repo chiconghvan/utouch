@@ -141,6 +141,34 @@
     .diagnostic-label { color: var(--muted); font-size: 11px; }
     .diagnostic-value { overflow-wrap: anywhere; color: var(--muted-strong); font-size: 12px; font-weight: 650; text-align: right; }
 
+    .vnc-dock { border-right: 1px solid var(--line); background: var(--bar); }
+    .vnc-dock-inner { display: flex; flex-direction: column; gap: 10px; padding: 14px 12px; }
+    .vnc-dock-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .vnc-dock-head h2 { margin: 0; font-size: 13px; }
+    .vnc-model { color: var(--muted); font-size: 11px; }
+    .vnc-badge { display: inline-block; margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line-strong); border-radius: 20px; color: var(--muted-strong); font-size: 10px; }
+    .vnc-screen { position: relative; width: 100%; aspect-ratio: 9 / 16; overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #000; }
+    .vnc-screen canvas { width: 100% !important; height: 100% !important; display: block; touch-action: none; cursor: crosshair; }
+    .vnc-overlay { position: absolute; inset: 0; display: grid; place-items: center; padding: 16px; color: var(--muted-strong); background: rgba(0,0,0,.72); font-size: 12px; text-align: center; }
+    .vnc-row { display: flex; gap: 6px; }
+    .vnc-row .button { flex: 1; padding-right: 4px; padding-left: 4px; font-size: 12px; }
+    .vnc-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .vnc-grid .button { flex-direction: column; gap: 2px; min-height: 52px; font-size: 11px; }
+    .vnc-grid .button-symbol { font-size: 16px; }
+    .vnc-meta { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+    .vnc-dot { width: 8px; height: 8px; flex: 0 0 8px; border-radius: 50%; background: var(--red); }
+    .vnc-dot.online { background: var(--green); box-shadow: 0 0 0 3px rgba(57, 203, 132, .13); }
+    .vnc-select, .vnc-input { width: 100%; min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); font-size: 12px; }
+    .vnc-hint { color: var(--muted); font-size: 11px; }
+    @media (min-width: 1024px) {
+      .vnc-dock { position: fixed; z-index: 15; top: 110px; bottom: 0; left: 0; width: 344px; overflow-y: auto; }
+      body main { margin-left: 344px; }
+    }
+    @media (max-width: 1023px) {
+      .vnc-dock { border-right: 0; border-bottom: 1px solid var(--line); }
+      .vnc-screen { aspect-ratio: 9 / 12; max-height: 420px; }
+    }
+
     .toast { position: fixed; z-index: 50; right: 18px; bottom: 18px; width: min(390px, calc(100vw - 36px)); padding: 12px 14px; border: 1px solid #44505f; border-left: 3px solid var(--blue); border-radius: 7px; color: var(--text); background: #222832; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); }
     .toast.error { border-left-color: var(--red); }
     .modal-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(0, 0, 0, .7); }
@@ -194,6 +222,22 @@
   </header>
 
   <nav class="tabs-shell" aria-label="Dashboard views"><div class="tabs" role="tablist"><button class="tab active" role="tab" aria-selected="true" data-view="scripts">Scripts</button><button class="tab" role="tab" aria-selected="false" data-view="assets">Assets</button><button class="tab" role="tab" aria-selected="false" data-view="logs">Logs</button><button class="tab" role="tab" aria-selected="false" data-view="device">Device</button></div></nav>
+  <aside class="vnc-dock" id="vncDock" aria-label="Live iOS screen and control">
+    <div class="vnc-dock-inner">
+      <div class="vnc-dock-head"><h2>Live Screen</h2><span class="vnc-model" id="vncModel">VNC :5901</span></div>
+      <div class="vnc-screen" id="vncScreen"><div class="vnc-overlay" id="vncOverlay">Connecting to TrollVNC…<br>Stream + touch control appear here.</div></div>
+      <div class="vnc-meta"><span class="vnc-dot" id="vncDot"></span><span id="vncStatus">Disconnected</span><span class="vnc-badge" id="homeBadge">Home: …</span></div>
+      <div class="vnc-row"><button class="button primary" id="vncConnect">Connect</button><button class="button ghost" id="vncDisconnect">Disconnect</button></div>
+      <div class="vnc-row"><select class="vnc-select" id="vncQuality" aria-label="Stream quality"><option value="0.5">Quality 0.5 (saver)</option><option value="0.66">Quality 0.66</option><option value="0.75" selected>Quality 0.75 (LAN)</option><option value="1.0">Quality 1.0 (pixel)</option></select></div>
+      <input class="vnc-input" id="vncUrl" type="text" inputmode="url" placeholder="ws://<iphone-ip>:5801/websockify (auto)" aria-label="VNC WebSocket URL override">
+      <div class="vnc-grid">
+        <button class="button" id="btnHome" title="Home"><span class="button-symbol">⌂</span>Home</button>
+        <button class="button" id="btnSwitcher" title="Show running apps (App Switcher)"><span class="button-symbol">▦</span>Switcher</button>
+        <button class="button" id="btnWake" title="Wake up screen when display is off"><span class="button-symbol">⏻</span>Wake</button>
+      </div>
+      <div class="vnc-hint">Tap/drag directly on the screen to control iOS (Pure-VNC: left=touch, Home=right-click, Wake=power). No extra backend calls.</div>
+    </div>
+  </aside>
   <div class="offline-banner" id="offlineBanner" hidden><strong>ZXTouch service unavailable.</strong> Controls will resume when the local service reconnects.</div>
 
   <main>
@@ -243,7 +287,7 @@
     const token = new URLSearchParams(location.search).get('token') || '';
     const query = path => `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
-    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null };
+    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, vnc: { rfb: null, connected: false, connecting: false, model: '', homeType: 'gesture' } };
     const orientationNames = { '1': 'Portrait', '2': 'Portrait upside down', '3': 'Landscape right', '4': 'Landscape left' };
 
     function escapeHTML(value) { const span = document.createElement('span'); span.textContent = String(value || ''); return span.innerHTML; }
@@ -287,6 +331,7 @@
       elements.lastAction.textContent = status.lastAction || 'Ready'; elements.recordingState.textContent = status.recording ? 'Recording now' : 'Recorder idle'; elements.socketState.textContent = online ? 'Connected' : 'Offline'; elements.port.textContent = status.port || '8080'; elements.scriptCount.textContent = status.scriptCount ?? state.scripts.length; elements.lastError.textContent = status.lastError || 'None';
       elements.stop.disabled = !online || !status.scriptPlaying; elements.recordStart.disabled = !online || status.recording; elements.recordStop.disabled = !online || !status.recording;
       elements.scripts.querySelectorAll('.run-script').forEach(button => { if (button.dataset.busy !== '1') button.disabled = !online; });
+      if (typeof updateVncDevice === 'function') updateVncDevice(status);
     }
 
     async function loadStatus() { const payload = await api('/api/status'); renderStatus(payload.status); }
@@ -308,6 +353,112 @@
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));
     elements.copyLogs.addEventListener('click', async () => { try { await copyText(state.rawLogs); showToast('Logs copied.'); } catch (_) { showToast('Unable to copy logs.', true); } });
     elements.downloadLogs.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([state.rawLogs], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = `zxtouch-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); elements.clearLogs.addEventListener('click', clearLogs);
+
+    // ── TrollVNC leftside dock (Pure-VNC plan, single .deb) ──────────────
+    // Stream + control go through the VNC protocol only. Mapping (TrollVNC):
+    // left button = touch/drag, right button = Home/Menu, middle = Power.
+    const PHYSICAL_HOME_MODELS = new Set(['iPhone12,8', 'iPhone14,6']); // SE2, SE3
+    function homeTypeFor(model) {
+      if (!model) return 'gesture';
+      if (PHYSICAL_HOME_MODELS.has(model)) return 'physical';
+      const m = /^iPhone(\d+),(\d+)$/.exec(model);
+      if (!m) return model.startsWith('iPhone') ? 'gesture' : 'gesture';
+      const major = Number(m[1]);
+      if (major < 10) return 'physical';
+      if (major === 10) return (m[2] === '1' || m[2] === '2' || m[2] === '4' || m[2] === '5') ? 'physical' : 'gesture'; // 8/8Plus vs X
+      return 'gesture'; // 11+ except SE2/SE3 handled above
+    }
+    function vncCanvas() { return elements.vncScreen.querySelector('canvas'); }
+    function setVncStatus(text, online) { elements.vncStatus.textContent = text; elements.vncDot.classList.toggle('online', Boolean(online)); }
+    function updateVncDevice(status) {
+      const model = status.model || '';
+      const sys = status.systemVersion ? `iOS ${status.systemVersion}` : '';
+      state.vnc.model = model;
+      state.vnc.homeType = homeTypeFor(model);
+      elements.vncModel.textContent = model ? `${model}${sys ? ` • ${sys}` : ''}` : 'VNC :5901';
+      elements.homeBadge.textContent = `Home: ${state.vnc.homeType === 'physical' ? 'physical button' : 'swipe up'}`;
+    }
+    function defaultWsUrl() {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      return `${proto}://${location.hostname}:5801/websockify`;
+    }
+    async function loadRfbClass() {
+      if (window.RFB) return window.RFB;
+      // Bundled asset served by the dashboard itself with token auth
+      // (RemoteDashboardServer /novnc/* handler). Falls back to the TrollVNC
+      // HTTP port if the dashboard bundle is missing the file.
+      const candidates = [query('./novnc/core/rfb.js'), `http://${location.hostname}:5801/novnc/core/rfb.js`, `http://${location.hostname}:5801/core/rfb.js`];
+      let lastError = null;
+      for (const url of candidates) {
+        try {
+          const mod = await import(/* @vite-ignore */url);
+          window.RFB = mod.default || mod.RFB || window.RFB;
+          if (window.RFB) return window.RFB;
+        } catch (e) { lastError = e; }
+      }
+      throw lastError || new Error('Unable to load novnc/core/rfb.js from dashboard bundle or :5801.');
+    }
+    // RFB attaches its own mouse handlers to the canvas; synthetic buttons
+    // dispatch real DOM mouse events so any noVNC version works (no private API).
+    function dispatchMouse(node, type, x, y, button, buttons) {
+      node.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button, buttons }));
+    }
+    function canvasPoint(fx, fy) { const r = vncCanvas().getBoundingClientRect(); return { x: r.left + r.width * fx, y: r.top + r.height * fy }; }
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    async function vncClick(button) {
+      const c = vncCanvas();
+      if (!c) { showToast('VNC is not connected yet.', true); return; }
+      const p = canvasPoint(0.5, 0.5);
+      const buttons = button === 0 ? 1 : button === 1 ? 4 : 2;
+      dispatchMouse(c, 'mousedown', p.x, p.y, button, buttons);
+      await wait(150);
+      dispatchMouse(c, 'mouseup', p.x, p.y, button, 0);
+      dispatchMouse(c, button === 2 ? 'contextmenu' : 'click', p.x, p.y, button, 0);
+    }
+    async function vncSwipe({ holdMs = 0 } = {}) {
+      const c = vncCanvas();
+      if (!c) { showToast('VNC is not connected yet.', true); return; }
+      const a = canvasPoint(0.5, 0.985), b = canvasPoint(0.5, 0.55);
+      dispatchMouse(c, 'mousedown', a.x, a.y, 0, 1);
+      const steps = 8;
+      for (let i = 1; i <= steps; i++) { await wait(25); dispatchMouse(c, 'mousemove', a.x + (b.x - a.x) * i / steps, a.y + (b.y - a.y) * i / steps, 0, 1); }
+      if (holdMs) await wait(holdMs);
+      await wait(80);
+      dispatchMouse(c, 'mouseup', b.x, b.y, 0, 0);
+    }
+    async function doHome() { state.vnc.homeType === 'physical' ? vncClick(2) : vncSwipe(); }
+    async function doSwitcher() { state.vnc.homeType === 'physical' ? (await vncClick(2), await wait(350), await vncClick(2)) : vncSwipe({ holdMs: 650 }); }
+    async function doWake() { await vncClick(1); } // middle = Power short-press; always allowed (screen may be off)
+    async function vncConnect() {
+      if (state.vnc.connecting || state.vnc.connected) return;
+      state.vnc.connecting = true;
+      setVncStatus('Connecting…', false);
+      elements.vncOverlay.hidden = false;
+      try {
+        const RFB = await loadRfbClass();
+        const wsUrl = elements.vncUrl.value.trim() || defaultWsUrl();
+        if (state.vnc.rfb) { try { state.vnc.rfb.disconnect(); } catch (_) {} }
+        const rfb = new RFB(elements.vncScreen, wsUrl, { shared: true });
+        state.vnc.rfb = rfb;
+        rfb.viewOnly = false;
+        rfb.scaleViewport = true;
+        rfb.addEventListener('connect', () => { state.vnc.connected = true; state.vnc.connecting = false; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); showToast('VNC connected — tap the screen to control iOS.'); });
+        rfb.addEventListener('disconnect', () => { state.vnc.connected = false; state.vnc.connecting = false; elements.vncOverlay.hidden = false; setVncStatus('Disconnected', false); });
+      } catch (error) {
+        state.vnc.connecting = false;
+        setVncStatus('RFB missing', false);
+        elements.vncOverlay.innerHTML = 'Bundled <code>novnc/core/rfb.js</code> not found.<br>Run <code>vendor/trollvnc/fetch-trollvnc.sh</code> at package time, or open <code>http://&lt;ip&gt;:5801/</code> directly.';
+        showToast(`VNC connect failed: ${error.message}`, true);
+      }
+    }
+    function vncDisconnect() { try { state.vnc.rfb && state.vnc.rfb.disconnect(); } catch (_) {} state.vnc.connected = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
+    elements.vncConnect.addEventListener('click', vncConnect);
+    elements.vncDisconnect.addEventListener('click', vncDisconnect);
+    elements.btnHome.addEventListener('click', doHome);
+    elements.btnSwitcher.addEventListener('click', doSwitcher);
+    elements.btnWake.addEventListener('click', doWake);
+    setVncStatus('Disconnected', false);
+    // ── end TrollVNC dock ────────────────────────────────────────────────
 
     selectView(location.hash.slice(1) || 'scripts'); refreshAll();
     setInterval(() => { if (document.visibilityState !== 'visible') return; loadStatus().catch(() => {}); loadLogs().catch(() => {}); }, 3000);

@@ -63,6 +63,29 @@ jobs:
           cp -r "$APP" layout/Applications/zxtouch.app
           echo "App installed to layout"
 
+      # ── Vendor TrollVNC into single .deb (VNC :5901 + noVNC :5801 + dashboard novnc/) ──
+      - name: Vendor TrollVNC and sync dashboard
+        env:
+          TROLLVNC_VERSION: 3.2-272
+        run: |
+          brew install dpkg 2>/dev/null || true
+          chmod +x vendor/trollvnc/fetch-trollvnc.sh
+          sh vendor/trollvnc/fetch-trollvnc.sh || echo "WARNING: TrollVNC vendor failed — building without live-screen binary (dashboard shows fallback)."
+          APP=$(find ./app-build -name "zxtouch.app" -type d | head -1)
+          echo "Syncing dashboard into staged app: $APP"
+          cp -f zxtouch/zxtouch/http/index.html "$APP/index.html"
+          if [ -d zxtouch/zxtouch/http/novnc/core ]; then
+            rm -rf "$APP/novnc" && cp -R zxtouch/zxtouch/http/novnc "$APP/novnc"
+            echo "Bundled noVNC assets: $(find "$APP/novnc" -type f | wc -l) files"
+          else
+            echo "WARNING: http/novnc/core missing — dashboard will fall back to :5801 URL."
+          fi
+          cp -f zxtouch/zxtouch/http/index.html layout/Applications/zxtouch.app/index.html 2>/dev/null || true
+          if [ -d zxtouch/zxtouch/http/novnc/core ]; then
+            rm -rf layout/Applications/zxtouch.app/novnc 2>/dev/null || true
+            cp -R zxtouch/zxtouch/http/novnc layout/Applications/zxtouch.app/novnc 2>/dev/null || true
+          fi
+
       # ── Setup Theos (roothide fork — 100% compat with rootless + adds roothide support) ──
       - name: Cache roothide Theos
         id: cache-theos
@@ -147,7 +170,7 @@ jobs:
 
             | File | Jailbreak | iOS |
             |------|-----------|-----|
-            | `*_rootless.deb` | Dopamine | 15.0 – 16.6.1 |
+            | `*_rootless.deb` | Dopamine / NathanLR | 15.0 – 17.7 |
             | `*_roothide.deb` | Roothide / Serotonin | 15.0 – 16.6.1 |
 
             ### Installation

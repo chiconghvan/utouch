@@ -182,13 +182,19 @@ static NSString *ZXDashboardIPAddress(void)
     NSString *rawOrientation = [self sendSocketCommand:@"252" expectsReply:YES];
     NSString *rawBattery = [self sendSocketCommand:@"2531" expectsReply:YES];
     NSString *rawRuntime = [self sendSocketCommand:@"2532" expectsReply:YES];
+    // Task 25 (device info) + subtask 30 = name;;systemName;;systemVersion;;model;;vendorID.
+    // Model (uname.machine, e.g. iPhone12,8 / iPhone14,6) drives the
+    // physical-Home vs swipe-Home detection in the dashboard (Pure-VNC plan).
+    NSString *rawDeviceInfo = [self sendSocketCommand:@"2530" expectsReply:YES];
     NSString *size = [self payloadFromSocketReply:rawSize];
     NSString *orientation = [self payloadFromSocketReply:rawOrientation];
     NSString *battery = [self payloadFromSocketReply:rawBattery];
     NSString *runtime = [self payloadFromSocketReply:rawRuntime];
+    NSString *deviceInfo = [self payloadFromSocketReply:rawDeviceInfo];
     NSArray *sizeParts = [size componentsSeparatedByString:@";;"];
     NSArray *batteryParts = [battery componentsSeparatedByString:@";;"];
     NSArray *runtimeParts = [runtime componentsSeparatedByString:@";;"];
+    NSArray *deviceParts = [deviceInfo componentsSeparatedByString:@";;"];
     return @{
         @"running": @(self.server.running),
         @"serviceOnline": @([rawSize hasPrefix:@"0"]),
@@ -199,6 +205,13 @@ static NSString *ZXDashboardIPAddress(void)
         @"foregroundApp": runtimeParts.count > 0 ? runtimeParts[0] : @"",
         @"scriptPlaying": runtimeParts.count > 1 ? @([runtimeParts[1] boolValue]) : @NO,
         @"recording": runtimeParts.count > 2 ? @([runtimeParts[2] boolValue]) : @NO,
+        @"deviceName": deviceParts.count > 0 ? deviceParts[0] : @"",
+        @"systemName": deviceParts.count > 1 ? deviceParts[1] : @"",
+        @"systemVersion": deviceParts.count > 2 ? deviceParts[2] : @"",
+        @"model": deviceParts.count > 3 ? deviceParts[3] : @"",
+        // TrollVNC endpoints bundled in the same (rootless) .deb.
+        // Pure-VNC plan: dashboard embeds noVNC RFB.js and talks here directly.
+        @"vnc": @{ @"port": @5901, @"httpPort": @5801 },
         @"lastAction": self.lastAction ?: @"Ready",
         @"lastError": self.lastError ?: @"",
         @"scriptCount": @([self scripts].count)
@@ -221,12 +234,35 @@ static NSString *ZXDashboardIPAddress(void)
     return [fileName caseInsensitiveCompare:@"info.plist"] != NSOrderedSame;
 }
 
+- (NSString *)dashboardBasePath
+{
+    // Rootless SpringBoard server. Roothide variant is resolved by the OS
+    // jbroot; the dashboard HTML lives next to the bundled noVNC assets at
+    // <app>/index.html + <app>/novnc/... so a single .deb carries everything.
+    NSString *rootless = @"/var/jb/Applications/zxtouch.app";
+    if ([[NSFileManager defaultManager] fileExistsAtPath:[rootless stringByAppendingPathComponent:@"index.html"]]) return rootless;
+    return nil;
+}
+
 - (NSString *)dashboardHTML
 {
-    NSString *path = @"/var/jb/Applications/zxtouch.app/index.html";
-    if (![[NSFileManager defaultManager] fileExistsAtPath:path]) path = nil;
+    NSString *base = [self dashboardBasePath];
+    NSString *path = base ? [base stringByAppendingPathComponent:@"index.html"] : nil;
     NSString *html = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
     return html ?: @"<h1>ZXTouch Dashboard is unavailable.</h1>";
+}
+
+- (GCDWebServerResponse *)novncFileResponseForRequest:(GCDWebServerRequest *)request
+{
+    // Serve bundled noVNC assets (./novnc/core/rfb.js, ...) with the same
+    // token auth as the dashboard. Rejects ".." to stay inside the app dir.
+    NSString *base = [self dashboardBasePath];
+    if (!base) return nil;
+    NSString *relative = [request.path substringFromIndex:@"/novnc/".length];
+    if ([relative rangeOfString:@".."].location != NSNotFound) return nil;
+    NSString *candidate = [[base stringByAppendingPathComponent:@"novnc"] stringByAppendingPathComponent:relative];
+    if (![[NSFileManager defaultManager] fileExistsAtPath:candidate]) return nil;
+    return [GCDWebServerFileResponse responseWithFile:candidate];
 }
 
 - (void)configureHandlers
@@ -237,6 +273,17 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
         return [GCDWebServerDataResponse responseWithHTML:[strongSelf dashboardHTML]];
+    }];
+
+    // Bundled noVNC client (single-.deb plan): ./novnc/** served with token auth.
+    // The dashboard loads ./novnc/core/rfb.js from here, then opens a raw
+    // WebSocket to the TrollVNC HTTP port (:5801/websockify) for stream+input.
+    [self.server addHandlerForMethod:@"GET" pathRegex:@"^/novnc/.*" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        GCDWebServerResponse *file = [strongSelf novncFileResponseForRequest:request];
+        if (!file) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"noVNC asset not found. Reinstall the package." } status:404];
+        return file;
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/scripts" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {

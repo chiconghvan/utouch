@@ -117,6 +117,23 @@ if [ -x "$LDID" ]; then
     "$LDID" -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
 fi
 
+# TrollVNC bundled in the same .deb (single-.deb plan): VNC :5901 + noVNC :5801.
+TVNC_BIN=$(jbroot /usr/bin/trollvncserver 2>/dev/null)
+TVNC_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null)
+if [ -n "$TVNC_BIN" ] && [ -x "$TVNC_BIN" ]; then
+    # Roothide has no fixed /var/jb path: rewrite the bundled plist's
+    # /var/jb prefix to the live jbroot before loading.
+    JBROOT="${TVNC_BIN%/usr/bin/trollvncserver}"
+    if [ -n "$TVNC_PLIST" ] && [ -f "$TVNC_PLIST" ] && [ "$JBROOT" != "/var/jb" ]; then
+        sed -i "s|/var/jb|$JBROOT|g" "$TVNC_PLIST" 2>/dev/null || true
+    fi
+    if command -v launchctl >/dev/null 2>&1 && [ -n "$TVNC_PLIST" ]; then
+        launchctl load "$TVNC_PLIST" 2>/dev/null || true
+    fi
+else
+    echo "ZXTouch: warning — trollvncserver not found. Rebuild with vendor/trollvnc/fetch-trollvnc.sh for live-screen support." >&2
+fi
+
 # Never restart SpringBoard from a maintainer script. Package managers run this
 # inside the dpkg transaction, so a restart can kill their helper before dpkg
 # records the package as configured. Sileo can offer a respring after dpkg exits.

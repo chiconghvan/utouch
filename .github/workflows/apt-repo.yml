@@ -1,0 +1,80 @@
+name: Publish APT repo to GitHub Pages
+
+# After build.yml publishes a GitHub Release (tag push v*), this workflow
+# downloads the release .deb assets (rootless + roothide) and publishes them
+# to the Sileo APT source served from docs/ via GitHub Pages:
+#   https://chiconghvan.github.io/utouch/
+# Enable once in repo Settings → Pages → Source: Deploy from branch,
+# Branch: main, Folder: /docs.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish to APT (e.g. v0.1.8). Defaults to latest release."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apt-repo
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Resolve tag
+        id: tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          if [ -n "$EVENT_TAG" ]; then
+            echo "value=$EVENT_TAG" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUT_TAG" ]; then
+            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            LATEST=$(gh release list --limit 1 --json tagName --jq '.[0].tagName')
+            echo "value=$LATEST" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Publishing release: $(grep '^value=' "$GITHUB_OUTPUT" | cut -d= -f2-)"
+
+      - name: Download release .deb assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf /tmp/newdebs && mkdir -p /tmp/newdebs
+          gh release download "${{ steps.tag.outputs.value }}" --pattern '*.deb' --dir /tmp/newdebs
+          ls -la /tmp/newdebs
+
+      - name: Install APT tooling
+        run: sudo apt-get update -y && sudo apt-get install -y dpkg-dev gzip bzip2
+
+      - name: Update APT metadata
+        run: |
+          chmod +x scripts/apt/update-repo.sh
+          sh scripts/apt/update-repo.sh /tmp/newdebs
+
+      - name: Commit and push docs/
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/Packages docs/Packages.gz docs/Packages.bz2 docs/Release docs/debs
+          git status --short
+          if git diff --cached --quiet; then
+            echo "No APT changes to publish."
+          else
+            git commit -m "APT repo: publish ${{ steps.tag.outputs.value }} to GitHub Pages"
+            git push origin main
+          fi
