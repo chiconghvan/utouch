@@ -1,11 +1,11 @@
 # Bundled noVNC client
 
 `index.html` loads `./novnc/core/rfb.js` (served by the dashboard as
-`/novnc/*` with the same `?token=` auth) and opens a raw WebSocket to
+`/novnc/*`, no token needed) and opens a raw WebSocket to
 TrollVNC at `ws://<iphone-ip>:5801/websockify` for the live screen + Pure-VNC
 input (left=touch, right=Home, middle=Power/Wake).
 
-This directory is populated at package time by
-`vendor/trollvnc/fetch-trollvnc.sh` (copied from TrollVNC's
-`webclients/novnc/`). It is intentionally empty in a fresh checkout —
-the dashboard shows a fallback message and the `:5801` URL if missing.
+Source: https://github.com/novnc/noVNC v1.6.0 (`core/` only, MPL-2.0 —
+see https://github.com/novnc/noVNC/blob/master/LICENSE.md).
+Do not hand-edit files under `core/`; to upgrade, replace the directory
+with `core/` from a newer noVNC release.

@@ -1,31 +1,40 @@
 # Vendored TrollVNC (single-.deb plan)
 
-TrollVNC (`owngoal-dev/TrollVNC`, **GPLv2**) is bundled into the same rootless
-`.deb` as ZXTouch — no separate install, no source build.
+TrollVNC (`owngoal-dev/TrollVNC`, **GPLv2**) provides the VNC server behind the
+dashboard's Live Screen dock. Two parts:
 
-## How it works
+- **noVNC web client** — vendored in git at `zxtouch/zxtouch/http/novnc/`
+  (novnc/noVNC v1.6.0 `core/`, MPL-2.0), served by the dashboard as `/novnc/*`.
+- **`trollvncserver` binary** — bundled into the `.deb` only when a rootless
+  `.deb` is supplied (upstream GitHub Releases carry no `.deb` assets).
 
-1. `fetch-trollvnc.sh` downloads the upstream `packages-rootless` `.deb`
-   for the pinned `TROLLVNC_VERSION` and extracts into this repo:
-   - `layout/usr/bin/trollvncserver` (+ `layout/usr/lib/trollvnc/*.dylib`)
-     → `/var/jb/usr/bin/trollvncserver` on device (Theos rootless prefix).
-   - `layout/usr/share/trollvnc/webclients/` → TrollVNC `-H 5801` docroot.
-   - `zxtouch/zxtouch/http/novnc/` → served by the dashboard itself as
-     `/novnc/*` (token auth) so `index.html` can `import ./novnc/core/rfb.js`.
-2. `layout/Library/LaunchDaemons/com.zjx.trollvnc.plist` starts
-   `trollvncserver -p 5901 -H 5801 ...` at boot (`RunAtLoad + KeepAlive`).
-3. `postinst` loads the daemon (or warns if the binary is missing, e.g. a
-   source checkout without running the fetch script).
-4. CI (`.github/workflows/build.yml`) runs the fetch script, then syncs
-   `zxtouch/zxtouch/http/index.html + novnc/` into the staged
-   `layout/Applications/zxtouch.app/` after the Xcode step overwrites it.
+## TrollVNC server on device (required for stream)
 
-## Pin / upgrade
+Install **one** of these on the iPhone, then enable the server with
+VNC port `5901` + HTTP port `5801` (dashboard Connect → `ws://<ip>:5801`):
+
+1. TrollVNC from Havoc (`havoc.app/search/TrollVNC`), or
+2. Fork `owngoal-dev/TrollVNC` → Actions → “Build TrollVNC” → install the
+   `packages-rootless` artifact.
+
+## Bundling the binary (optional, single-.deb)
+
+`fetch-trollvnc.sh` extracts a supplied rootless `.deb` into this repo:
+
+- `layout/usr/bin/trollvncserver` (+ `layout/usr/lib/trollvnc/*.dylib`)
+  → `/var/jb/usr/bin/trollvncserver` on device (Theos rootless prefix).
+- `layout/usr/share/trollvnc/webclients/` → TrollVNC `-H 5801` docroot.
 
 ```sh
-sh vendor/trollvnc/fetch-trollvnc.sh 3.2-272
-# or: TROLLVNC_VERSION=3.2-272 sh vendor/trollvnc/fetch-trollvnc.sh
+TROLLVNC_DEB=/path/to/trollvnc-rootless.deb sh vendor/trollvnc/fetch-trollvnc.sh
 ```
+
+With the binary present, `layout/Library/LaunchDaemons/com.zjx.trollvnc.plist`
+starts `trollvncserver -p 5901 -H 5801 ...` at boot; `postinst` loads it
+(or warns if the binary is missing). CI (`.github/workflows/build.yml`) runs
+the fetch script (warn-only when no `.deb` is available), then syncs
+`zxtouch/zxtouch/http/index.html + novnc/` into the staged
+`layout/Applications/zxtouch.app/` after the Xcode step overwrites it.
 
 ## License
 

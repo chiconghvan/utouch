@@ -1,33 +1,41 @@
 #!/bin/sh
-# Vendor TrollVNC (rootless) + noVNC client into this repo's single .deb.
-# Usage: sh vendor/trollvnc/fetch-trollvnc.sh [VERSION]
-#   - Downloads TrollVNC packages-rootless artifact from GitHub Releases
-#     (GPLv2 - see vendor/trollvnc/README.md, COPYING shipped in .deb).
-#   - Extracts trollvncserver + libs into layout/usr/... (Theos rootless
-#     scheme prefixes /var/jb on device).
-#   - Extracts noVNC webclients into layout/usr/share/trollvnc/webclients/
-#     AND copies novnc/core/rfb.js (+deps) into zxtouch/zxtouch/http/novnc/
-#     so the dashboard can `import ./novnc/core/rfb.js` with token auth.
-#   - Syncs zxtouch/zxtouch/http/index.html into the staged app later via CI
-#     (see .github/workflows/build.yml "Sync dashboard" step).
+# Vendor TrollVNC (rootless) into this repo's single .deb.
+# NOTE (verified 2026-09-12): upstream GitHub Releases ship NO .deb assets
+# (TrollVNC is distributed via Havoc / self-built CI artifacts), so this
+# script prefers an explicit local .deb and otherwise warns:
+#   TROLLVNC_DEB=/path/to/trollvnc-rootless.deb sh vendor/trollvnc/fetch-trollvnc.sh
+#   sh vendor/trollvnc/fetch-trollvnc.sh /path/to/trollvnc-rootless.deb
+#   sh vendor/trollvnc/fetch-trollvnc.sh 3.2-272   # tries GitHub release assets
+# The noVNC web client used by the dashboard is vendored separately in git
+# at zxtouch/zxtouch/http/novnc/ (novnc/noVNC, MPL-2.0) and needs no download.
 set -eu
-VERSION="${1:-${TROLLVNC_VERSION:-3.2-272}}"
-REPO="${TROLLVNC_REPO:-owngoal-dev/TrollVNC}"
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-echo "==> TrollVNC $VERSION from $REPO"
-# Release asset naming follows TrollVNC "Build TrollVNC" workflow
-# (packages-rootless). Adjust grep if upstream renames assets.
-URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/v$VERSION" \
-  | grep -o "https://[^\" ]*rootless[^\" ]*\.deb" | head -1)"
-if [ -z "$URL" ]; then
-  echo "ERROR: no rootless .deb found for v$VERSION. Set TROLLVNC_VERSION explicitly." >&2
-  exit 1
+if [ -n "${TROLLVNC_DEB:-}" ]; then
+  DEB="$TROLLVNC_DEB"
+elif [ "${1:-}" != "" ] && [ -f "$1" ]; then
+  DEB="$1"
+else
+  VERSION="${1:-${TROLLVNC_VERSION:-3.2-272}}"
+  REPO="${TROLLVNC_REPO:-owngoal-dev/TrollVNC}"
+  echo "==> looking for TrollVNC rootless .deb in $REPO release v$VERSION ..."
+  URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/v$VERSION" \
+    | grep -o "https://[^\" ]*rootless[^\" ]*\.deb" | head -1)"
+  if [ -z "$URL" ]; then
+    echo "WARNING: no rootless .deb asset in upstream release v$VERSION." >&2
+    echo "  TrollVNC server will NOT be bundled. Install TrollVNC on the" >&2
+    echo "  device separately (Havoc, or fork + 'Build TrollVNC' workflow)," >&2
+    echo "  enable it with VNC :5901 + HTTP :5801, then dashboard Connect works." >&2
+    echo "  To bundle: TROLLVNC_DEB=<rootless.deb> sh vendor/trollvnc/fetch-trollvnc.sh" >&2
+    exit 0
+  fi
+  curl -fsSL -o "$TMP/trollvnc.deb" "$URL"
+  DEB="$TMP/trollvnc.deb"
 fi
-curl -fsSL -o "$TMP/trollvnc.deb" "$URL"
-dpkg-deb -x "$TMP/trollvnc.deb" "$TMP/tvnc"
+echo "==> vendoring $DEB"
+dpkg-deb -x "$DEB" "$TMP/tvnc"
 
 # Binary + libs (paths inside the TrollVNC deb are already jb-rooted or absolute;
 # normalize to layout/ which Theos treats as jbroot-relative for rootless).

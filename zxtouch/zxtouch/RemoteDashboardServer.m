@@ -73,7 +73,10 @@ static NSString *ZXDashboardIPAddress(void)
 
 - (BOOL)requestIsAuthorized:(GCDWebServerRequest *)request
 {
-    return [request.query[@"token"] isEqualToString:self.token];
+    // Open LAN dashboard: no pairing token required (ip:8080 works directly).
+    // WLAN-only exposure is the safeguard; do not port-forward this port.
+    (void)request;
+    return YES;
 }
 
 - (GCDWebServerDataResponse *)jsonResponse:(NSDictionary *)payload status:(NSInteger)status
@@ -427,7 +430,8 @@ void ZXDashboardReloadConfiguration(void)
     }
     BOOL enabled = [configuration[ZXDashboardEnabledKey] boolValue];
     NSString *token = [configuration[ZXDashboardTokenKey] isKindOfClass:[NSString class]] ? configuration[ZXDashboardTokenKey] : @"";
-    if (!enabled || token.length == 0) {
+    (void)token; // kept for config compat; auth is open (see requestIsAuthorized:)
+    if (!enabled) {
         [ZXDashboardServer stop];
         ZXDashboardServer = nil;
         return;
