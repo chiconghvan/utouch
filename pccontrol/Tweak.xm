@@ -379,11 +379,26 @@ Boolean init()
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             [@"1-block-started" writeToFile:@"/var/mobile/d1.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
-            // nativeBounds is always in portrait physical pixels, unaffected by rotation
-            CGRect nativeBounds = [UIScreen mainScreen].nativeBounds;
-            CGFloat width = nativeBounds.size.width;
-            CGFloat height = nativeBounds.size.height;
-            [Screen setScreenSize:(width<height?width:height) height:(width>height?width:height)];
+            // Canonical coordinate space = RENDERED pixels (bounds x scale),
+            // the same unit reported by screenSize() (DeviceInfo.xm) and used
+            // by screenshots, OCR boxes, color search and image matching.
+            // Do NOT use nativeBounds here: on Plus models (6/7/8 Plus) the
+            // panel downsamples (e.g. 1242x2208 -> 1080x1920), so normalizing
+            // touches by native size pushes OCR-derived points off-screen
+            // (y > 1.0) and taps silently miss. IOHID takes normalized 0..1,
+            // so the denominator only needs to match the input space.
+            // Must run on main thread: UIScreen bounds/scale are UIKit state.
+            __block CGFloat rW = 0, rH = 0;
+            void (^readRenderedSize)(void) = ^{
+                UIScreen *screen = [UIScreen mainScreen];
+                CGSize boundsSize = screen.bounds.size;
+                CGFloat scale = screen.scale;
+                rW = boundsSize.width * scale;
+                rH = boundsSize.height * scale;
+            };
+            if ([NSThread isMainThread]) readRenderedSize();
+            else dispatch_sync(dispatch_get_main_queue(), readRenderedSize);
+            [Screen setScreenSize:(rW<rH?rW:rH) height:(rW>rH?rW:rH)];
             [@"3-screen-set" writeToFile:@"/var/mobile/d3.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
 
             popupWindow = [[PopupWindow alloc] init];

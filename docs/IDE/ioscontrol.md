@@ -36,6 +36,17 @@ Simulate touches, swipes, pinch, rotate and other gestures on the device screen.
 
 _Mô phỏng chạm, vuốt, phóng to, xoay và các thao tác cảm ứng khác trên màn hình._
 
+> Coordinate system: every function uses **device pixels** — the same unit
+> returned by `screenSize()` (rendered `bounds × scale`). `tap`, OCR boxes,
+> `findImage`/`findColor` matches and screenshots all share this space, so an
+> OCR center can be tapped directly. (Before 0.3.4, touches on Plus models
+> were normalized by `nativeBounds` and OCR-derived points could land
+> off-screen.)
+>
+> _Hệ tọa độ: mọi hàm dùng **device pixels** — cùng đơn vị với `screenSize()`
+> (rendered `bounds × scale`). `tap`, bbox OCR, `findImage`/`findColor` và
+> screenshot chung một hệ nên tâm OCR tap trực tiếp được._
+
 ### `tap(x, y)`
 
 - Type: `func`

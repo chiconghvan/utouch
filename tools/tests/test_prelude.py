@@ -415,6 +415,24 @@ def test_debug_visual_tap_swipe_ocr_image():
     prelude.setDebugVisual(True)
 
 
+def test_plus_model_rendered_coords_pass_through_unchanged():
+    # Regression (iPhone 7 Plus, 0.3.4): OCR/screenshot/screenSize speak
+    # RENDERED pixels (1242x2208); the daemon normalizes touches by the same
+    # space. Python must forward OCR centers to touch byte-identical —
+    # no hidden rescale/clamp (a y=1952 must NOT become <=1920 here).
+    d = use_fake()
+    d.screen = {"width": "1242.000000", "height": "2208.000000"}
+    d.ocr_items = [{"text": "Continue", "x": "600", "y": "1930",
+                    "width": "54", "height": "44"}]  # center = (627, 1952)
+    prelude.setDebugVisual(False)
+    m = prelude.tapText("Continue", timeout=0.1)
+    prelude.setDebugVisual(True)
+    assert m is not None
+    touches = [c for c in d.calls if c[0] == "touch"]
+    assert (touches[0][3], touches[0][4]) == (627, 1952)
+    assert (touches[1][3], touches[1][4]) == (627, 1952)
+
+
 def test_client_debug_mark_wire_format():
     from zxtouch import client as client_mod
     sent = []
