@@ -119,6 +119,17 @@
     .note-row:last-child { border-bottom: 0; }
     .note-mark { color: var(--green); }
 
+    /* Installed apps card: vertical list, app name + bundle id per row. */
+    .apps-panel { margin-top: 14px; }
+    .apps-list { max-height: 460px; overflow: auto; overscroll-behavior: contain; }
+    .app-row { min-height: 52px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 7px 13px; border: 0; border-bottom: 1px solid var(--line); text-align: left; color: inherit; background: transparent; cursor: pointer; font: inherit; appearance: none; -webkit-appearance: none; }
+    .app-row:last-child { border-bottom: 0; }
+    .app-row:hover { background: var(--panel-hover); }
+    .app-row:focus-visible { outline: 2px solid var(--blue); outline-offset: -2px; }
+    .app-name { overflow: hidden; font-size: 13px; font-weight: 670; text-overflow: ellipsis; white-space: nowrap; }
+    .app-id { margin-top: 2px; overflow: hidden; color: var(--muted); font: 10px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+    .app-badge { padding: 2px 8px; border: 1px solid var(--line-strong); border-radius: 20px; color: var(--muted-strong); background: var(--field); font-size: 10px; white-space: nowrap; }
+
     .log-panel .panel-head { min-height: 62px; }
     .log-tools { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
     .log-filter { width: 190px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
@@ -313,6 +324,7 @@
       </div>
       <div class="vnc-meta"><span class="vnc-dot" id="vncDot"></span><span id="vncStatus">Disconnected</span><span class="vnc-badge" id="homeBadge">Home: …</span></div>
       <div class="vnc-row"><button class="button primary" id="vncConnect">Connect</button><button class="button ghost" id="vncDisconnect">Disconnect</button></div>
+      <div class="vnc-row"><label class="toggle"><input id="vncAuto" type="checkbox" checked>Auto-connect &amp; retry</label></div>
       <div class="vnc-row"><select class="vnc-select" id="vncQuality" aria-label="Stream quality"><option value="0.5">Quality 0.5 (saver)</option><option value="0.66">Quality 0.66</option><option value="0.75" selected>Quality 0.75 (LAN)</option><option value="1.0">Quality 1.0 (pixel)</option></select></div>
     </div>
   </aside>
@@ -356,6 +368,7 @@
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Current Status</h3></div></div><div class="data-grid"><div class="data-row"><div class="data-label">Service</div><div class="data-value" id="service">Checking</div></div><div class="data-row"><div class="data-label">Activity</div><div class="data-value" id="deviceActivity">Idle</div></div><div class="data-row"><div class="data-label">Display</div><div class="data-value" id="screen">-</div></div><div class="data-row"><div class="data-label">Orientation</div><div class="data-value" id="orientation">-</div></div><div class="data-row"><div class="data-label">Battery</div><div class="data-value" id="battery">-</div></div><div class="data-row"><div class="data-label">Foreground app</div><div class="data-value" id="foreground">-</div></div></div></section>
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Diagnostics</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">Socket</span><span class="diagnostic-value" id="socketState">Checking</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP port</span><span class="diagnostic-value" id="port">8080</span></div><div class="diagnostic"><span class="diagnostic-label">Scripts indexed</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">Access</span><span class="diagnostic-value">Open · LAN only</span></div><div class="diagnostic"><span class="diagnostic-label">Last error</span><span class="diagnostic-value" id="lastError">None</span></div></div></section>
       </div>
+      <section class="panel apps-panel"><div class="panel-head"><div class="panel-title"><h3>Installed Apps</h3><p id="appsSummary">Loading apps</p></div><div class="panel-tools"><input class="search" id="appsSearch" type="search" placeholder="Search name or bundle id" aria-label="Search installed apps"><button class="button ghost" id="appsRefresh">Reload</button></div></div><div class="apps-list" id="apps"><div class="empty-state">Loading installed apps...</div></div></section>
     </section>
 
     <section class="view" id="view-editor" role="tabpanel" hidden>
@@ -387,7 +400,7 @@
 
   <script>
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
-    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, vnc: { rfb: null, connected: false, connecting: false, model: '', homeType: 'gesture' } };
+    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, apps: [], appsLoading: false, appsError: '', vnc: { rfb: null, connected: false, connecting: false, model: '', homeType: 'gesture', manualOffline: false, bootKicked: false } };
     const orientationNames = { '1': 'Portrait', '2': 'Portrait upside down', '3': 'Landscape right', '4': 'Landscape left' };
 
     function escapeHTML(value) { const span = document.createElement('span'); span.textContent = String(value || ''); return span.innerHTML; }
@@ -406,6 +419,9 @@
       document.querySelectorAll('.view').forEach(view => { view.hidden = view.id !== `view-${valid}`; });
       document.querySelectorAll('.tab').forEach(tab => { const active = tab.dataset.view === valid; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); });
       if (location.hash !== `#${valid}`) history.replaceState(null, '', `${location.pathname}${location.search}#${valid}`);
+      // Installed apps are only shown on Device — fetch them the first time
+      // that view opens instead of on every dashboard load.
+      if (valid === 'device' && !state.apps.length && typeof loadApps === 'function') loadApps();
     }
 
     function renderScripts() {
@@ -431,12 +447,72 @@
       elements.serviceDot.classList.toggle('online', online); elements.connectionText.textContent = online ? 'Connected' : 'Offline'; elements.offlineBanner.hidden = online;
       elements.activity.textContent = activity; elements.deviceActivity.textContent = activity; elements.screen.textContent = status.screen.width && status.screen.height ? `${Math.round(Number(status.screen.width))} x ${Math.round(Number(status.screen.height))}` : '-'; elements.orientation.textContent = orientation ? `${orientation} / ${orientationNames[orientation] || 'Unknown'}` : '-'; elements.battery.textContent = Number.isFinite(battery) ? `${Math.round(battery)}%` : '-'; elements.foreground.textContent = status.foregroundApp || '-';
       elements.lastAction.textContent = status.lastAction || 'Ready'; elements.recordingState.textContent = status.recording ? 'Recording now' : 'Recorder idle'; elements.socketState.textContent = online ? 'Connected' : 'Offline'; elements.port.textContent = status.port || '8080'; elements.scriptCount.textContent = status.scriptCount ?? state.scripts.length; elements.lastError.textContent = status.lastError || 'None';
+      if (typeof updateAppBadges === 'function') updateAppBadges();
       elements.stop.disabled = !online || !status.scriptPlaying; elements.recordStart.disabled = !online || status.recording; elements.recordStop.disabled = !online || !status.recording;
       elements.scripts.querySelectorAll('.run-script').forEach(button => { if (button.dataset.busy !== '1') button.disabled = !online; });
       if (typeof updateVncDevice === 'function') updateVncDevice(status);
+      // First visit: start the stream as soon as the service is known online,
+      // so the Live Screen fills without a manual Connect. One shot — after
+      // this the retry chain owns the lifecycle.
+      if (online && !state.vnc.bootKicked && typeof vncAutoOn === 'function' && vncAutoOn() && !state.vnc.manualOffline && !state.vnc.connected && !state.vnc.connecting) {
+        state.vnc.bootKicked = true;
+        vncConnect('boot');
+      }
     }
 
     async function loadStatus() { const payload = await api('/api/status'); renderStatus(payload.status); }
+
+    // ── Installed apps card (Device view) ───────────────────────────────
+    // Vertical list of { name, bundleId }. Clicking a row copies its bundle id.
+    function renderApps() {
+      const search = (elements.appsSearch?.value || '').trim().toLowerCase();
+      const visible = state.apps.filter(app => !search || `${app.name} ${app.bundleId}`.toLowerCase().includes(search));
+      if (elements.appsSummary) elements.appsSummary.textContent = state.apps.length ? `${visible.length} of ${state.apps.length} apps` : 'No apps reported';
+      if (!state.apps.length) { elements.apps.innerHTML = `<div class="empty-state">${escapeHTML(state.appsError || 'No installed apps reported by the device.')}</div>`; return; }
+      if (!visible.length) { elements.apps.innerHTML = '<div class="empty-state">No apps match this search.</div>'; return; }
+      // The badge is always in the DOM and only shown/hidden, so the 3s status
+      // poll can move "front" without re-rendering (which would lose scroll).
+      // Bundle id travels in the row so the badge survives search filtering.
+      elements.apps.innerHTML = visible.map(app => {
+        const bundle = escapeHTML(app.bundleId);
+        return `<button class="app-row" type="button" data-bundle="${bundle}" title="${bundle}&#10;Click to copy the bundle ID"><span class="script-copy"><span class="app-name">${escapeHTML(app.name)}</span><span class="app-id">${bundle}</span></span><span class="app-badge" data-badge hidden>front</span></button>`;
+      }).join('');
+      elements.apps.querySelectorAll('.app-row').forEach(row => row.addEventListener('click', () => copyAppId(row.dataset.bundle)));
+      updateAppBadges();
+    }
+    function updateAppBadges() {
+      if (!elements.apps || !elements.apps.querySelector) return;
+      const foreground = (state.status && state.status.foregroundApp) || '';
+      elements.apps.querySelectorAll('.app-row').forEach(row => {
+        const badge = row.querySelector('[data-badge]');
+        if (badge) badge.hidden = !foreground || row.dataset.bundle !== foreground;
+      });
+    }
+    async function copyAppId(bundleId) {
+      if (!bundleId) return;
+      try { await copyText(bundleId); showToast(`Copied ${bundleId}`); }
+      catch (_) { showToast('Unable to copy bundle ID.', true); }
+    }
+    async function loadApps(force) {
+      if (state.appsLoading) return;
+      if (state.apps.length && !force) { renderApps(); return; }
+      state.appsLoading = true;
+      setButtonBusy(elements.appsRefresh, Boolean(force), '&#8230;');
+      try {
+        const payload = await api('/api/apps');
+        state.apps = Array.isArray(payload.apps) ? payload.apps : [];
+        state.appsError = '';
+        if (!state.apps.length) state.appsError = 'The device returned no apps (LaunchServices unavailable).';
+      } catch (error) {
+        state.appsError = `Apps unavailable: ${error.message}`;
+      } finally {
+        state.appsLoading = false;
+        setButtonBusy(elements.appsRefresh, false);
+        renderApps();
+      }
+    }
+    if (elements.appsSearch) elements.appsSearch.addEventListener('input', renderApps);
+    if (elements.appsRefresh) elements.appsRefresh.addEventListener('click', () => loadApps(true));
     function renderLogs() { const filter = elements.logFilter.value.trim().toLowerCase(); const lines = state.rawLogs ? state.rawLogs.split(/\r?\n/) : []; const visible = filter ? lines.filter(line => line.toLowerCase().includes(filter)) : lines; const stick = elements.autoFollow.checked || elements.logs.scrollTop + elements.logs.clientHeight >= elements.logs.scrollHeight - 16; elements.logs.textContent = visible.join('\n') || 'No runtime log output yet.'; elements.logSummary.textContent = `${visible.length} visible line${visible.length === 1 ? '' : 's'}`; if (stick) elements.logs.scrollTop = elements.logs.scrollHeight; }
     async function loadLogs() { const payload = await api('/api/logs'); state.rawLogs = payload.logs || ''; renderLogs(); }
 
@@ -447,7 +523,7 @@
     async function uploadAsset(event) { event.preventDefault(); const file = elements.assetFile.files[0]; const scriptName = elements.assetScript.options[elements.assetScript.selectedIndex]?.textContent || 'selected script'; if (!file) { showToast('Choose an asset file first.', true); return; } if (file.size > 25 * 1024 * 1024) { showToast('Assets must be 25 MB or smaller.', true); return; } if (file.name.toLowerCase() === 'info.plist') { showToast('info.plist cannot be overwritten.', true); return; } if (!await ask('Upload asset?', `${file.name} will be added to ${scriptName}.`, 'Upload asset')) return; setButtonBusy(elements.uploadButton, true, 'Uploading...'); try { const payload = await api('/api/assets', { method: 'POST', body: new FormData(event.currentTarget) }); showToast(`${payload.file} uploaded.`); elements.assetFile.value = ''; elements.assetFileName.textContent = 'Choose an asset'; await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.uploadButton, false); } }
     function copyText(text) { if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text); const area = document.createElement('textarea'); area.value = text; area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); return Promise.resolve(); }
     async function clearLogs() { if (!await ask('Clear runtime logs?', 'This removes the current log output from the device.', 'Clear logs', true)) return; try { await api('/api/logs/clear', { method: 'POST' }); state.rawLogs = ''; renderLogs(); showToast('Runtime logs cleared.'); await loadStatus(); } catch (error) { showToast(error.message, true); } }
-    async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
+    async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs(), loadApps(true)]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
 
     elements.confirmCancel.addEventListener('click', () => closeConfirmation(false)); elements.confirmAccept.addEventListener('click', () => closeConfirmation(true)); elements.confirmModal.addEventListener('click', event => { if (event.target === elements.confirmModal) closeConfirmation(false); }); document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.confirmModal.hidden) closeConfirmation(false); });
     elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || 'Choose an asset'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
@@ -635,15 +711,47 @@
 
     // Best-effort Lua→Python for the automation subset. Throws {line, message}.
     function transpileLua(src) {
-      const fixExpr = s => s.replace(/~=/g, '!=')
-        .replace(/#([A-Za-z_][\w.]*)/g, 'len($1)')
-        .replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None');
       const strings = [];
       const protect = line => line.replace(/\[\[([\s\S]*?)\]\]|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')/g, m => {
         strings.push(m);
         return `\u0001${strings.length - 1}\u0001`;
       });
+      // restore() puts protected strings back — it must be the LAST step for
+      // every emitted line, otherwise \u0001N\u0001 placeholders leak to Python.
       const restore = line => line.replace(/\u0001(\d+)\u0001/g, (_, n) => strings[Number(n)]);
+      // Lua expression → Python, run on protected text (placeholders are
+      // \u0001-digit sequences, so keywords like `true`/`nil` never live
+      // inside them and word-boundary replaces are safe).
+      const pyExpr = s => s.replace(/~=/g, '!=')
+        .replace(/\.\.\./g, '\u0002').replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...')
+        .replace(/#([A-Za-z_][\w.]*)/g, 'len($1)')
+        .replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None')
+        // Lua findText returns x, y, text (nil when absent); Python findText
+        // returns a match list. ocrFind() emulates the Lua shape: unpackable
+        // triple, falsy when absent.
+        .replace(/\bfindText\s*\(/g, 'ocrFind(');
+      // Strip `local` (single + multi-target): `local x = 1` -> `x = 1`,
+      // `local x, y = f()` -> `x, y = f()`, `local x, y` -> `x = None; y = None`.
+      const stripLocal = line => line
+        .replace(/^local\s+([\w][\w\s,]*?)\s*=\s*/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).join(', ') + ' = ')
+        .replace(/^local\s+([\w][\w\s,]*?)\s*$/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).map(v => `${v} = None`).join('; '));
+      // Lua numeric-for header → Python range() header. Shared by the
+      // block and one-line paths. Returns '' when the form is unsupported.
+      const pyForHead = cond => {
+        let mm = cond.match(/^(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+)$/);
+        if (mm) return `for ${mm[1]} in range(${pyExpr(mm[2])}, (${pyExpr(mm[3])})+1, ${pyExpr(mm[4])}):`;
+        mm = cond.match(/^(\w+)\s*=\s*(.+?)\s*,\s*(.+)$/);
+        if (mm) return `for ${mm[1]} in range(${pyExpr(mm[2])}, (${pyExpr(mm[3])})+1):`;
+        mm = cond.match(/^(.+?)\s+in\s+(.+)$/);
+        if (mm) return `for ${mm[1]} in ${pyExpr(mm[2].replace(/ipairs\((.*)\)$/, 'enumerate($1)').replace(/pairs\((.*)\)$/, '$1'))}:`;
+        return '';
+      };
+      // One-line compounds Lua allows but Python does not:
+      //   if COND then BODY end   /   while COND do BODY end   /   for i=1,3 do BODY end
+      // BODY may chain `;`-separated statements; strings are protected so `;`
+      // inside them never splits.
+      const ONE_LINE_IF = /^if\s+(.+?)\s+then\s+(.+?)\s+end$/;
+      const ONE_LINE_LOOP = /^(while|for)\s+(.+?)\s+do\s+(.+?)\s+end$/;
       const out = [];
       let level = 0, bracketDepth = 0;
       const lines = src.split('\n');
@@ -671,33 +779,47 @@
           continue;
         }
         const indent = () => '    '.repeat(level);
-        if (/^else\s*$/.test(line)) { level--; if (level < 0) fail('unexpected "else"'); out.push(indent() + 'else:'); level++; continue; }
-        if ((m = line.match(/^elseif\s+(.+?)\s+then\s*$/))) { level--; if (level < 0) fail('unexpected "elseif"'); out.push(indent() + 'elif ' + fixExpr(m[1]) + ':'); level++; }
-        else if ((m = line.match(/^if\s+(.+?)\s+then\s*$/))) { out.push(indent() + 'if ' + fixExpr(m[1]) + ':'); level++; }
-        else if ((m = line.match(/^while\s+(.+?)\s+do\s*$/))) { out.push(indent() + 'while ' + fixExpr(m[1]) + ':'); level++; }
-        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { out.push(indent() + `for ${m[1]} in range(${fixExpr(m[2])}, (${fixExpr(m[3])})+1, ${fixExpr(m[4])}):`); level++; }
-        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { out.push(indent() + `for ${m[1]} in range(${fixExpr(m[2])}, (${fixExpr(m[3])})+1):`); level++; }
-        else if ((m = line.match(/^for\s+(.+?)\s+in\s+(.+?)\s+do\s*$/))) {
-          let iter = m[2].replace(/ipairs\((.*)\)$/, 'enumerate($1)').replace(/pairs\((.*)\)$/, '$1');
-          out.push(indent() + `for ${m[1]} in ${iter}:`); level++;
+        // Every branch below must hand Python `restore()`d text: placeholders
+        // are \u0001N\u0001 and any line that skips it leaks garbage.
+        const emit = s => { out.push(indent() + restore(s)); };
+        if (/^else\s*$/.test(line)) { level--; if (level < 0) fail('unexpected "else"'); emit('else:'); level++; continue; }
+        if ((m = line.match(ONE_LINE_LOOP))) {
+          const [, kw, cond, body] = m;
+          const head = kw === 'while'
+            ? 'while ' + pyExpr(cond) + ':'
+            : pyForHead(cond);
+          if (!head) fail('unsupported one-line "' + kw + '" form');
+          emit(head); level++;
+          body.split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+          level--;
         }
-        else if ((m = line.match(/^local\s+function\s+(\w+)\s*(\(.*\))\s*$/))) { out.push(indent() + `def ${m[1]}${m[2]}:`); level++; }
-        else if ((m = line.match(/^function\s+(\w+)\s*(\(.*\))\s*$/))) { out.push(indent() + `def ${m[1]}${m[2]}:`); level++; }
+        else if ((m = line.match(ONE_LINE_IF))) {
+          const [, cond, tail] = m;
+          const elseAt = tail.match(/\belse\b(?![^(]*\))/);
+          emit('if ' + pyExpr(cond) + ':'); level++;
+          if (elseAt) {
+            tail.slice(0, elseAt.index).split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+            level--; emit('else:'); level++;
+            tail.slice(elseAt.index + 5).split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+          } else {
+            tail.split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+          }
+          level--;
+        }
+        else if ((m = line.match(/^elseif\s+(.+?)\s+then\s*$/))) { level--; if (level < 0) fail('unexpected "elseif"'); emit('elif ' + pyExpr(m[1]) + ':'); level++; }
+        else if ((m = line.match(/^if\s+(.+?)\s+then\s*$/))) { emit('if ' + pyExpr(m[1]) + ':'); level++; }
+        else if ((m = line.match(/^while\s+(.+?)\s+do\s*$/))) { emit('while ' + pyExpr(m[1]) + ':'); level++; }
+        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { emit(`for ${m[1]} in range(${pyExpr(m[2])}, (${pyExpr(m[3])})+1, ${pyExpr(m[4])}):`); level++; }
+        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { emit(`for ${m[1]} in range(${pyExpr(m[2])}, (${pyExpr(m[3])})+1):`); level++; }
+        else if ((m = line.match(/^for\s+(.+?)\s+in\s+(.+?)\s+do\s*$/))) {
+          const iter = m[2].replace(/ipairs\((.*)\)$/, 'enumerate($1)').replace(/pairs\((.*)\)$/, '$1');
+          emit(`for ${m[1]} in ${pyExpr(iter)}:`); level++;
+        }
+        else if ((m = line.match(/^local\s+function\s+(\w+)\s*(\(.*\))\s*$/))) { emit(`def ${m[1]}${pyExpr(m[2])}:`); level++; }
+        else if ((m = line.match(/^function\s+(\w+)\s*(\(.*\))\s*$/))) { emit(`def ${m[1]}${pyExpr(m[2])}:`); level++; }
         else if (/^do\s*$/.test(line)) { level++; continue; }
         else {
-          // Strip `local` (single + multi-target): `local x = 1` -> `x = 1`,
-          // `local x, y = f()` -> `x, y = f()`, `local x, y` -> `x = None; y = None`.
-          line = line.replace(/^local\s+([\w][\w\s,]*?)\s*=\s*/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).join(', ') + ' = ')
-            .replace(/^local\s+([\w][\w\s,]*?)\s*$/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).map(v => `${v} = None`).join('; '));
-          // Lua findText returns x, y, text (nil when absent); Python findText
-          // returns a match list. ocrFind() emulates the Lua shape: unpackable
-          // triple, falsy when absent.
-          line = line.replace(/\bfindText\s*\(/g, 'ocrFind(');
-          line = line.replace(/~=/g, '!=');
-          line = line.replace(/\.\.\./g, '\u0002').replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...');
-          line = line.replace(/#([A-Za-z_][\w.]*)/g, 'len($1)');
-          line = line.replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None');
-          out.push(indent() + restore(line));
+          emit(pyExpr(stripLocal(line)));
         }
         bracketDepth += openDepth;
       }
@@ -1136,11 +1258,46 @@
     async function doHome() { vncLog('button', `Home (${state.vnc.homeType}, connected=${state.vnc.connected})`); state.vnc.homeType === 'physical' ? vncClick(2) : vncSwipe(); }
     async function doSwitcher() { vncLog('button', `Switcher (${state.vnc.homeType}, connected=${state.vnc.connected})`); state.vnc.homeType === 'physical' ? (await vncClick(2), await wait(350), await vncClick(2)) : vncSwipe({ holdMs: 650 }); }
     async function doWake() { vncLog('button', `Wake (connected=${state.vnc.connected})`); await vncClick(1); } // middle = Power short-press; always allowed (screen may be off)
-    async function vncConnect() {
+    // ── VNC auto-connect + retry policy ─────────────────────────────────
+    // Retries use a capped backoff so a device that is off / a port that is
+    // filtered doesn't hammer the network, and never runs past the cap until
+    // the user (or a foreground/auto toggle) resets it.
+    const VNC_CONNECT_TIMEOUT = 12000;   // ms with no handshake → give up + retry
+    const VNC_RETRY_STEPS = [2000, 4000, 8000, 15000, 30000];
+    const vncRetry = { timer: null, attempt: 0, watchdog: null };
+    function vncAutoOn() { return !elements.vncAuto || elements.vncAuto.checked; }
+    function vncClearRetry() { if (vncRetry.timer) { clearTimeout(vncRetry.timer); vncRetry.timer = null; } }
+    function vncClearWatchdog() { if (vncRetry.watchdog) { clearTimeout(vncRetry.watchdog); vncRetry.watchdog = null; } }
+    function vncSetOverlay(html) { elements.vncOverlay.hidden = false; elements.vncOverlay.innerHTML = html; }
+    function vncScheduleRetry(why) {
+      // First caller wins: a retry already queued keeps its (shorter) delay,
+      // so a watchdog teardown + the disconnect event it provokes cannot
+      // double-count an attempt.
+      if (vncRetry.timer || state.vnc.manualOffline || !vncAutoOn() || state.vnc.connected) return;
+      if (vncRetry.attempt >= VNC_RETRY_STEPS.length) {
+        setVncStatus('Offline', false);
+        vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(why || 'connection failed'))}<br>Auto-retry stopped after ${VNC_RETRY_STEPS.length} attempts.<br><button class="button primary" id="vncRetryNow" type="button">Retry now</button>`);
+        const b = document.getElementById('vncRetryNow');
+        if (b) b.addEventListener('click', () => { vncRetry.attempt = 0; vncConnect(); });
+        vncLog('retry', `gave up after ${VNC_RETRY_STEPS.length} attempts`);
+        return;
+      }
+      const delay = VNC_RETRY_STEPS[vncRetry.attempt];
+      vncRetry.attempt++;
+      setVncStatus(`Retrying (${vncRetry.attempt}/${VNC_RETRY_STEPS.length})`, false);
+      vncSetOverlay(`Live Screen disconnected — ${escapeHTML(String(why || 'connection failed'))}<br>Auto-retry in ${Math.round(delay / 1000)}s…`);
+      vncLog('retry', `attempt ${vncRetry.attempt}/${VNC_RETRY_STEPS.length} in ${delay}ms (${why || 'n/a'})`);
+      vncRetry.timer = setTimeout(() => { vncRetry.timer = null; vncConnect('retry'); }, delay);
+    }
+    async function vncConnect(reason) {
       if (state.vnc.connecting || state.vnc.connected) return;
+      // A manual Connect re-enables the auto policy; the flag only stops retries.
+      if (reason !== 'retry') { state.vnc.manualOffline = false; vncRetry.attempt = 0; vncClearRetry(); }
       state.vnc.connecting = true;
       setVncStatus('Connecting…', false);
       elements.vncOverlay.hidden = false;
+      elements.vncOverlay.innerHTML = 'Connecting to TrollVNC…<br>Stream + touch control appear here.';
+      vncLog('connect', `start (reason=${reason || 'manual'})`);
       try {
         vncLog('step 1/3', 'loading bundled novnc/core/rfb.js');
         const RFB = await loadRfbClass();
@@ -1152,11 +1309,28 @@
         state.vnc.rfb = rfb;
         rfb.viewOnly = false;
         rfb.scaleViewport = true;
-        rfb.addEventListener('connect', e => { state.vnc.connected = true; state.vnc.connecting = false; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); vncLog('step 3/3 ok', `connected, desktop="${(e && e.detail && e.detail.name) || ''}"`); showToast('VNC connected — tap the screen to control iOS.'); });
+        // A dead/filtered port can leave RFB hanging without ever firing an
+        // event, so the retry chain would stall. Watchdog tears it down.
+        vncClearWatchdog();
+        vncRetry.watchdog = setTimeout(() => {
+          vncRetry.watchdog = null;
+          if (!state.vnc.connected) {
+            vncLog('timeout', `no handshake in ${VNC_CONNECT_TIMEOUT / 1000}s — tearing down`);
+            try { rfb.disconnect(); } catch (_) {}
+            state.vnc.connecting = false;
+            vncScheduleRetry('no VNC handshake');
+          }
+        }, VNC_CONNECT_TIMEOUT);
+        rfb.addEventListener('connect', e => { state.vnc.connected = true; state.vnc.connecting = false; vncClearWatchdog(); vncClearRetry(); vncRetry.attempt = 0; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); vncLog('step 3/3 ok', `connected, desktop="${(e && e.detail && e.detail.name) || ''}"`); showToast('VNC connected — tap the screen to control iOS.'); });
         rfb.addEventListener('disconnect', e => {
           const d = (e && e.detail) || {};
-          state.vnc.connected = false; state.vnc.connecting = false; elements.vncOverlay.hidden = false; setVncStatus('Disconnected', false);
-          vncLog('disconnect', `clean=${d.clean} msg="${d.message || d.reason || 'n/a'}"`);
+          const clean = Boolean(d.clean);
+          state.vnc.connected = false; state.vnc.connecting = false; elements.vncOverlay.hidden = false; vncClearWatchdog(); setVncStatus('Disconnected', false);
+          vncLog('disconnect', `clean=${clean} msg="${d.message || d.reason || 'n/a'}"`);
+          // A protocol-level close with a message usually means the server
+          // rejected us (auth, bad handshake); those still benefit from a
+          // retry, so every disconnect feeds the backoff chain.
+          vncScheduleRetry(d.message || d.reason || 'disconnected');
         });
         rfb.addEventListener('credentialsrequired', () => vncLog('auth', 'server requested credentials — set TROLLVNC_PASSWORD on device or leave empty if none'));
         rfb.addEventListener('securityfailure', e => vncLog('auth failed', (e && e.detail && (e.detail.message || e.detail.reason)) || 'n/a'));
@@ -1167,11 +1341,28 @@
         vncLog('FAILED', error.message);
         elements.vncOverlay.innerHTML = 'Bundled <code>novnc/core/rfb.js</code> failed to load.<br>Update to the latest package, or open <code>http://&lt;ip&gt;:5801/</code> directly.';
         showToast(`VNC connect failed: ${error.message}`, true);
+        vncScheduleRetry(error.message);
       }
     }
-    function vncDisconnect() { vncLog('button', 'Disconnect'); try { state.vnc.rfb && state.vnc.rfb.disconnect(); } catch (_) {} state.vnc.connected = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
-    elements.vncConnect.addEventListener('click', vncConnect);
+    function vncDisconnect() { vncLog('button', 'Disconnect (auto-retry paused)'); state.vnc.manualOffline = true; vncClearRetry(); vncClearWatchdog(); try { state.vnc.rfb && state.vnc.rfb.disconnect(); } catch (_) {} state.vnc.connected = false; state.vnc.connecting = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
+    elements.vncConnect.addEventListener('click', () => vncConnect());
     elements.vncDisconnect.addEventListener('click', vncDisconnect);
+    if (elements.vncAuto) {
+      try { elements.vncAuto.checked = localStorage.getItem('zxtouch.vnc.auto') !== '0'; } catch (_) {}
+      elements.vncAuto.addEventListener('change', () => {
+        try { localStorage.setItem('zxtouch.vnc.auto', elements.vncAuto.checked ? '1' : '0'); } catch (_) {}
+        vncLog('auto', elements.vncAuto.checked ? 'enabled' : 'disabled');
+        if (elements.vncAuto.checked && !state.vnc.connected && !state.vnc.connecting) { state.vnc.manualOffline = false; vncRetry.attempt = 0; vncConnect('auto'); }
+        else if (!elements.vncAuto.checked) vncClearRetry();
+      });
+    }
+    // Return to a backgrounded tab, or the tweak coming back online, should
+    // restart the stream right away instead of waiting out the backoff.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && vncAutoOn() && !state.vnc.manualOffline && !state.vnc.connected && !state.vnc.connecting) {
+        vncRetry.attempt = 0; vncClearRetry(); vncConnect('foreground');
+      }
+    });
     elements.btnHome.addEventListener('click', doHome);
     elements.btnSwitcher.addEventListener('click', doSwitcher);
     elements.btnWake.addEventListener('click', doWake);

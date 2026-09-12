@@ -10,6 +10,8 @@
 #import <arpa/inet.h>
 #import <ifaddrs.h>
 #import <notify.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
 
 #import "Config.h"
 #if !ZX_DASHBOARD_SPRINGBOARD_SERVER
@@ -56,6 +58,8 @@ static NSString *ZXDashboardIPAddress(void)
 @property(nonatomic, strong) GCDWebServer *server;
 @property(nonatomic, copy) NSString *lastError;
 @property(nonatomic, copy) NSString *lastAction;
+@property(nonatomic, copy) NSArray<NSDictionary *> *appsCache;
+@property(nonatomic, strong) NSDate *appsCacheAt;
 @end
 
 @implementation ZXRemoteDashboardServer
@@ -118,6 +122,75 @@ static NSString *ZXDashboardIPAddress(void)
     return [scripts sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
         return [left[@"name"] localizedCaseInsensitiveCompare:right[@"name"]];
     }];
+}
+
+- (NSArray<NSDictionary *> *)installedApps
+{
+    static const NSTimeInterval ZXAppsCacheSeconds = 30;
+    if (self.appsCache && self.appsCacheAt && -[self.appsCacheAt timeIntervalSinceNow] < ZXAppsCacheSeconds) {
+        return self.appsCache;
+    }
+    // Enumerate the real LaunchServices app list through ObjC runtime only —
+    // the dashboard has no private-framework headers, and every selector here
+    // is probed so an OS that lacks one simply yields an empty list instead of
+    // crashing SpringBoard (which hosts this server).
+    Class workspaceClass = objc_getClass("LSApplicationWorkspace");
+    if (!workspaceClass) return @[];
+    SEL defaultWs = sel_registerName("defaultWorkspace");
+    if (![workspaceClass respondsToSelector:defaultWs]) return @[];
+    id workspace = ((id (*)(id, SEL))objc_msgSend)(workspaceClass, defaultWs);
+    if (!workspace) return @[];
+
+    SEL allApps = sel_registerName("allApplications");
+    if (![workspace respondsToSelector:allApps]) return @[];
+    NSArray *apps = ((id (*)(id, SEL))objc_msgSend)(workspace, allApps);
+    if (![apps isKindOfClass:[NSArray class]]) return @[];
+
+    SEL bundleIdSel = sel_registerName("bundleIdentifier");
+    // Name probes, best first. `localizedName` / `displayName` are real
+    // LSApplicationProxy getters; `localizedNameForListing:` needs the listing
+    // constant (0 = icon) and is kept last as a best-effort fallback.
+    SEL localizedNameSel = sel_registerName("localizedName");
+    SEL displayNameSel = sel_registerName("displayName");
+    SEL listingNameSel = sel_registerName("localizedNameForListing:");
+    SEL bundleSel = sel_registerName("bundleURL");
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray arrayWithCapacity:apps.count];
+    for (id proxy in apps) {
+        @try {
+            NSString *bundleId = nil;
+            if ([proxy respondsToSelector:bundleIdSel]) {
+                id raw = ((id (*)(id, SEL))objc_msgSend)(proxy, bundleIdSel);
+                if ([raw isKindOfClass:[NSString class]]) bundleId = raw;
+            }
+            if (bundleId.length == 0) continue;
+
+            NSString *name = nil;
+            const SEL nameProbes[] = { localizedNameSel, displayNameSel };
+            for (size_t i = 0; i < sizeof(nameProbes) / sizeof(nameProbes[0]); i++) {
+                if (![proxy respondsToSelector:nameProbes[i]]) continue;
+                id raw = ((id (*)(id, SEL))objc_msgSend)(proxy, nameProbes[i]);
+                if ([raw isKindOfClass:[NSString class]] && [(NSString *)raw length]) { name = raw; break; }
+            }
+            if (name.length == 0 && [proxy respondsToSelector:listingNameSel]) {
+                id raw = ((id (*)(id, SEL, long))objc_msgSend)(proxy, listingNameSel, 0L);
+                if ([raw isKindOfClass:[NSString class]]) name = raw;
+            }
+            if (name.length == 0 && [proxy respondsToSelector:bundleSel]) {
+                id url = ((id (*)(id, SEL))objc_msgSend)(proxy, bundleSel);
+                if ([url respondsToSelector:@selector(lastPathComponent)]) {
+                    NSString *leaf = [[url lastPathComponent] stringByDeletingPathExtension];
+                    if (leaf.length) name = leaf;
+                }
+            }
+            if (name.length == 0) name = bundleId;
+            [out addObject:@{ @"name": name, @"bundleId": bundleId }];
+        } @catch (NSException *e) { /* skip one bad proxy, keep the list */ }
+    }
+    NSArray<NSDictionary *> *sorted = [out sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+        return [left[@"name"] localizedCaseInsensitiveCompare:right[@"name"]];
+    }];
+    if (sorted.count) { self.appsCache = sorted; self.appsCacheAt = [NSDate date]; }
+    return sorted;
 }
 
 - (NSString *)sendSocketCommand:(NSString *)command expectsReply:(BOOL)expectsReply
@@ -325,6 +398,16 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"status": [strongSelf status] } status:200];
+    }];
+
+    // GET /api/apps — installed apps as { name, bundleId }, sorted by name.
+    // Cached for a short while: allApplications touches LaunchServices, and the
+    // dashboard polls, so re-walking it on every request is wasteful.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/apps" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        NSArray<NSDictionary *> *apps = [strongSelf installedApps];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"apps": apps, @"count": @(apps.count) } status:200];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/logs" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {

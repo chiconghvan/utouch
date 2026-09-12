@@ -132,7 +132,9 @@ Tap a `.bdl` bundle whose entry file is a raw recording to open its timeline edi
 
 Enable Settings, then Web Server, and tap the dashboard URL row to copy the private address. Open that address from a phone, tablet, or computer on the same Wi-Fi network.
 
-Scripts searches and filters the library, runs or stops scripts, downloads entries, and controls recording. Assets uploads files such as image-matching templates into a selected script bundle. Logs follows, filters, copies, exports, or clears runtime output. Device shows live service state, display size, orientation, battery, foreground app, and server diagnostics.
+Scripts searches and filters the library, runs or stops scripts, downloads entries, and controls recording. Assets uploads files such as image-matching templates into a selected script bundle. Logs follows, filters, copies, exports, or clears runtime output. Device shows live service state, display size, orientation, battery, foreground app, and server diagnostics, plus an **Installed Apps** card that lists every app on the device vertically (app name + bundle ID); tap a row to copy its bundle ID, filter with search, and use Reload to rescan. The row of the current foreground app is badged "front".
+
+The Live Screen panel auto-connects to TrollVNC when the dashboard first loads and retries a dropped or refused stream with a capped backoff (2/4/8/15/30s, then a Retry now button). An **Auto-connect & retry** checkbox in the panel turns this off and remembers the choice per browser.
 
 No login or token is required: opening `http://&lt;iphone-ip&gt;:8080/` from the same Wi-Fi network gives full control. Do not expose port 8080 outside your local network. Dashboard hosting runs inside SpringBoard, so it remains available when the ZXTouch app is closed.
 
