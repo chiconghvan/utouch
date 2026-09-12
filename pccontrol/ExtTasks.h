@@ -57,19 +57,10 @@ NSString *pingFromRawData(UInt8 *eventData, NSError **error);
 // Private SpringBoard class (forward declaration so the Logos %c lookup
 // compiles cleanly; the call itself is respondsToSelector-guarded).
 // NOTE: SBApplication already comes from Common.h — do not redeclare it.
-// The process/pid accessors below are categories (not redeclarations),
-// and every use stays respondsToSelector-guarded at runtime.
+// process/pid are read via KVC (valueForKey:) so no extra selectors needed.
 @interface SBApplicationController : NSObject
 + (instancetype)sharedInstance;
 - (id)applicationWithBundleIdentifier:(NSString *)bundleId;
-@end
-
-@interface SBApplication (ZXProcess)
-- (id)process;
-@end
-
-@interface NSObject (ZXProcessPid)
-- (int)pid;
 @end
 
 #endif

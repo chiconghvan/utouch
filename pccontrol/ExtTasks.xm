@@ -234,10 +234,15 @@ static id ZXAppObject(NSString *bundleId) {
 }
 
 static pid_t ZXAppPid(NSString *bundleId) {
+    // KVC on purpose: no private selectors are referenced at compile time,
+    // so this is robust across iOS versions (unknown keys throw → -1).
     id app = ZXAppObject(bundleId);
     @try {
-        id proc = [app respondsToSelector:@selector(process)] ? [app process] : nil;
-        if (proc && [proc respondsToSelector:@selector(pid)]) return (pid_t)[proc pid];
+        id proc = [app valueForKey:@"process"];
+        NSNumber *pidNum = [proc valueForKey:@"pid"];
+        if ([pidNum respondsToSelector:@selector(intValue)]) {
+            return (pid_t)[pidNum intValue];
+        }
     } @catch (NSException *e) {
         NSLog(@"com.zjx.springboard: pid lookup failed: %@", e.reason);
     }

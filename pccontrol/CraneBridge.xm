@@ -96,13 +96,16 @@ static NSString *ZXResolveContainer(CraneManager *mgr, NSString *bundleId, NSStr
 
 static pid_t ZXKillBundle(NSString *bundleId) {
     // Best effort: terminate so file ops don't race a live app.
+    // KVC on purpose (see ZXAppPid in ExtTasks.xm): no private selectors
+    // at compile time; unknown keys throw and are caught below.
     @try {
         id ctrl = [%c(SBApplicationController) sharedInstance];
         id app = [ctrl respondsToSelector:@selector(applicationWithBundleIdentifier:)]
             ? [ctrl applicationWithBundleIdentifier:bundleId] : nil;
-        id proc = [app respondsToSelector:@selector(process)] ? [app process] : nil;
-        if (proc && [proc respondsToSelector:@selector(pid)]) {
-            pid_t pid = (pid_t)[proc pid];
+        id proc = [app valueForKey:@"process"];
+        NSNumber *pidNum = [proc valueForKey:@"pid"];
+        if ([pidNum respondsToSelector:@selector(intValue)]) {
+            pid_t pid = (pid_t)[pidNum intValue];
             if (pid > 0) kill(pid, SIGKILL);
             return pid;
         }
