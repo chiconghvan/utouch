@@ -1,0 +1,4 @@
+[submodule "vendor/TrollVNC"]
+	path = vendor/TrollVNC
+	url = https://github.com/owngoal-dev/TrollVNC.git
+	branch = main

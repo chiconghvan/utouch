@@ -136,12 +136,12 @@ Scripts searches and filters the library, runs or stops scripts, downloads entri
 
 No login or token is required: opening `http://&lt;iphone-ip&gt;:8080/` from the same Wi-Fi network gives full control. Do not expose port 8080 outside your local network. Dashboard hosting runs inside SpringBoard, so it remains available when the ZXTouch app is closed.
 
-### Live screen (TrollVNC, bundled)
+### Live screen (TrollVNC, built from source)
 
-The same `.deb` ships TrollVNC (`owngoal-dev/TrollVNC`, GPLv2 — see
-`vendor/trollvnc/README.md`) started at boot via
-`com.zjx.trollvnc.plist`: VNC on `5901`, browser client on `5801`
-(`-s 0.75 -F 30:60:120 -O on -B off -A 15`).
+The same `.deb` ships TrollVNC (`owngoal-dev/TrollVNC` v3.2-272 submodule,
+GPLv2 — see `tools/trollvnc/README.md`), compiled with Theos in CI and
+started at boot via `com.zjx.trollvnc.plist`: VNC on `5901`, browser client
+on `5801` (`-s 0.75 -F 30:60:120 -O on -B off -A 15`). No separate install.
 
 The dashboard shows a fixed leftside **Live Screen** panel: stream + direct
 touch control (Pure-VNC, no extra backend). Three buttons:

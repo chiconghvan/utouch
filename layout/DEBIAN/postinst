@@ -119,7 +119,7 @@ if [ -x /var/jb/usr/bin/trollvncserver ]; then
         launchctl load /var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null || true
     fi
 else
-    echo "ZXTouch: warning — trollvncserver not found. Rebuild with vendor/trollvnc/fetch-trollvnc.sh for live-screen support." >&2
+    echo "ZXTouch: warning — trollvncserver not found. Rebuild with tools/trollvnc/build-and-stage.sh for live-screen support." >&2
 fi
 
 # Never restart SpringBoard from a maintainer script. Package managers run this

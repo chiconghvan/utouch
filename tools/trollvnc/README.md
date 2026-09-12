@@ -1,4 +1,4 @@
-# Vendored TrollVNC (single-.deb plan)
+# TrollVNC integration (single-.deb, no separate install)
 
 TrollVNC (`owngoal-dev/TrollVNC`, **GPLv2**) provides the VNC server behind the
 dashboard's Live Screen dock. Two parts:
@@ -17,7 +17,14 @@ VNC port `5901` + HTTP port `5801` (dashboard Connect → `ws://<ip>:5801`):
 2. Fork `owngoal-dev/TrollVNC` → Actions → “Build TrollVNC” → install the
    `packages-rootless` artifact.
 
-## Bundling the binary (optional, single-.deb)
+## Bundling the binary (from source, default in CI)
+
+`vendor/TrollVNC` is a git submodule pinned at upstream tag `v3.2-272`.
+`build-and-stage.sh` compiles its rootless `.deb` with Theos and stages
+`trollvncserver` + `webclients/` into `layout/` (see script header).
+CI runs it automatically — no manual step, no separate install on device.
+
+## Bundling the binary (from a local .deb, fallback)
 
 `fetch-trollvnc.sh` extracts a supplied rootless `.deb` into this repo:
 

@@ -131,7 +131,7 @@ if [ -n "$TVNC_BIN" ] && [ -x "$TVNC_BIN" ]; then
         launchctl load "$TVNC_PLIST" 2>/dev/null || true
     fi
 else
-    echo "ZXTouch: warning — trollvncserver not found. Rebuild with vendor/trollvnc/fetch-trollvnc.sh for live-screen support." >&2
+    echo "ZXTouch: warning — trollvncserver not found. Rebuild with tools/trollvnc/build-and-stage.sh for live-screen support." >&2
 fi
 
 # Never restart SpringBoard from a maintainer script. Package managers run this

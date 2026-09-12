@@ -63,14 +63,9 @@ jobs:
           cp -r "$APP" layout/Applications/zxtouch.app
           echo "App installed to layout"
 
-      # ── Vendor TrollVNC into single .deb (VNC :5901 + noVNC :5801 + dashboard novnc/) ──
-      - name: Vendor TrollVNC and sync dashboard
-        env:
-          TROLLVNC_VERSION: 3.2-272
+      # ── Sync dashboard (index.html + bundled novnc/) into staged app ──
+      - name: Sync dashboard
         run: |
-          brew install dpkg 2>/dev/null || true
-          chmod +x vendor/trollvnc/fetch-trollvnc.sh
-          sh vendor/trollvnc/fetch-trollvnc.sh || echo "WARNING: TrollVNC vendor failed — building without live-screen binary (dashboard shows fallback)."
           APP=$(find ./app-build -name "zxtouch.app" -type d | head -1)
           echo "Syncing dashboard into staged app: $APP"
           cp -f zxtouch/zxtouch/http/index.html "$APP/index.html"
@@ -100,6 +95,18 @@ jobs:
         env:
           THEOS: ${{ github.workspace }}/theos
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── TrollVNC from source (submodule) → stage binary + webclients ──
+      # Upstream publishes no .deb assets, so we compile v3.2-272 ourselves.
+      # Output lands in layout/ and is packaged into BOTH .debs below.
+      - name: Build TrollVNC from source
+        run: |
+          brew install make dpkg ldid 2>/dev/null || true
+          git submodule update --init vendor/TrollVNC
+          chmod +x tools/trollvnc/build-and-stage.sh
+          bash tools/trollvnc/build-and-stage.sh
+        env:
+          THEOS: ${{ github.workspace }}/theos
 
       # ── Rootless (Dopamine) build ──────────────────────────────────────────
       - name: Build Rootless .deb
