@@ -384,19 +384,15 @@
     }
     async function loadRfbClass() {
       if (window.RFB) return window.RFB;
-      // Bundled asset served by the dashboard itself with token auth
-      // (RemoteDashboardServer /novnc/* handler). Falls back to the TrollVNC
-      // HTTP port if the dashboard bundle is missing the file.
-      const candidates = [query('./novnc/core/rfb.js'), `http://${location.hostname}:5801/novnc/core/rfb.js`, `http://${location.hostname}:5801/core/rfb.js`];
-      let lastError = null;
-      for (const url of candidates) {
-        try {
-          const mod = await import(/* @vite-ignore */url);
-          window.RFB = mod.default || mod.RFB || window.RFB;
-          if (window.RFB) return window.RFB;
-        } catch (e) { lastError = e; }
-      }
-      throw lastError || new Error('Unable to load novnc/core/rfb.js from dashboard bundle or :5801.');
+      // Bundled asset (./novnc/core + ./novnc/vendor) served by the dashboard
+      // itself (RemoteDashboardServer /novnc/* handler, same origin).
+      // NOTE: cross-origin module import from :5801 is impossible (no CORS
+      // headers there), so there is intentionally no :5801 fallback here.
+      // The :5801 port is only used for the WebSocket stream (not CORS-gated).
+      const mod = await import(/* @vite-ignore */query('./novnc/core/rfb.js'));
+      window.RFB = mod.default || mod.RFB || window.RFB;
+      if (!window.RFB) throw new Error('novnc/core/rfb.js loaded but exports no RFB class.');
+      return window.RFB;
     }
     // RFB attaches its own mouse handlers to the canvas; synthetic buttons
     // dispatch real DOM mouse events so any noVNC version works (no private API).
@@ -447,7 +443,7 @@
       } catch (error) {
         state.vnc.connecting = false;
         setVncStatus('RFB missing', false);
-        elements.vncOverlay.innerHTML = 'Bundled <code>novnc/core/rfb.js</code> not found.<br>Run <code>vendor/trollvnc/fetch-trollvnc.sh</code> at package time, or open <code>http://&lt;ip&gt;:5801/</code> directly.';
+        elements.vncOverlay.innerHTML = 'Bundled <code>novnc/core/rfb.js</code> failed to load.<br>Update to the latest package, or open <code>http://&lt;ip&gt;:5801/</code> directly.';
         showToast(`VNC connect failed: ${error.message}`, true);
       }
     }

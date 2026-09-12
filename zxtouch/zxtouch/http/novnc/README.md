@@ -5,7 +5,8 @@
 TrollVNC at `ws://<iphone-ip>:5801/websockify` for the live screen + Pure-VNC
 input (left=touch, right=Home, middle=Power/Wake).
 
-Source: https://github.com/novnc/noVNC v1.6.0 (`core/` only, MPL-2.0 —
-see https://github.com/novnc/noVNC/blob/master/LICENSE.md).
-Do not hand-edit files under `core/`; to upgrade, replace the directory
-with `core/` from a newer noVNC release.
+Source: https://github.com/novnc/noVNC v1.6.0 (`core/` + `vendor/pako/`,
+MPL-2.0 — see https://github.com/novnc/noVNC/blob/master/LICENSE.md).
+`vendor/pako` is required at runtime (`core/inflator.js` imports it).
+Do not hand-edit files under `core/` or `vendor/`; to upgrade, replace both
+directories from a newer noVNC release.
