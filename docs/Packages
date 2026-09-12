@@ -386,3 +386,39 @@ Tag: role::developer
 Author: Jason Z
 Name: ZXTouch
 
+Package: com.zjx.ioscontrol
+Version: 0.3.7
+Architecture: iphoneos-arm64e
+Maintainer: Jason Z
+Installed-Size: 11064
+Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
+Recommends: com.opa334.crane
+Filename: debs/com.zjx.ioscontrol_0.3.7_roothide.deb
+Size: 2517356
+MD5sum: 37517cdb59c8fa4b2bcf9b5f2a034d7f
+SHA1: 9a5347bf49053dabb5657e865cc097eef45d9b3c
+SHA256: ab7000cc0836233eac15ae3edc5a740cbbc826f14690780449a14356184a3188
+Section: Utilities
+Description: ZXTouch Main Application (rootless, iOS 15-16)
+Tag: role::developer
+Author: Jason Z
+Name: ZXTouch
+
+Package: com.zjx.ioscontrol
+Version: 0.3.7
+Architecture: iphoneos-arm64
+Maintainer: Jason Z
+Installed-Size: 11096
+Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
+Recommends: com.opa334.crane
+Filename: debs/com.zjx.ioscontrol_0.3.7_rootless.deb
+Size: 2519856
+MD5sum: 0848b83ed20e8068a7d4ef970f580be5
+SHA1: e37152cd2c80adec764d2dd4acec2df8279f90d6
+SHA256: ad7a5aacf4323ae6a2e6e035339ecf9a09cb5517c38e88b293a0d50de9a6966e
+Section: Utilities
+Description: ZXTouch Main Application (rootless, iOS 15-16)
+Tag: role::developer
+Author: Jason Z
+Name: ZXTouch
+
