@@ -27,6 +27,7 @@ static NSString *const ZXDashboardTokenKey = @"token";
 static const char *ZXDashboardConfigurationNotification = "com.zjx.zxtouch.remote-dashboard-changed";
 static const unsigned long long ZXDashboardMaximumAssetSize = 25ULL * 1024ULL * 1024ULL;
 static const NSUInteger ZXDashboardMaximumLogLength = 256 * 1024;
+static const NSUInteger ZXEditorMaximumCodeLength = 256 * 1024;
 
 static NSString *ZXDashboardIPAddress(void)
 {
@@ -268,10 +269,51 @@ static NSString *ZXDashboardIPAddress(void)
     return [GCDWebServerFileResponse responseWithFile:candidate];
 }
 
+- (NSString *)editorFrontmostApp
+{
+    // Task 25/subtask 32 replies "frontmost;;playing;;recording".
+    NSString *reply = [self payloadFromSocketReply:[self sendSocketCommand:@"2532" expectsReply:YES]];
+    NSArray *parts = [reply componentsSeparatedByString:@";;"];
+    NSString *frontmost = parts.count > 0 ? parts[0] : @"";
+    return frontmost.length ? frontmost : nil;
+}
+
+- (NSString *)writeEditorBundleWithCode:(NSString *)code error:(NSError **)error
+{
+    // Hidden staging bundle next to the runtime log dir (NOT in the library).
+    NSString *bundlePath = [[RUNTIME_OUTPUT_PATH stringByDeletingLastPathComponent]
+        stringByAppendingPathComponent:@"__editor__.bdl"];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if (![fileManager createDirectoryAtPath:bundlePath withIntermediateDirectories:YES attributes:nil error:error]) {
+        return nil;
+    }
+    // Pin FrontApp so an editor run never yanks the user to another app.
+    NSString *frontmost = [self editorFrontmostApp] ?: @"";
+    NSDictionary *info = @{ @"Entry": @"entry.py", @"FrontApp": frontmost, @"Orientation": @"1" };
+    [info writeToFile:[bundlePath stringByAppendingPathComponent:@"info.plist"] atomically:YES];
+    if (![code writeToFile:[bundlePath stringByAppendingPathComponent:@"entry.py"]
+                atomically:YES encoding:NSUTF8StringEncoding error:error]) {
+        return nil;
+    }
+    return bundlePath;
+}
+
+- (NSString *)sanitizedScriptName:(id)rawName
+{
+    NSString *name = [[rawName isKindOfClass:[NSString class]] ? rawName : @""
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    if (name.length == 0 || name.length > 64) return nil;
+    if ([name isEqualToString:@"__editor__"]) return nil;
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:
+        @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 -_.()"];
+    if ([name rangeOfCharacterFromSet:allowed.invertedSet].location != NSNotFound) return nil;
+    if ([name hasPrefix:@"."]) return nil;
+    return name;
+}
+
 - (void)configureHandlers
 {
     __weak typeof(self) weakSelf = self;
-
     [self.server addHandlerForMethod:@"GET" path:@"/" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
@@ -386,6 +428,104 @@ static NSString *ZXDashboardIPAddress(void)
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script entry was not found." } status:404];
         }
         return [GCDWebServerFileResponse responseWithFile:entryPath isAttachment:YES];
+    }];
+
+    // ── Editor tab: ad-hoc write/run/save/load ──────────────────────
+    // POST /api/editor/run {code} — writes a hidden __editor__.bdl bundle
+    // (outside SCRIPTS_PATH so quick runs don't pollute the library) and
+    // plays it immediately. FrontApp is pinned to the currently frontmost
+    // app so the run doesn't yank the user elsewhere.
+    [self.server addHandlerForMethod:@"POST" path:@"/api/editor/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [((GCDWebServerDataRequest *)request).jsonObject isKindOfClass:[NSDictionary class]] ? ((GCDWebServerDataRequest *)request).jsonObject : @{};
+        NSString *code = [body[@"code"] isKindOfClass:[NSString class]] ? body[@"code"] : @"";
+        if (code.length == 0) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Code is empty." } status:400];
+        }
+        if (code.length > ZXEditorMaximumCodeLength) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Code is too large (256 KB max)." } status:413];
+        }
+        NSError *error = nil;
+        NSString *bundlePath = [strongSelf writeEditorBundleWithCode:code error:&error];
+        if (!bundlePath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to stage editor script." } status:500];
+        }
+        NSString *result = [strongSelf sendSocketCommand:[@"19" stringByAppendingString:bundlePath] expectsReply:YES];
+        strongSelf.lastAction = @"Editor run";
+        return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
+    }];
+
+    // GET /api/editor/load?path=<rel.bdl> — read a library entry as text.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/editor/load" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSString *bundlePath = [strongSelf bundlePathForRelativePath:request.query[@"path"]];
+        NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
+        NSString *entryPath = entry.length ? [bundlePath stringByAppendingPathComponent:entry] : nil;
+        if (!entryPath || ![[NSFileManager defaultManager] fileExistsAtPath:entryPath]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script entry was not found." } status:404];
+        }
+        NSError *error = nil;
+        NSString *code = [NSString stringWithContentsOfFile:entryPath encoding:NSUTF8StringEncoding error:&error];
+        if (!code) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to read script." } status:500];
+        }
+        if (code.length > ZXEditorMaximumCodeLength) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script is too large to edit (256 KB max)." } status:413];
+        }
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"name": bundlePath.lastPathComponent.stringByDeletingPathExtension, @"entry": entry, @"code": code } status:200];
+    }];
+
+    // POST /api/editor/save {path?, name?, code} — overwrite a bundle entry
+    // or create "<name>.bdl". Never touches info.plist of existing bundles.
+    [self.server addHandlerForMethod:@"POST" path:@"/api/editor/save" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf || ![strongSelf requestIsAuthorized:request]) return [strongSelf unauthorizedResponse];
+        NSDictionary *body = [((GCDWebServerDataRequest *)request).jsonObject isKindOfClass:[NSDictionary class]] ? ((GCDWebServerDataRequest *)request).jsonObject : @{};
+        NSString *code = [body[@"code"] isKindOfClass:[NSString class]] ? body[@"code"] : @"";
+        if (code.length == 0) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Code is empty." } status:400];
+        }
+        if (code.length > ZXEditorMaximumCodeLength) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Code is too large (256 KB max)." } status:413];
+        }
+        NSString *bundlePath = [strongSelf bundlePathForRelativePath:body[@"path"]];
+        NSString *relativePath = nil;
+        if (bundlePath) {
+            NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
+            if (![entry isKindOfClass:[NSString class]] || !entry.length) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Bundle has no editable entry." } status:400];
+            }
+            NSError *error = nil;
+            if (![code writeToFile:[bundlePath stringByAppendingPathComponent:entry] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to save script." } status:500];
+            }
+            relativePath = body[@"path"];
+        } else {
+            NSString *name = [strongSelf sanitizedScriptName:body[@"name"]];
+            if (!name) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Give the script a name (letters, numbers, space, - _ .)." } status:400];
+            }
+            relativePath = [name stringByAppendingPathExtension:@"bdl"];
+            NSString *newBundle = [[SCRIPTS_PATH stringByStandardizingPath] stringByAppendingPathComponent:relativePath];
+            NSError *error = nil;
+            [[NSFileManager defaultManager] createDirectoryAtPath:newBundle withIntermediateDirectories:YES attributes:nil error:&error];
+            if (error) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to create script." } status:500];
+            }
+            if (![[NSFileManager defaultManager] fileExistsAtPath:[newBundle stringByAppendingPathComponent:@"info.plist"]]) {
+                NSDictionary *info = @{ @"Entry": @"entry.py", @"FrontApp": [strongSelf editorFrontmostApp] ?: @"", @"Orientation": @"1" };
+                [info writeToFile:[newBundle stringByAppendingPathComponent:@"info.plist"] atomically:YES];
+            }
+            NSString *entry = [NSDictionary dictionaryWithContentsOfFile:[newBundle stringByAppendingPathComponent:@"info.plist"]][@"Entry"];
+            if (![entry isKindOfClass:[NSString class]] || !entry.length) entry = @"entry.py";
+            if (![code writeToFile:[newBundle stringByAppendingPathComponent:entry] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to save script." } status:500];
+            }
+        }
+        strongSelf.lastAction = [NSString stringWithFormat:@"Editor save %@", relativePath.lastPathComponent];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": relativePath } status:200];
     }];
 }
 

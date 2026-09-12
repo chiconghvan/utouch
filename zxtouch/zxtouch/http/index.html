@@ -173,6 +173,25 @@
       .vnc-screen { aspect-ratio: 9 / 12; max-height: 420px; }
     }
 
+    .editor-layout { display: grid; gap: 14px; }
+    .editor-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
+    .editor-lang { min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
+    .editor-open { min-height: 34px; max-width: 260px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
+    .editor-snippets { display: flex; gap: 6px; flex-wrap: wrap; padding: 10px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .snippet { min-height: 30px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 20px; color: var(--muted-strong); background: var(--field); cursor: pointer; font-size: 12px; }
+    .snippet:hover { border-color: var(--blue); color: var(--text); }
+    .editor-box { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; }
+    #monacoHost { height: 46vh; min-height: 340px; }
+    #editorFallback { width: 100%; height: 46vh; min-height: 340px; padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+    .editor-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 12px; }
+    .editor-status strong { color: var(--muted-strong); }
+    .transpiled { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+    .transpiled summary { padding: 10px 13px; color: var(--muted-strong); font-size: 12px; cursor: pointer; }
+    .transpiled pre { margin: 0; max-height: 260px; overflow: auto; padding: 12px 13px; border-top: 1px solid var(--line); color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    .editor-note { color: var(--muted); font-size: 11px; }
+    @media (max-width: 620px) { .editor-name { width: 100%; } .editor-open { max-width: none; width: 100%; } }
+
     .toast { position: fixed; z-index: 50; right: 18px; bottom: 18px; width: min(390px, calc(100vw - 36px)); padding: 12px 14px; border: 1px solid #44505f; border-left: 3px solid var(--blue); border-radius: 7px; color: var(--text); background: #222832; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); }
     .toast.error { border-left-color: var(--red); }
     .modal-backdrop { position: fixed; z-index: 60; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(0, 0, 0, .7); }
@@ -225,7 +244,7 @@
     <div class="appbar-actions"><div class="connection"><span class="status-dot" id="serviceDot"></span><span id="connectionText">Connecting</span></div><button class="icon-button" id="refresh" title="Refresh dashboard" aria-label="Refresh dashboard">&#8635;</button></div>
   </header>
 
-  <nav class="tabs-shell" aria-label="Dashboard views"><div class="tabs" role="tablist"><button class="tab active" role="tab" aria-selected="true" data-view="scripts">Scripts</button><button class="tab" role="tab" aria-selected="false" data-view="assets">Assets</button><button class="tab" role="tab" aria-selected="false" data-view="logs">Logs</button><button class="tab" role="tab" aria-selected="false" data-view="device">Device</button></div></nav>
+  <nav class="tabs-shell" aria-label="Dashboard views"><div class="tabs" role="tablist"><button class="tab active" role="tab" aria-selected="true" data-view="scripts">Scripts</button><button class="tab" role="tab" aria-selected="false" data-view="editor">Editor</button><button class="tab" role="tab" aria-selected="false" data-view="assets">Assets</button><button class="tab" role="tab" aria-selected="false" data-view="logs">Logs</button><button class="tab" role="tab" aria-selected="false" data-view="device">Device</button></div></nav>
   <aside class="vnc-dock" id="vncDock" aria-label="Live iOS screen and control">
     <div class="vnc-dock-inner">
       <div class="vnc-dock-head"><h2>Live Screen</h2><span class="vnc-model" id="vncModel">VNC :5901</span></div>
@@ -283,6 +302,24 @@
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Diagnostics</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">Socket</span><span class="diagnostic-value" id="socketState">Checking</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP port</span><span class="diagnostic-value" id="port">8080</span></div><div class="diagnostic"><span class="diagnostic-label">Scripts indexed</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">Access</span><span class="diagnostic-value">Private token</span></div><div class="diagnostic"><span class="diagnostic-label">Last error</span><span class="diagnostic-value" id="lastError">None</span></div></div></section>
       </div>
     </section>
+
+    <section class="view" id="view-editor" role="tabpanel" hidden>
+      <div class="view-heading"><div><h2>Script Editor</h2><p>Write Lua or Python, run it on the device immediately. No boilerplate needed — <code>tap()</code>, <code>sleep()</code>, <code>log()</code> work directly.</p></div></div>
+      <div class="editor-layout">
+        <div class="editor-toolbar">
+          <select class="editor-open" id="editorOpen" aria-label="Open script from library"><option value="">Open from library…</option></select>
+          <input class="editor-name" id="editorName" type="text" placeholder="Script name (for Save)" aria-label="Script name for save" maxlength="64">
+          <select class="editor-lang" id="editorLang" aria-label="Editor language"><option value="lua" selected>Lua</option><option value="python">Python</option></select>
+          <button class="button primary" id="editorRun"><span class="button-symbol">&#9654;</span>Run</button>
+          <button class="button danger" id="editorStop"><span class="button-symbol">&#9632;</span>Stop</button>
+          <button class="button" id="editorSave"><span class="button-symbol">&#8595;</span>Save</button>
+        </div>
+        <div class="editor-snippets" id="editorSnippets" aria-label="Insert snippet"></div>
+        <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
+        <details class="transpiled" id="transpiledWrap" hidden><summary>Transpiled Python preview (Lua runs via transpile → Python)</summary><pre id="transpiledView"></pre></details>
+        <div class="editor-status"><span id="editorStatus">Ready — Monaco loads from CDN, offline falls back to plain text.</span><span class="editor-note">Lua subset: <code>--</code> comments, <code>local</code>, <code>if/elseif/else/end</code>, numeric <code>for</code>, <code>while/do</code>, <code>~=</code>, <code>..</code>, <code>#len</code>. Output streams to Logs.</span></div>
+      </div>
+    </section>
   </main>
 
   <div class="toast" id="toast" role="status" hidden></div>
@@ -305,7 +342,7 @@
     function scriptType(script) { return script.type === 'raw' ? 'raw' : 'py'; }
 
     function selectView(name) {
-      const valid = ['scripts', 'assets', 'logs', 'device'].includes(name) ? name : 'scripts';
+      const valid = ['scripts', 'editor', 'assets', 'logs', 'device'].includes(name) ? name : 'scripts';
       document.querySelectorAll('.view').forEach(view => { view.hidden = view.id !== `view-${valid}`; });
       document.querySelectorAll('.tab').forEach(tab => { const active = tab.dataset.view === valid; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); });
       if (location.hash !== `#${valid}`) history.replaceState(null, '', `${location.pathname}${location.search}#${valid}`);
@@ -322,7 +359,7 @@
       if (state.status) renderStatus(state.status);
     }
 
-    async function loadScripts() { const payload = await api('/api/scripts'); state.scripts = payload.scripts || []; elements.assetScript.innerHTML = ''; state.scripts.forEach(script => { const option = document.createElement('option'); option.value = script.path; option.textContent = script.name; elements.assetScript.appendChild(option); }); elements.uploadButton.disabled = state.scripts.length === 0; renderScripts(); }
+    async function loadScripts() { const payload = await api('/api/scripts'); state.scripts = payload.scripts || []; elements.assetScript.innerHTML = ''; state.scripts.forEach(script => { const option = document.createElement('option'); option.value = script.path; option.textContent = script.name; elements.assetScript.appendChild(option); }); elements.uploadButton.disabled = state.scripts.length === 0; renderScripts(); if (typeof syncEditorOpen === 'function') syncEditorOpen(); }
 
     function renderStatus(status) {
       state.status = status;
@@ -358,6 +395,253 @@
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));
     elements.copyLogs.addEventListener('click', async () => { try { await copyText(state.rawLogs); showToast('Logs copied.'); } catch (_) { showToast('Unable to copy logs.', true); } });
     elements.downloadLogs.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([state.rawLogs], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = `zxtouch-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); elements.clearLogs.addEventListener('click', clearLogs);
+
+    // ── Script Editor tab (Monaco + Lua→Python + instant run) ──────
+    const editorState = { monaco: null, model: null, ready: false, useFallback: false, running: false };
+    const LUA_SAMPLE = '-- Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
+    const PY_SAMPLE = '# Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
+    const SNIPPETS = [
+      { label: 'tap', lua: 'tap(200, 300)', py: 'tap(200, 300)' },
+      { label: 'swipe', lua: 'swipe(200, 600, 200, 200, 0.3)', py: 'swipe(200, 600, 200, 200, 0.3)' },
+      { label: 'sleep+log', lua: 'sleep(1)\nlog("done")', py: 'sleep(1)\nlog("done")' },
+      { label: 'color check', lua: 'local c = getColor(200, 300)\nif c ~= 0xFFFFFF then\n  log("changed")\nend', py: 'c = getColor(200, 300)\nif c != 0xFFFFFF:\n    log("changed")' },
+      { label: 'image tap', lua: 'tapImage("btn.png", 10)', py: 'tapImage("btn.png", 10)' },
+      { label: 'ocr tap', lua: 'tapText("Login", 10)', py: 'tapText("Login", 10)' },
+      { label: 'app run', lua: 'appRun("com.apple.mobilesafari")\nsleep(2)', py: 'appRun("com.apple.mobilesafari")\nsleep(2)' },
+      { label: 'loop taps', lua: 'for i = 1, 5 do\n  tap(200, 300 + i * 10)\n  sleep(0.5)\nend', py: 'for i in range(1, 6):\n    tap(200, 300 + i * 10)\n    sleep(0.5)' },
+    ];
+
+    // Best-effort Lua→Python for the automation subset. Throws {line, message}.
+    function transpileLua(src) {
+      const fixExpr = s => s.replace(/~=/g, '!=')
+        .replace(/#([A-Za-z_][\w.]*)/g, 'len($1)')
+        .replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None');
+      const strings = [];
+      const protect = line => line.replace(/\[\[([\s\S]*?)\]\]|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')/g, m => {
+        strings.push(m);
+        return `\u0001${strings.length - 1}\u0001`;
+      });
+      const restore = line => line.replace(/\u0001(\d+)\u0001/g, (_, n) => strings[Number(n)]);
+      const out = [];
+      let level = 0, bracketDepth = 0;
+      const lines = src.split('\n');
+      for (let ln = 0; ln < lines.length; ln++) {
+        let raw = lines[ln];
+        let line = protect(raw);
+        const commentAt = line.search(/--(?!\[)/);
+        if (commentAt >= 0) line = line.slice(0, commentAt);
+        line = line.trim();
+        if (!line) { out.push(''); continue; }
+        const fail = msg => { throw { line: ln + 1, message: msg }; };
+        if (/^::.*::$/.test(line)) fail('goto/labels are not supported');
+        if (/^repeat\s*$/.test(line)) fail('repeat/until is not supported, use while');
+        if (/^until\b/.test(line)) fail('repeat/until is not supported, use while');
+        const openDepth = (line.match(/\(/g) || []).length - (line.match(/\)/g) || []).length;
+        if (bracketDepth > 0) { // continuation line: keep verbatim (re-indent later pass skips)
+          out.push('    '.repeat(level) + restore(line));
+          bracketDepth += openDepth;
+          continue;
+        }
+        let m;
+        if (/^end\s*$/.test(line)) {
+          level--;
+          if (level < 0) fail('unexpected "end"');
+          continue;
+        }
+        const indent = () => '    '.repeat(level);
+        if (/^else\s*$/.test(line)) { level--; if (level < 0) fail('unexpected "else"'); out.push(indent() + 'else:'); level++; continue; }
+        if ((m = line.match(/^elseif\s+(.+?)\s+then\s*$/))) { level--; if (level < 0) fail('unexpected "elseif"'); out.push(indent() + 'elif ' + fixExpr(m[1]) + ':'); level++; }
+        else if ((m = line.match(/^if\s+(.+?)\s+then\s*$/))) { out.push(indent() + 'if ' + fixExpr(m[1]) + ':'); level++; }
+        else if ((m = line.match(/^while\s+(.+?)\s+do\s*$/))) { out.push(indent() + 'while ' + fixExpr(m[1]) + ':'); level++; }
+        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { out.push(indent() + `for ${m[1]} in range(${fixExpr(m[2])}, (${fixExpr(m[3])})+1, ${fixExpr(m[4])}):`); level++; }
+        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { out.push(indent() + `for ${m[1]} in range(${fixExpr(m[2])}, (${fixExpr(m[3])})+1):`); level++; }
+        else if ((m = line.match(/^for\s+(.+?)\s+in\s+(.+?)\s+do\s*$/))) {
+          let iter = m[2].replace(/ipairs\((.*)\)$/, 'enumerate($1)').replace(/pairs\((.*)\)$/, '$1');
+          out.push(indent() + `for ${m[1]} in ${iter}:`); level++;
+        }
+        else if ((m = line.match(/^local\s+function\s+(\w+)\s*(\(.*\))\s*$/))) { out.push(indent() + `def ${m[1]}${m[2]}:`); level++; }
+        else if ((m = line.match(/^function\s+(\w+)\s*(\(.*\))\s*$/))) { out.push(indent() + `def ${m[1]}${m[2]}:`); level++; }
+        else if (/^do\s*$/.test(line)) { level++; continue; }
+        else {
+          line = line.replace(/^local\s+(\w+)\s*=\s*/, '$1 = ').replace(/^local\s+(\w+)\s*$/, '$1 = None');
+          line = line.replace(/~=/g, '!=');
+          line = line.replace(/\.\.\./g, '\u0002').replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...');
+          line = line.replace(/#([A-Za-z_][\w.]*)/g, 'len($1)');
+          line = line.replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None');
+          out.push(indent() + restore(line));
+        }
+        bracketDepth += openDepth;
+      }
+      if (level > 0) throw { line: lines.length, message: `${level} unclosed block(s), missing "end"` };
+      return out.join('\n');
+    }
+
+    function editorLang() { return elements.editorLang.value === 'python' ? 'python' : 'lua'; }
+    function editorGet() {
+      if (editorState.model) return editorState.model.getValue();
+      return elements.editorFallback.value;
+    }
+    function editorSet(text) {
+      if (editorState.model) editorState.model.setValue(text);
+      else elements.editorFallback.value = text;
+    }
+    function editorInsert(text) {
+      if (editorState.monaco && editorState.model) {
+        const sel = editorState.model && editorState.monaco.editor;
+        const pos = editorState.view ? editorState.view.getPosition() : null;
+        if (pos) editorState.view.executeEdits('snippet', [{ range: new editorState.monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column), text, forceMoveMarkers: true }]);
+        else editorSet(editorGet() + (editorGet().endsWith('\n') ? '' : '\n') + text);
+      } else {
+        const area = elements.editorFallback;
+        const s = area.selectionStart ?? area.value.length;
+        area.value = area.value.slice(0, s) + text + area.value.slice(area.selectionEnd ?? s);
+      }
+    }
+    function renderSnippets() {
+      const lang = editorLang();
+      elements.editorSnippets.innerHTML = '';
+      SNIPPETS.forEach(sn => {
+        const b = document.createElement('button');
+        b.className = 'snippet';
+        b.type = 'button';
+        b.textContent = '+ ' + sn.label;
+        b.addEventListener('click', () => editorInsert(lang === 'python' ? sn.py : sn.lua));
+        elements.editorSnippets.appendChild(b);
+      });
+    }
+    function setEditorStatus(text) { elements.editorStatus.textContent = text; }
+    function currentPayload() {
+      const lang = editorLang();
+      const src = editorGet();
+      if (!src.trim()) throw new Error('Editor is empty.');
+      if (lang === 'lua') {
+        try {
+          const py = transpileLua(src);
+          elements.transpiledWrap.hidden = false;
+          elements.transpiledView.textContent = py;
+          return py;
+        } catch (e) {
+          elements.transpiledWrap.hidden = false;
+          elements.transpiledView.textContent = `Transpile error at line ${e.line}: ${e.message}`;
+          throw new Error(`Lua line ${e.line}: ${e.message}`);
+        }
+      }
+      elements.transpiledWrap.hidden = true;
+      return src;
+    }
+    async function editorRun() {
+      let code;
+      try { code = currentPayload(); } catch (e) { showToast(e.message, true); setEditorStatus('Transpile failed — ' + e.message); return; }
+      setButtonBusy(elements.editorRun, true, 'Running…');
+      setEditorStatus('Running on device… watch Logs for output.');
+      try {
+        const payload = await api('/api/editor/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+        if (payload.result && !String(payload.result).startsWith('0')) throw new Error(String(payload.result).replace(/^(-1;;|\r\n)/g, ''));
+        showToast('Editor script started.');
+        setEditorStatus('Started — output streams to Logs.');
+        await loadStatus();
+      } catch (error) { showToast(error.message, true); setEditorStatus('Run failed — ' + error.message); }
+      finally { setButtonBusy(elements.editorRun, false); }
+    }
+    async function editorStop() {
+      setButtonBusy(elements.editorStop, true, 'Stopping…');
+      try { await api('/api/stop', { method: 'POST' }); showToast('Stop requested.'); await loadStatus(); }
+      catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(elements.editorStop, false); }
+    }
+    async function editorSave() {
+      let code;
+      try { code = currentPayload(); } catch (e) { showToast(e.message, true); return; }
+      const openPath = elements.editorOpen.value;
+      const body = openPath ? { path: openPath, code } : { name: elements.editorName.value.trim(), code };
+      if (!openPath && !body.name) { showToast('Type a script name, or pick a library script to overwrite.', true); elements.editorName.focus(); return; }
+      setButtonBusy(elements.editorSave, true, 'Saving…');
+      try {
+        const payload = await api('/api/editor/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        showToast(`Saved as ${decodeURIComponent(payload.path)}`);
+        setEditorStatus('Saved — ' + decodeURIComponent(payload.path));
+        await loadScripts();
+        syncEditorOpen();
+      } catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(elements.editorSave, false); }
+    }
+    async function editorLoadSelected() {
+      const path = elements.editorOpen.value;
+      if (!path) return;
+      try {
+        const payload = await api(`/api/editor/load?path=${encodeURIComponent(path)}`);
+        elements.editorName.value = payload.name || '';
+        // Stored entries are Python (runner prelude). Show as-is; switch view to Python for fidelity.
+        elements.editorLang.value = 'python';
+        applyEditorLanguage();
+        editorSet(payload.code || '');
+        setEditorStatus('Loaded — ' + payload.name);
+        showToast(`Loaded ${payload.name}.`);
+      } catch (error) { showToast(error.message, true); }
+    }
+    function syncEditorOpen() {
+      const keep = elements.editorOpen.value;
+      elements.editorOpen.innerHTML = '<option value="">Open from library…</option>';
+      state.scripts.forEach(script => {
+        if (scriptType(script) !== 'py') return;
+        const option = document.createElement('option');
+        option.value = script.path;
+        option.textContent = script.name;
+        elements.editorOpen.appendChild(option);
+      });
+      if (keep) elements.editorOpen.value = keep;
+    }
+    function applyEditorLanguage() {
+      const lang = editorLang();
+      renderSnippets();
+      if (editorState.monaco && editorState.model) editorState.monaco.editor.setModelLanguage(editorState.model, lang === 'python' ? 'python' : 'lua');
+      if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
+      if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);
+    }
+    function initEditor() {
+      renderSnippets();
+      elements.editorRun.addEventListener('click', editorRun);
+      elements.editorStop.addEventListener('click', editorStop);
+      elements.editorSave.addEventListener('click', editorSave);
+      elements.editorOpen.addEventListener('change', editorLoadSelected);
+      elements.editorLang.addEventListener('change', applyEditorLanguage);
+      const bootFallback = msg => {
+        editorState.useFallback = true;
+        elements.editorFallback.hidden = false;
+        elements.monacoHost.hidden = true;
+        if (!editorGet().trim()) editorSet(LUA_SAMPLE);
+        setEditorStatus(msg);
+      };
+      const bootMonaco = () => new Promise((resolve, reject) => {
+        const loader = document.createElement('script');
+        loader.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js';
+        loader.onload = () => {
+          try {
+            window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+            window.require(['vs/editor/editor.main'], () => {
+              try {
+                const ed = window.monaco.editor.create(elements.monacoHost, {
+                  value: LUA_SAMPLE, language: 'lua', theme: 'vs-dark',
+                  automaticLayout: true, minimap: { enabled: false },
+                  fontSize: 13, scrollBeyondLastLine: false, padding: { top: 10 },
+                });
+                editorState.monaco = window.monaco;
+                editorState.model = ed.getModel();
+                editorState.view = ed;
+                editorState.ready = true;
+                resolve();
+              } catch (e) { reject(e); }
+            }, reject);
+          } catch (e) { reject(e); }
+        };
+        loader.onerror = () => reject(new Error('CDN unreachable'));
+        document.head.appendChild(loader);
+        setTimeout(() => { if (!editorState.ready && !editorState.useFallback) reject(new Error('Monaco timed out')); }, 15000);
+      });
+      bootMonaco()
+        .then(() => setEditorStatus('Ready — Monaco editor loaded.'))
+        .catch(() => bootFallback('Ready — Monaco CDN unreachable, using plain-text fallback (same Run/Save).'));
+    }
 
     // ── TrollVNC leftside dock (Pure-VNC plan, single .deb) ──────────────
     // Stream + control go through the VNC protocol only. Mapping (TrollVNC):
@@ -486,7 +770,7 @@
     setVncStatus('Disconnected', false);
     // ── end TrollVNC dock ────────────────────────────────────────────────
 
-    selectView(location.hash.slice(1) || 'scripts'); refreshAll();
+    selectView(location.hash.slice(1) || 'scripts'); initEditor(); refreshAll();
     setInterval(() => { if (document.visibilityState !== 'visible') return; loadStatus().catch(() => {}); loadLogs().catch(() => {}); }, 3000);
   </script>
 </body>

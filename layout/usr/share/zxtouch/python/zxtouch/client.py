@@ -411,5 +411,273 @@ class zxtouch:
 
         return True, result[1]
 
+    def screenshot(self, name, region=None):
+        """Take a screenshot on device (Phase 2: TASK_SCREENSHOT=30).
+
+        :param name: file name (saved under ZXTouch images/)
+        :param region: optional (x, y, width, height) tuple to crop
+        :return: Result tuple (success?, device path / error)
+        """
+        if region is not None:
+            payload = (name, ",".join(map(str, region)))
+        else:
+            payload = (name,)
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SCREENSHOT, *payload))
+        result = datahandler.decode_socket_data(self.s.recv(4096))
+        if not result[0]:
+            return False, result[1]
+        return True, result[1][0]
+
+    def dialog_choice(self, title, options):
+        """Show a choice dialog (Phase 2: TASK_DIALOG_CHOICE=31).
+
+        :param title: dialog title
+        :param options: list of option labels
+        :return: Result tuple (success?, selected index / error)
+        """
+        import base64
+        import json
+        payload = base64.b64encode(json.dumps({"title": title, "options": list(options)}).encode()).decode()
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_DIALOG_CHOICE, payload))
+        result = datahandler.decode_socket_data(self.s.recv(4096))
+        if not result[0]:
+            return False, result[1]
+        return True, int(result[1][0])
+
+    def show_overlay(self, data):
+        """Show transparent stats overlay (Phase 2: TASK_OVERLAY=32)."""
+        import base64
+        import json
+        payload = base64.b64encode(json.dumps(dict(data)).encode()).decode()
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_OVERLAY, "show", payload))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def update_overlay(self, key, value):
+        """Update one overlay entry (Phase 2: TASK_OVERLAY=32)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_OVERLAY, "update", key, value))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def hide_overlay(self):
+        """Hide the overlay (Phase 2: TASK_OVERLAY=32)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_OVERLAY, "hide"))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def app_kill(self, bundle_identifier):
+        """Kill a running app (Phase 2: TASK_APP_KILL=33)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_APP_KILL, bundle_identifier))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def app_state(self, bundle_identifier):
+        """Check app state (Phase 2: TASK_APP_STATE=34).
+
+        :return: Result tuple (success?, 0=not running, 1=running, 2=frontmost)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_APP_STATE, bundle_identifier))
+        result = datahandler.decode_socket_data(self.s.recv(1024))
+        if not result[0]:
+            return False, result[1]
+        return True, int(result[1][0])
+
+    def open_url(self, url):
+        """Open a URL/scheme (Phase 2: TASK_OPEN_URL=35)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_OPEN_URL, url))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def app_clear(self, bundle_identifier):
+        """Safe-clear app caches (Phase 2: TASK_APP_CLEAR=36).
+
+        Removes Caches/tmp/WebKit/SplashBoard, keeps login
+        (Preferences/Keychain/Cookies). Returns cleared entry count.
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_APP_CLEAR, bundle_identifier))
+        result = datahandler.decode_socket_data(self.s.recv(1024))
+        if not result[0]:
+            return False, result[1]
+        return True, int(result[1][0])
+
+    def key_press(self, key_name, action="down"):
+        """Press/release hardware key: home|volumeUp|volumeDown|power
+        (Phase 2: TASK_KEYPRESS=37, fire-and-forget like touch)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_KEYPRESS, key_name, action))
+
+    def vibrate(self):
+        """Vibrate the device (Phase 2: TASK_VIBRATE=38)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_VIBRATE))
+
+    def find_colors_multi(self, color, count=5, region=None, tolerance=0, skip=2):
+        """Device-side multi-point color search (Phase 2: TASK_COLOR_MULTI=39).
+
+        :param color: 0xRRGGBB int or hex string
+        :return: Result tuple (success?, [(x, y), ...] / error)
+        """
+        if isinstance(color, int):
+            hexs = "%06X" % (color & 0xFFFFFF)
+        else:
+            hexs = str(color).strip().lstrip("#")
+            if hexs.lower().startswith("0x"):
+                hexs = hexs[2:]
+        if region is None:
+            ok, size = self.get_screen_size()
+            region = (0, 0, int(size["width"]), int(size["height"])) if ok else (0, 0, 750, 1334)
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_COLOR_MULTI, hexs, tolerance, count,
+                                                    ",".join(map(str, region)), skip))
+        result = datahandler.decode_socket_data(self.s.recv(4096))
+        if not result[0]:
+            return False, result[1]
+        pts = []
+        for item in result[1]:
+            x, y = item.split(",")
+            pts.append((int(x), int(y)))
+        return True, pts
+
+    def find_colors_pattern(self, pattern, tolerance=10, region=None):
+        """Device-side pattern match (Phase 2: TASK_COLOR_PATTERN=40).
+
+        :param pattern: [(color, dx, dy), ...]
+        :return: Result tuple (success?, (x, y) anchor / error)
+        """
+        import base64
+        import json
+        norm = []
+        for c, dx, dy in pattern:
+            if isinstance(c, int):
+                hexs = "%06X" % (c & 0xFFFFFF)
+            else:
+                hexs = str(c).strip().lstrip("#")
+                if hexs.lower().startswith("0x"):
+                    hexs = hexs[2:]
+            norm.append({"c": hexs, "dx": dx, "dy": dy})
+        payload = base64.b64encode(json.dumps(norm).encode()).decode()
+        args = [payload, tolerance]
+        if region is not None:
+            args.append(",".join(map(str, region)))
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_COLOR_PATTERN, *args))
+        result = datahandler.decode_socket_data(self.s.recv(4096))
+        if not result[0]:
+            return False, result[1]
+        return True, (int(result[1][0]), int(result[1][1]))
+
+    def find_image_in_region(self, template_path, region, threshold=0.8, max_try_times=2, scale=0.8):
+        """Template match inside a region (Phase 2: TASK_IMAGE_REGION=41)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_IMAGE_REGION, template_path, threshold,
+                                                    ",".join(map(str, region)), max_try_times, scale))
+        result = datahandler.decode_socket_data(self.s.recv(4096))
+        if not result[0]:
+            return False, result[1]
+        return True, {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3]}
+
+    def image_match_multi(self, template_path, threshold=0.8, max_count=5):
+        """Find up to max_count matches (Phase 2: TASK_IMAGE_MULTI=45)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_IMAGE_MULTI, template_path, threshold, max_count))
+        result = datahandler.decode_socket_data(self.s.recv(8192))
+        if not result[0]:
+            return False, result[1]
+        out = []
+        for item in result[1]:
+            x, y, w, h = item.split(",")
+            out.append({"x": x, "y": y, "width": w, "height": h})
+        return True, out
+
+    def record_play_events(self, events):
+        """Replay an event table on-device (Phase 2: TASK_RECORD_PLAY_EVENTS=42)."""
+        import base64
+        import json
+        payload = base64.b64encode(json.dumps(list(events)).encode()).decode()
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_RECORD_PLAY_EVENTS, payload))
+        result = datahandler.decode_socket_data(self.s.recv(4096))
+        if not result[0]:
+            return False, result[1]
+        return True, int(result[1][0])
+
+    def record_save(self, name, events):
+        """Save event table on-device (Phase 2: TASK_RECORD_SAVE=43)."""
+        import base64
+        import json
+        payload = base64.b64encode(json.dumps(list(events)).encode()).decode()
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_RECORD_SAVE, name, payload))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def record_load(self, name):
+        """Load event table from device (Phase 2: TASK_RECORD_LOAD=44)."""
+        import base64
+        import json
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_RECORD_LOAD, name))
+        result = datahandler.decode_socket_data(self.s.recv(65536))
+        if not result[0]:
+            return False, result[1]
+        return True, json.loads(base64.b64decode(result[1][0]).decode())
+
+    def ping(self):
+        """Health check (Phase 2: TASK_PING=46)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_PING))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def crane(self, op, **params):
+        """Crane container management (TASK_CRANE=47, JSON base64 protocol).
+
+        :param op: list|switch|create|delete|wipe|rename|clearData|backup|restore|size
+        :return: Result tuple (success?, decoded JSON / error)
+        """
+        import base64
+        import json
+        payload = dict(params)
+        payload["op"] = op
+        raw = base64.b64encode(json.dumps(payload).encode()).decode()
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_CRANE, raw))
+        result = datahandler.decode_socket_data(self.s.recv(65536))
+        if not result[0]:
+            return False, result[1]
+        return True, json.loads(base64.b64decode(result[1][0]).decode())
+
+    def crane_list(self, bundle_id=None):
+        """List Crane containers (all apps if bundle_id is None)."""
+        params = {}
+        if bundle_id:
+            params["bundleId"] = bundle_id
+        return self.crane("list", **params)
+
+    def crane_switch(self, bundle_id, name):
+        """Switch active container (name or id). Follow with appRun()."""
+        return self.crane("switch", bundleId=bundle_id, name=name)
+
+    def crane_create(self, bundle_id, name):
+        return self.crane("create", bundleId=bundle_id, name=name)
+
+    def crane_delete(self, bundle_id, name):
+        return self.crane("delete", bundleId=bundle_id, name=name)
+
+    def crane_wipe(self, bundle_id, name):
+        """Full wipe (data + keychain), repopulates skeleton."""
+        return self.crane("wipe", bundleId=bundle_id, name=name)
+
+    def crane_rename(self, bundle_id, old, new):
+        return self.crane("rename", bundleId=bundle_id, old=old, new=new)
+
+    def crane_clear_data(self, bundle_id, container=None):
+        """Clear caches, keep login. Returns {ok, cleared}."""
+        params = {"bundleId": bundle_id}
+        if container:
+            params["container"] = container
+        return self.crane("clearData", **params)
+
+    def crane_backup(self, bundle_id, container=None, name=None):
+        """Backup container as tar.gz. Returns {ok, path}."""
+        params = {"bundleId": bundle_id}
+        if container:
+            params["container"] = container
+        if name:
+            params["name"] = name
+        return self.crane("backup", **params)
+
+    def crane_restore(self, bundle_id, path):
+        return self.crane("restore", bundleId=bundle_id, path=path)
+
+    def crane_size(self, bundle_id, container=None):
+        """Returns {total, caches, webkit, preferences} in bytes."""
+        params = {"bundleId": bundle_id}
+        if container:
+            params["container"] = container
+        return self.crane("size", **params)
+
     def disconnect(self):
         self.s.close()
