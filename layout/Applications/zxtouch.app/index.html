@@ -777,9 +777,23 @@
           if (m) { sawPair = true; return `${m[1].trim()}: ${m[2].trim()}`; }
           m = t.match(/^([A-Za-z_]\w*)\s*=(?!=)\s*([\s\S]+)$/);
           if (m) { sawPair = true; return `"${m[1]}": ${m[2].trim()}`; }
+          // A quoted-key pair can only come from an EARLIER conversion pass
+          // (Lua writes `k = v`, never `"k": v`): the multi-line statement
+          // buffer converts its head line at push time and again at flush,
+          // and without this the second pass would read `{"a": 1}` as an
+          // all-positional table and reshape the dict into `[...]`.
+          m = t.match(/^"[^"]*"\s*:\s*[\s\S]+$/);
+          if (m) { sawPair = true; return t; }
           return t;
         }).filter((v, idx) => v || idx < parts.length - 1);
-        return sawPair ? '{' + conv.join(', ') + '}' : null;
+        if (sawPair) return '{' + conv.join(', ') + '}';
+        // All-positional Lua table = array. Emitting `{a, b}` produced a
+        // Python SET literal: `jsonEncode({1,2,3})` raised TypeError, and the
+        // documented nested pattern tables `{{color, dx, dy}, ...}` became a
+        // set-of-sets (unhashable → instant crash). Empty `{}` stays `{}`:
+        // scripts build keyed tables with `t[k] = v` on an empty table.
+        if (conv.length) return '[' + conv.join(', ') + ']';
+        return null;
       };
       // Post-order walk over brace regions: children convert before their
       // parent, so nesting of any depth converges in a single pass (a regex
@@ -800,15 +814,134 @@
         }
         return out;
       };
-      const pyExpr = s => luaTableToPy(s.replace(/~=/g, '!=')
-        .replace(/\.\.\./g, '\u0002').replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...')
+      // Lua's `..` coerces numbers/bools to text; Python `+` raises TypeError
+      // on "x" + 3, so mapping every concat to `+` (the old behaviour) kept
+      // the docs' own examples broken at runtime:
+      //   log("Loops: " .. config.loops)   -- config.loops is a number
+      // Every `..` chain is routed through zxConcat() (zxtouch.prelude,
+      // injected by zxtouch.runner), which formats operands Lua-style. This
+      // needs real parsing, not a flat regex: chains live inside call parens
+      // (log(x .. y)), operands carry arithmetic ("a" .. i + 1, Lua's `..`
+      // binds LOOSER than + - * /) and stop at comparisons and and/or (which
+      // bind tighter in reverse: "a" .. b == c groups as ("a" .. b) == c).
+      // Text here is string-protected ("lit" is \u0001N\u0001) and `...` is
+      // \u0002, so an operand is a placeholder | number | vararg |
+      // [not|#|-] prefixed | identifier with .field/[idx]/(call)/{table}
+      // suffixes, plus +-*/% between them. A chain this walk cannot bound
+      // falls through to the legacy `..`→`+` replace below, i.e. never worse
+      // than before. Group contents are rewritten recursively.
+      const zxSkipWs = (s, i) => { while (i < s.length && /\s/.test(s[i])) i++; return i; };
+      const zxBalanced = (s, i, open, close) => {
+        let d = 0;
+        for (let j = i; j < s.length; j++) {
+          if (s[j] === open) d++;
+          else if (s[j] === close && --d === 0) return j + 1;
+        }
+        return -1;
+      };
+      const zxGroup = inner => inner.split(',').map(zxRewrite).join(',');
+      const zxAtom = (s, i) => {
+        if (s[i] === '\u0002') return ['\u0002', i + 1];            // vararg
+        if (s[i] === '(') {                                         // parenthesised expr
+          const e = zxBalanced(s, i, '(', ')');
+          return e < 0 ? null : ['(' + zxGroup(s.slice(i + 1, e - 1)) + ')', e];
+        }
+        let m = /^\u0001\d+\u0001|^-?\d+(?:\.\d+)?/.exec(s.slice(i)); // string | number
+        if (m) return [m[0], i + m[0].length];
+        if (s[i] === '{') {
+          const e = zxBalanced(s, i, '{', '}');
+          return e < 0 ? null : ['{' + zxGroup(s.slice(i + 1, e - 1)) + '}', e];
+        }
+        m = /^[A-Za-z_]\w*/.exec(s.slice(i));
+        if (!m) return null;
+        let text = m[0], j = i + m[0].length;
+        for (;;) {
+          let k = /^\.[A-Za-z_]\w*/.exec(s.slice(j));               // .field
+          if (k) { text += k[0]; j += k[0].length; continue; }
+          if (s[j] === '(' || s[j] === '[') {                        // call / index
+            const open = s[j], close = open === '(' ? ')' : ']';
+            const e = zxBalanced(s, j, open, close);
+            if (e < 0) break;
+            text += open + zxGroup(s.slice(j + 1, e - 1)) + close;
+            j = e; continue;
+          }
+          break;
+        }
+        return [text, j];
+      };
+      const zxPrefixed = (s, i) => {
+        // Unary `#`/`not`/`-` bind tighter than `..`, so they attach to the
+        // atom. `#t` becomes len() right here (the later regex would not see
+        // it through a zxConcat wrap); `not`/`-` keep Lua spacing.
+        const m = /^(#|not\s+|-(?!\d))/.exec(s.slice(i));
+        if (!m) return zxAtom(s, i);
+        const inner = zxPrefixed(s, zxSkipWs(s, i + m[0].length));
+        if (!inner) return null;
+        if (m[1] === '#') return ['len(' + inner[0] + ')', inner[1]];
+        return ['(' + m[1].trim() + ' ' + inner[0] + ')', inner[1]];
+      };
+      const zxSimple = (s, i) => {                                   // atom { op atom }
+        const first = zxPrefixed(s, i);
+        if (!first) return null;
+        let text = first[0], j = first[1];
+        for (;;) {
+          const k = zxSkipWs(s, j);
+          const op = /^(?:\/\/|[*%+\-\/])/.exec(s.slice(k));
+          if (!op) break;
+          const at = zxSkipWs(s, k + op[0].length);
+          const nxt = zxAtom(s, at);
+          if (!nxt) break;
+          text += s.slice(j, k) + op[0] + s.slice(k + op[0].length, at) + nxt[0];
+          j = nxt[1];
+        }
+        return [text, j];
+      };
+      const zxConcatAt = (s, i) => {
+        const first = zxSimple(s, i);
+        if (!first) return null;
+        const parts = [first[0]];
+        let j = first[1];
+        for (;;) {
+          const k = zxSkipWs(s, j);
+          if (s[k] !== '.' || s[k + 1] !== '.') break;
+          const nxt = zxSimple(s, zxSkipWs(s, k + 2));
+          if (!nxt) break;
+          parts.push(nxt[0]); j = nxt[1];
+        }
+        if (parts.length < 2) return null;
+        return ['zxConcat(' + parts.join(', ') + ')', j];
+      };
+      const zxRewrite = s => {
+        let out = '', i = 0;
+        while (i < s.length) {
+          const ch = s[i];
+          if (ch === '(' || ch === '[' || ch === '{') {
+            const close = ch === '(' ? ')' : ch === '[' ? ']' : '}';
+            const e = zxBalanced(s, i, ch, close);
+            if (e < 0) { out += s.slice(i); break; }               // unbalanced: verbatim
+            out += ch + zxGroup(s.slice(i + 1, e - 1)) + close;
+            i = e; continue;
+          }
+          const c = zxConcatAt(s, i);
+          if (c) { out += c[0]; i = c[1]; continue; }
+          out += ch; i++;
+        }
+        return out;
+      };
+      const luaConcatToPy = zxRewrite;
+      // All Lua→Python expression rewrites EXCEPT table conversion. Shared by
+      // pyExpr (single line: ops then tables) and the multi-line continuation
+      // flush below (tables first, then ops) — without this, `..`, `~=`, nil
+      // and `#x` inside a statement split over lines reached Python verbatim.
+      const pyOps = s => luaConcatToPy(s.replace(/~=/g, '!=').replace(/\.\.\./g, '\u0002'))
+        .replace(/([^.])\.\.([^.])/g, '$1+$2').replace(/\u0002/g, '...')
         .replace(/#([A-Za-z_][\w.]*)/g, 'len($1)')
         .replace(/\btrue\b/g, 'True').replace(/\bfalse\b/g, 'False').replace(/\bnil\b/g, 'None')
         // Lua findText returns x, y, text (nil when absent); Python findText
         // returns a match list. ocrFind() emulates the Lua shape: unpackable
         // triple, falsy when absent.
-        .replace(/\bfindText\s*\(/g, 'ocrFind('));
-      // Strip `local` (single + multi-target): `local x = 1` -> `x = 1`,
+        .replace(/\bfindText\s*\(/g, 'ocrFind(');
+      const pyExpr = s => luaTableToPy(pyOps(s));
       // `local x, y = f()` -> `x, y = f()`, `local x, y` -> `x = None; y = None`.
       // The `x, y = httpGet/httpPost(...)` form needs more than a comma split:
       // Python httpGet returns the body string (Lua returns two values), so it
@@ -816,10 +949,10 @@
       // argument list untouched, so nested parens and strings cannot confuse it.
       const HTTP_PAIR = /^([\w][\w.]*)\s*,\s*([\w][\w.]*)\s*=\s*(httpGet|httpPost)\s*\(/;
       // Set when the call opens a paren that this line does not close (the
-      // docs' own multi-line httpPost shape): the `.status` half is appended by
-      // the continuation pass on the line that finally closes the call, so the
+      // docs' own multi-line httpPost shape): the tail is appended by the
+      // continuation pass on the line that finally closes the call, so the
       // emitted Python stays syntactically valid.
-      let pendingStatus = null;
+      let pendingTail = null;
       const rewriteHttpPair = line => {
         const m = line.match(HTTP_PAIR);
         if (!m) return line;
@@ -827,23 +960,87 @@
         const opens = (line.match(/\(/g) || []).length;
         const closes = (line.match(/\)/g) || []).length;
         if (opens !== closes) {
-          pendingStatus = `${m[2]} = ${m[1]}.status`;
+          pendingTail = `; ${m[2]} = ${m[1]}.status`;
           return head;
         }
         return head + `; ${m[2]} = ${m[1]}.status`;
+      };
+      // A2: Lua hands back several values from these calls — `local ok, x, y =
+      // tapImage("btn.png")` and `local x, y = findImage("a.png")` are both in
+      // docs/IDE/ioscontrol.md — while the Python equivalents return ONE value
+      // (a match dict, a bool, or None). Unpacked as-is that is
+      // `ValueError: not enough values to unpack`, so every documented example
+      // died. zxUnpackMatch() (zxtouch.prelude, injected by zxtouch.runner)
+      // turns that single value into Lua's (ok, x, y) triple. Two-target
+      // assignments take the coordinates, which is what findImage documents.
+      const UNPACK_CALL = /^([\w][\w.]*)\s*,\s*([\w][\w.]*)(?:\s*,\s*([\w][\w.]*))?\s*=\s*(tapImage|tapText|swipeUntilImage|swipeUntilText|findImage|waitForImage)\s*\(([\s\S]*)$/;
+      let unpackTemp = 0;
+      // Statement-level: applied after `local` is stripped, like rewriteHttpPair.
+      const rewriteUnpack = line => {
+        const m = line.match(UNPACK_CALL);
+        if (!m) return line;
+        const call = `${m[4]}(${m[5]}`;
+        const targets = [m[1], m[2], m[3]].filter(Boolean);
+        let head, tail;
+        if (targets.length >= 3) {
+          head = `${targets.join(', ')} = zxUnpackMatch(${call}`;
+          tail = ')';
+        } else {
+          const tmp = `_zx${++unpackTemp}`;
+          head = `${tmp} = zxUnpackMatch(${call}`;
+          tail = `); ${targets.join(', ')} = ${tmp}[1], ${tmp}[2]`;
+        }
+        const opens = (call.match(/\(/g) || []).length;
+        const closes = (call.match(/\)/g) || []).length;
+        if (opens !== closes) { pendingTail = tail; return head; }
+        return head + tail;
       };
       const stripLocal = line => rewriteHttpPair(line
         .replace(/^local\s+([\w][\w\s,]*?)\s*=\s*/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).join(', ') + ' = ')
         .replace(/^local\s+([\w][\w\s,]*?)\s*$/, (_, vars) => vars.split(',').map(v => v.trim()).filter(v => v).map(v => `${v} = None`).join('; ')));
       // Lua numeric-for header → Python range() header. Shared by the
       // block and one-line paths. Returns '' when the form is unsupported.
+      // A1: Lua's numeric for includes the stop for BOTH step signs.
+      // `range(a, (b)+1, c)` only does that while c > 0, so `for i = 10, 1, -1`
+      // used to drop its last iterations. Positive literal steps keep the
+      // familiar range() output; negative literals shift the stop the other
+      // way; anything whose sign isn't knowable at transpile time (variable,
+      // expression) delegates to zxRange(), which implements Lua's rule.
+      const pyForIter = (a, b, c) => {
+        const sa = pyExpr(a), sb = pyExpr(b);
+        if (c == null) return `range(${sa}, (${sb})+1)`;
+        const sc = pyExpr(c).trim();
+        if (/^-?\d+$/.test(sc)) {
+          const n = Number(sc);
+          return n > 0 ? `range(${sa}, (${sb})+1, ${sc})`
+                       : `range(${sa}, (${sb})-1, ${sc})`;
+        }
+        return `zxRange(${sa}, ${sb}, ${sc})`;
+      };
       const pyForHead = cond => {
         let mm = cond.match(/^(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+)$/);
-        if (mm) return `for ${mm[1]} in range(${pyExpr(mm[2])}, (${pyExpr(mm[3])})+1, ${pyExpr(mm[4])}):`;
+        if (mm) return `for ${mm[1]} in ${pyForIter(mm[2], mm[3], mm[4])}:`;
         mm = cond.match(/^(\w+)\s*=\s*(.+?)\s*,\s*(.+)$/);
-        if (mm) return `for ${mm[1]} in range(${pyExpr(mm[2])}, (${pyExpr(mm[3])})+1):`;
+        if (mm) return `for ${mm[1]} in ${pyForIter(mm[2], mm[3])}:`;
         mm = cond.match(/^(.+?)\s+in\s+(.+)$/);
-        if (mm) return `for ${mm[1]} in ${pyExpr(mm[2].replace(/ipairs\((.*)\)$/, 'enumerate($1)').replace(/pairs\((.*)\)$/, '$1'))}:`;
+        if (mm) {
+          const [_, vars, iter] = mm;
+          const twoVars = /,/.test(vars);
+          // ipairs -> enumerate. pairs -> .items() when the loop wants
+          // (key, value); with a single variable Lua yields the key alone,
+          // which is just iterating the dict. Bare `for v in t` lists map to
+          // themselves.
+          let py;
+          if (/^pairs\((.*)\)$/.test(iter.trim())) {
+            const inner = iter.trim().replace(/^pairs\((.*)\)$/, '$1');
+            py = twoVars ? inner + '.items()' : inner;
+          } else if (/^ipairs\((.*)\)$/.test(iter.trim())) {
+            py = 'enumerate(' + iter.trim().replace(/^ipairs\((.*)\)$/, '$1') + ')';
+          } else {
+            py = iter;
+          }
+          return `for ${vars} in ${pyExpr(py)}:`;
+        }
         return '';
       };
       // One-line compounds Lua allows but Python does not:
@@ -876,11 +1073,17 @@
           bracketDepth += openDepth;
           if (bracketDepth === 0) {
             const joined = luaTableToPy(contBuf.join('\n'));
-            joined.split('\n').forEach((seg, idx) => {
-              let text = restore(seg);
-              if (idx === joined.split('\n').length - 1 && pendingStatus) {
-                text += `; ${pendingStatus}`; // close out `x, y = httpGet(` pairs
-                pendingStatus = null;
+            const segs = joined.split('\n');
+            segs.forEach((seg, idx) => {
+              // pyOps too: continuation lines entered the buffer raw, so a
+              // `..` / `~=` / `nil` on line 2+ of a split statement used to
+              // reach Python untouched. (Re-running ops over the already
+              // rewritten head is a no-op: its placeholders are the only
+              // remaining Lua spellings.)
+              let text = restore(pyOps(seg));
+              if (idx === segs.length - 1 && pendingTail) {
+                text += pendingTail; // close out deferred `x, y = httpGet(` / unpack pairs
+                pendingTail = null;
               }
               out.push('    '.repeat(level) + text);
             });
@@ -906,7 +1109,7 @@
             : pyForHead(cond);
           if (!head) fail('unsupported one-line "' + kw + '" form');
           emit(head); level++;
-          body.split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+          body.split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(rewriteUnpack(pyExpr(stripLocal(s)))));
           level--;
         }
         else if ((m = line.match(ONE_LINE_IF))) {
@@ -914,35 +1117,41 @@
           const elseAt = tail.match(/\belse\b(?![^(]*\))/);
           emit('if ' + pyExpr(cond) + ':'); level++;
           if (elseAt) {
-            tail.slice(0, elseAt.index).split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+            tail.slice(0, elseAt.index).split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(rewriteUnpack(pyExpr(stripLocal(s)))));
             level--; emit('else:'); level++;
-            tail.slice(elseAt.index + 5).split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+            tail.slice(elseAt.index + 5).split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(rewriteUnpack(pyExpr(stripLocal(s)))));
           } else {
-            tail.split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(pyExpr(stripLocal(s))));
+            tail.split(';').map(s => s.trim()).filter(Boolean).forEach(s => emit(rewriteUnpack(pyExpr(stripLocal(s)))));
           }
           level--;
         }
         else if ((m = line.match(/^elseif\s+(.+?)\s+then\s*$/))) { level--; if (level < 0) fail('unexpected "elseif"'); emit('elif ' + pyExpr(m[1]) + ':'); level++; }
         else if ((m = line.match(/^if\s+(.+?)\s+then\s*$/))) { emit('if ' + pyExpr(m[1]) + ':'); level++; }
         else if ((m = line.match(/^while\s+(.+?)\s+do\s*$/))) { emit('while ' + pyExpr(m[1]) + ':'); level++; }
-        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { emit(`for ${m[1]} in range(${pyExpr(m[2])}, (${pyExpr(m[3])})+1, ${pyExpr(m[4])}):`); level++; }
-        else if ((m = line.match(/^for\s+(\w+)\s*=\s*(.+?)\s*,\s*(.+?)\s+do\s*$/))) { emit(`for ${m[1]} in range(${pyExpr(m[2])}, (${pyExpr(m[3])})+1):`); level++; }
-        else if ((m = line.match(/^for\s+(.+?)\s+in\s+(.+?)\s+do\s*$/))) {
-          const iter = m[2].replace(/ipairs\((.*)\)$/, 'enumerate($1)').replace(/pairs\((.*)\)$/, '$1');
-          emit(`for ${m[1]} in ${pyExpr(iter)}:`); level++;
+        else if ((m = line.match(/^for\s+(.+?)\s+do\s*$/))) {
+          // pyForHead covers numeric, `in ipairs()` and `in pairs()` forms,
+          // including the multi-target `for k, v in t` shape.
+          const head = pyForHead(m[1]);
+          if (!head) fail('unsupported "for" form');
+          emit(head); level++;
         }
         else if ((m = line.match(/^local\s+function\s+(\w+)\s*(\(.*\))\s*$/))) { emit(`def ${m[1]}${pyExpr(m[2])}:`); level++; }
         else if ((m = line.match(/^function\s+(\w+)\s*(\(.*\))\s*$/))) { emit(`def ${m[1]}${pyExpr(m[2])}:`); level++; }
         else if (/^do\s*$/.test(line)) { level++; continue; }
         else {
           // Bare (non-local) `body, status = httpGet(...)` needs the same
-          // rewrite stripLocal applies to the `local` form.
-          const norm = rewriteHttpPair(pyExpr(stripLocal(line)));
+          // rewrite stripLocal applies to the `local` form. rewriteUnpack
+          // then turns `ok, x, y = tapImage(...)` into the (ok,x,y) triple
+          // Python cannot produce from a single return value on its own.
+          const norm = rewriteUnpack(rewriteHttpPair(pyExpr(stripLocal(line))));
           if (openDepth > 0) {
             // The statement keeps a paren open (e.g. a Lua table spread over
             // several argument lines). Defer it into the continuation buffer so
             // the whole call is converted and emitted as one unit — see the
-            // buffer flush above.
+            // buffer flush above. Depth stays RAW-line bookkeeping: the rewrites
+            // above wrap the head in `zxUnpackMatch(...)` whose closing paren
+            // rides inside pendingTail, so the flush fires when the original
+            // call closes and the tail re-balances the wrapper.
             contBuf = [norm];
             bracketDepth = openDepth;
             continue;

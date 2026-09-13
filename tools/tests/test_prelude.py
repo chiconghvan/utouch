@@ -850,3 +850,177 @@ def test_find_colors_multi_float_screen_size():
     dev.s = FakeSock()
     ok, pts = dev.find_colors_multi("FF0000")
     assert ok and pts == [(10, 20)]  # must not raise ValueError
+
+
+# ---------------------------------------------------------------- Lua tables (A3 + jsonDecode/jsonEncode)
+
+def test_luadict_field_access_and_nil_like_missing():
+    t = prelude.LuaDict({"width": 750, "height": 1334})
+    assert t.width == 750 and t["height"] == 1334     # both syntaxes
+    assert t.missing is None                          # like Lua nil
+    assert t.get("missing", "d") == "d"
+    t.extra = 1
+    assert t["extra"] == 1
+    del t.extra
+    assert "extra" not in t
+    assert t == {"width": 750, "height": 1334}        # still a plain-equal dict
+    assert json.loads(prelude.jsonEncode(t)) == t
+    d = {"a": 1}                                      # a real dict is NOT fooled
+    try:
+        d.a
+    except AttributeError:
+        pass
+    else:
+        raise AssertionError("plain dict gained attribute access?")
+
+
+def test_luadict_key_colliding_with_method_stays_subscriptable():
+    t = prelude.LuaDict({"get": "value"})
+    assert t["get"] == "value"          # subscript wins for colliding keys
+    assert callable(dict.get)           # attribute side keeps the method
+
+
+def test_jsondecode_lua_field_access():
+    # docs/IDE/ioscontrol.md shape the user reported:
+    #   local config = jsonDecode(raw); log(config.loops); log(config.delay)
+    raw = '{"loops": 3, "delay": 0.5, "nested": {"a": {"b": 1}}}'
+    cfg = prelude.jsonDecode(raw)
+    assert cfg.loops == 3
+    assert cfg.delay == 0.5
+    assert cfg.nested.a.b == 1          # every level is a LuaDict
+    assert isinstance(cfg, dict)        # and still a plain-compatible dict
+
+
+def test_jsondecode_missing_field_is_nil_like():
+    cfg = prelude.jsonDecode('{"a": 1}')
+    assert cfg.haha is None
+
+
+def test_jsonencode_handles_tuple_set_and_utf8():
+    assert prelude.jsonEncode((1, 2)) == "[1, 2]"
+    assert prelude.jsonEncode([(10, 20), (30, 40)]) == "[[10, 20], [30, 40]]"
+    assert prelude.jsonEncode({7}) == "[7]"
+    assert prelude.jsonEncode({"mức": "xin chào"}) == '{"mức": "xin chào"}'  # no \u escapes
+    assert prelude.jsonEncode(prelude.LuaDict({"a": [1, 2]})) == '{"a": [1, 2]}'
+
+
+def test_json_roundtrip():
+    raw = '{"loops": 3, "delay": 0.5, "nested": {"a": {"b": 1}}, "list": [1, "x", null]}'
+    cfg = prelude.jsonDecode(raw)
+    assert prelude.jsonDecode(prelude.jsonEncode(cfg)) == cfg
+
+
+def test_screen_size_and_matches_are_lua_tables():
+    d = use_fake()
+    s = prelude.screenSize()
+    assert s.width == 1242 and s.height == 2208      # docs example uses s.width
+    assert s == {"width": 1242, "height": 2208}      # old contract kept
+    info = prelude.deviceInfo()
+    assert info.name == "iPhone"
+    d.ocr_items = [{"text": "Files", "x": "1", "y": "2", "width": "3", "height": "4"}]
+    m = prelude.findText("Files")[0]
+    assert m.x == "1" and m["text"] == "Files"       # attr + subscript alike
+    im = prelude.findImage("a.png")
+    assert im.x == "5.00" and im["y"] == "6.00"
+    assert im == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
+
+
+def test_lua_helpers_are_exported():
+    for name in ("LuaDict", "zxRange", "zxUnpackMatch", "zxConcat"):
+        assert name in prelude.__all__, name
+    injected = prelude.install({})
+    for name in ("LuaDict", "zxRange", "zxUnpackMatch", "zxConcat"):
+        assert name in injected, name
+
+
+# ---------------------------------------------------------------- zx* runtime helpers (A1/A2/concat)
+
+def test_zxrange_matches_lua_numeric_for():
+    assert list(prelude.zxRange(10, 1, -1)) == [10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
+    assert list(prelude.zxRange(10, 1, -3)) == [10, 7, 4, 1]
+    assert list(prelude.zxRange(1, 10, 2)) == [1, 3, 5, 7, 9]
+    assert list(prelude.zxRange(1, 3)) == [1, 2, 3]
+    assert list(prelude.zxRange(3, 3)) == [3]
+    with pytest.raises(ValueError):
+        list(prelude.zxRange(1, 5, 0))
+
+
+def test_zxunpackmatch_shapes():
+    m = {"x": "5", "y": "6", "width": "10", "height": "10"}
+    assert prelude.zxUnpackMatch(m) == (True, 10, 11)      # centre, like tapImage taps
+    assert prelude.zxUnpackMatch(None) == (False, None, None)
+    assert prelude.zxUnpackMatch(False) == (False, None, None)
+    assert prelude.zxUnpackMatch(True) == (True, None, None)
+    assert prelude.zxUnpackMatch([(10, 20), (30, 40)]) == (True, 10, 20)
+    assert prelude.zxUnpackMatch([]) == (False, None, None)
+    use_fake()
+    ok, x, y = prelude.zxUnpackMatch(prelude.tapImage("a.png", timeout=1))
+    assert (ok, x, y) == (True, 10, 11)                    # FakeDevice match (5+10/2, 6+10/2)
+
+
+def test_zxconcat_lua_coercion():
+    assert prelude.zxConcat("Loops: ", 3) == "Loops: 3"
+    assert prelude.zxConcat("Delay: ", 0.5, "s") == "Delay: 0.5s"
+    assert prelude.zxConcat("f=", 2.0) == "f=2"            # Lua prints 2, not 2.0
+    assert prelude.zxConcat("t=", True, " f=", False) == "t=true f=false"
+    assert prelude.zxConcat("x", None) == "xnil"
+
+
+# ---------------------------------------------------------------- A4/A5 honest fallbacks
+
+def test_find_color_fallback_logs_warning(capsys):
+    d = use_fake()                     # FakeDevice: find_colors_multi raises (old daemon)
+    got = prelude.findColor(0xFF0000, count=5)
+    assert got == [(10, 20)]            # legacy searcher can only answer its first hit
+    out = capsys.readouterr().out
+    assert "findColor" in out and "1/5" in out   # ...and says so, no silent shortfall
+
+
+def test_search_color_clamps_bounds():
+    d = use_fake()
+    prelude.findColor(0x0a0a0a, tolerance=10)
+    call = [c for c in d.calls if c[0] == "search"][-1][1]
+    # region, then three (min,max) pairs; r-t was -6 before the clamp
+    assert call[1:] == (0, 20, 0, 20, 0, 20)
+    prelude.findColor(0xf5f5f5, tolerance=20)
+    call = [c for c in d.calls if c[0] == "search"][-1][1]
+    assert call[1:] == (225, 255, 225, 255, 225, 255)     # upper clamp too (0xf5=245, +20>255)
+
+
+def test_find_image_multi_reports_count(capsys):
+    class MultiDev:
+        def get_screen_size(self):
+            return (True, {"width": "750", "height": "1334"})
+
+        def image_match_multi(self, path, threshold, count):
+            return (True, [{"x": "1", "y": "2", "width": "4", "height": "4"},
+                           {"x": "5", "y": "6", "width": "4", "height": "4"}])
+
+        def debug_mark(self, *a, **k):
+            return (True, "")
+
+    prelude.set_device(MultiDev())
+    try:
+        m = prelude.findImage("a.png", count=4)
+        assert m == {"x": "1", "y": "2", "width": "4", "height": "4"}  # one-match contract
+        assert m.x == "1"                                             # Lua-style access
+        out = capsys.readouterr().out
+        assert "2/4" in out                                  # no silent discard of extra matches
+    finally:
+        prelude.disconnect()
+
+
+# ---------------------------------------------------------------- transpiled-Lua call shapes
+
+def test_find_colors_accepts_lua_lists():
+    # Transpiled Lua hands findColors [[c, dx, dy], ...] (lists, not tuples)
+    # plus a list region; the client must still build its wire payload and the
+    # anchor+verify loop must unpack each entry (FakeDevice's pick_color only
+    # answers red, so the green offset fails verification and no match lands).
+    d = use_fake()                      # old daemon: pattern task raises, naive path runs
+    got = prelude.findColors([[0xFF0000, 0, 0], [0x00FF00, 10, 0]],
+                             region=[0, 0, 100, 100])
+    assert got == []                    # must not raise TypeError on unpacking
+    assert any(c[0] == "search" for c in d.calls)   # anchor search really ran
+    match = prelude.findColors([[0xFF0000, 0, 0]], region=[0, 0, 100, 100])
+    assert match == [(10, 20)]          # single-anchor pattern verifies clean

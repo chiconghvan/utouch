@@ -263,6 +263,149 @@ def _num(v):
         return int(v)
 
 
+# ---------------------------------------------------------------- Lua tables
+# Lua has one container (the table) where `t.field` and `t["field"]` are the
+# same thing. Python scripts — and every Lua script after transpile — hit a
+# wall there: json.loads gives a plain dict, so `config.loops` from
+# docs/IDE/ioscontrol.md raises AttributeError. LuaDict closes the gap while
+# *being* a real dict: json.dumps(), .get(), == {...}, iteration all behave
+# exactly as before.
+
+class LuaDict(dict):
+    """dict that also answers attribute access, like a Lua table.
+
+    * ``t.field`` is ``t["field"]``; a missing key returns ``None`` (Lua's
+      ``nil``) so ``if t.foo then`` works unchanged.
+    * ``t.field = v`` writes through to the dict, mirroring Lua assignment.
+    * A key that collides with a dict method (``"get"``, ``"items"``…) stays
+      readable by subscript — attribute lookup finds the method first.
+    """
+
+    def __getattr__(self, name):
+        # Dunder/private probes (copy, pickle, deepcopy) must get a real
+        # AttributeError, otherwise they see None and take wrong paths.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self.get(name)
+
+    def __setattr__(self, name, value):
+        if name.startswith("__"):
+            object.__setattr__(self, name, value)
+        else:
+            self[name] = value
+
+    def __delattr__(self, name):
+        try:
+            del self[name]
+        except KeyError:
+            raise AttributeError(name)
+
+
+def _to_lua(value):
+    """Recursively wrap JSON-shaped mappings so field access works."""
+    if isinstance(value, dict):
+        return LuaDict((k, _to_lua(v)) for k, v in value.items())
+    if isinstance(value, list):
+        return [_to_lua(v) for v in value]
+    return value
+
+
+def _jsonable(value):
+    """Coerce Lua-ish Python values into something json.dumps accepts.
+
+    Tuples (points, OcrFindResult) and sets become JSON arrays, mappings
+    become objects — ``jsonEncode({{1,2},{3,4}})`` and ``jsonEncode`` of a
+    findColor() result then produce arrays instead of raising TypeError.
+    """
+    if isinstance(value, dict):
+        return {str(k): _jsonable(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [_jsonable(v) for v in value]
+    return value
+
+
+def zxRange(start, stop, step=1):
+    """Lua's numeric ``for`` as a generator: inclusive stop, negative steps.
+
+    ``for i = a, b, c`` in Lua runs while ``c > 0 and i <= b`` (or
+    ``i >= b`` for a negative step), adding ``c`` each turn. Python's
+    ``range`` excludes the stop, which is why ``for i = 10, 1, -1`` used to
+    lose its last values after transpile. The transpiler emits this helper so
+    a step that is a variable/expression stays correct whatever its sign.
+    """
+    if not step:
+        raise ValueError("zxRange: step must not be 0")
+    i = start
+    if step > 0:
+        while i <= stop:
+            yield i
+            i += step
+    else:
+        while i >= stop:
+            yield i
+            i += step
+
+
+def zxConcat(*parts):
+    """Lua's ``..`` as a function: concatenate with Lua-style coercion.
+
+    Lua turns numbers and booleans into text automatically, so
+    ``"Loops: " .. config.loops`` just works; Python ``+`` raises TypeError
+    on str + int, and ``str(None)`` would print ``None`` where Lua has no
+    such value. The transpiler routes every ``..`` chain here so the docs'
+    examples run:
+
+        ``a .. b .. c``  ->  ``zxConcat(a, b, c)``
+
+    ``nil`` prints as ``"nil"`` (Lua would raise — printing beats killing
+    an automation script mid-run), booleans print ``true``/``false``, and
+    floats keep Lua's no-trailing-.0 form (3.0 -> "3").
+    """
+    out = []
+    for p in parts:
+        if p is None:
+            out.append("nil")
+        elif p is True:
+            out.append("true")
+        elif p is False:
+            out.append("false")
+        elif isinstance(p, float) and p.is_integer() and abs(p) < 1e15:
+            out.append(str(int(p)))
+        else:
+            out.append(str(p))
+    return "".join(out)
+
+
+def zxUnpackMatch(value):
+    """Normalise a find/tap result into Lua's ``(ok, x, y)`` multi-return.
+
+    Lua hands back several values from ``tapImage``/``tapText``/``swipeUntil*``
+    while Python hands back one dict, bool or ``None``. The transpiler routes
+    multi-target assignments through here so the documented Lua shape keeps
+    working; ``(False, None, None)`` means "not found", mirroring ``nil``.
+    """
+    if value is None or value is False:
+        return (False, None, None)
+    if isinstance(value, dict):
+        if "x" in value or "y" in value:
+            cx = _num(value.get("x", 0)) + _num(value.get("width", 0)) // 2
+            cy = _num(value.get("y", 0)) + _num(value.get("height", 0)) // 2
+            return (True, cx, cy)
+        return (True, None, None)
+    if value is True:
+        return (True, None, None)
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return (False, None, None)
+        first = value[0]
+        if isinstance(first, (list, tuple)) and len(first) >= 2:
+            return (True, _num(first[0]), _num(first[1]))
+        if len(value) >= 2 and value[1] is not None and not isinstance(value[1], (list, dict, str)):
+            return (False if value[0] is None else True, value[0], value[1])
+        return (True, None, None)
+    return (True, None, None)
+
+
 def _color_to_rgb(color):
     if isinstance(color, int):
         return ((color >> 16) & 0xFF, (color >> 8) & 0xFF, color & 0xFF)
@@ -302,9 +445,12 @@ def findColor(color, count=1, region=None, tolerance=0):
     """Find pixels matching ``color``. Returns list of (x, y).
 
     Uses native TASK_COLOR_MULTI when available; falls back to the
-    single-point searcher against older daemons.
+    single-point searcher against older daemons. The legacy searcher always
+    answers with its first hit, so asking for count>1 there yields exactly
+    one point — that is now logged instead of silently under-delivering.
     """
-    if int(count) > 1 or region is not None:
+    want = max(1, int(count))
+    if want > 1 or region is not None:
         try:
             ok, res = get_device().find_colors_multi(color, count, region, tolerance)
             if ok:
@@ -312,18 +458,23 @@ def findColor(color, count=1, region=None, tolerance=0):
         except Exception:
             pass
     r, g, b = _color_to_rgb(color)
-    t = int(tolerance)
+    t = max(0, int(tolerance))
     if region is None:
         region = _default_region()
+    # The socket formatter forwards these bounds to an unsigned comparison on
+    # device; a dark colour with tolerance (e.g. 0x0a0a0a, t=10 -> -6) used to
+    # go negative. Clamp to the byte range the daemon can actually match.
+    lo_r, hi_r = max(0, r - t), min(255, r + t)
+    lo_g, hi_g = max(0, g - t), min(255, g + t)
+    lo_b, hi_b = max(0, b - t), min(255, b + t)
     out = []
-    for _ in range(max(1, int(count))):
-        ok, res = get_device().search_color(
-            region, r - t, r + t, g - t, g + t, b - t, b + t)
-        if not ok:
-            break
+    ok, res = get_device().search_color(
+        region, lo_r, hi_r, lo_g, hi_g, lo_b, hi_b)
+    if ok:
         out.append((_num(res["x"]), _num(res["y"])))
-        if len(out) >= 1:  # legacy native returns first match; avoid infinite loop
-            break
+    if want > len(out):
+        log("findColor: daemon cu khong ho tro tim nhieu diem, tra %d/%d ket qua"
+            % (len(out), want))
     return out
 
 
@@ -333,6 +484,13 @@ def findColors(pattern, count=1, region=None, tolerance=10):
     Uses native TASK_COLOR_PATTERN when available; falls back to a naive
     anchor+verify loop (slower, one round-trip per check).
     """
+    # Transpiled Lua hands us lists where hand-written Python uses tuples
+    # ([[c, dx, dy], ...] for {{c, dx, dy}, ...}); normalise to tuples so
+    # both dialects hit the same unpacking and wire format.
+    if pattern:
+        pattern = [tuple(entry) for entry in pattern]
+    if region is not None:
+        region = tuple(region)
     if not pattern:
         return []
     try:
@@ -377,33 +535,54 @@ def waitForColor(x, y, color, timeout=10.0, interval=0.3, tolerance=0):
 
 # ---------------------------------------------------------------- Image / OCR
 
+def _match_result(res):
+    """Wrap a device match dict so Lua-style ``m.x`` / ``m.width`` works."""
+    if isinstance(res, dict) and not isinstance(res, LuaDict):
+        return LuaDict(res)
+    return res
+
+
 def findImage(path, count=1, threshold=0.8, region=None):
     """Find template image. Returns dict {x,y,width,height} or None.
 
     Uses native TASK_IMAGE_REGION / TASK_IMAGE_MULTI when a region or
-    count>1 is requested; falls back to full-screen single match.
+    count>1 is requested; falls back to full-screen single match. The
+    contract is one match (the docs' ``count`` caps the device-side search),
+    so when multi-match answers with more hits than the caller asked for, or
+    an older daemon lacks the task, that shows up in the log instead of
+    silently changing what comes back.
     """
+    want = max(1, int(count))
     if region is not None:
         try:
             ok, res = get_device().find_image_in_region(path, region, threshold)
             if ok:
+                res = _match_result(res)
                 _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
                           _num(res.get("width", 0)), _num(res.get("height", 0)))
                 return res
-        except Exception:
-            pass
-    if int(count) > 1:
+            log("findImage: region search failed (%s), trying full screen" % (res,))
+        except Exception as e:
+            log("findImage: daemon khong ho tro region search (%s), mui lon man hinh" % (e,))
+    if want > 1:
         try:
-            ok, res = get_device().image_match_multi(path, threshold, count)
+            ok, res = get_device().image_match_multi(path, threshold, want)
             if ok and res:
-                _dbg_rect(_num(res[0].get("x", 0)), _num(res[0].get("y", 0)),
-                          _num(res[0].get("width", 0)), _num(res[0].get("height", 0)))
-                return res[0]
-        except Exception:
-            pass
+                if len(res) < want:
+                    log("findImage: daemon tra %d/%d match" % (len(res), want))
+                res = _match_result(res[0])
+                _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
+                          _num(res.get("width", 0)), _num(res.get("height", 0)))
+                return res
+            if ok:
+                log("findImage: multi-match khong thay match nao")
+                return None
+        except Exception as e:
+            log("findImage: daemon khong ho tro multi-match (%s)" % (e,))
     ok, res = get_device().image_match(path, threshold, 2, 0.8)
     if not ok:
         return None
+    res = _match_result(res)
     _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
               _num(res.get("width", 0)), _num(res.get("height", 0)))
     return res
@@ -459,7 +638,8 @@ def findText(text, region=None, case_sensitive=False):
     Each match is a dict ``{text, x, y, width, height}`` in device pixels
     (same unit as :func:`tap`). Matches are NOT sorted; use :func:`ocrFind`
     for the Lua-style ``x, y, text`` single result, or :func:`tapText` to
-    tap the Nth match (top-bottom, left-right).
+    tap the Nth match (top-bottom, left-right). Match dicts are
+    :class:`LuaDict`, so ``m.x``/``m["x"]`` both work after transpile.
     """
     if region is None:
         region = _default_region()
@@ -471,7 +651,7 @@ def findText(text, region=None, case_sensitive=False):
     for i in items:
         hay = str(i.get("text", "")) if case_sensitive else str(i.get("text", "")).lower()
         if needle in hay:
-            out.append(i)
+            out.append(_match_result(i))
     # Debug: vẽ bbox đỏ cho tối đa 10 match để user thấy OCR bắt được chữ nào.
     for m in out[:10]:
         _dbg_rect(_num(m.get("x", 0)), _num(m.get("y", 0)),
@@ -778,20 +958,21 @@ def screenSize():
     ok, res = get_device().get_screen_size()
     if not ok:
         raise RuntimeError("screenSize failed: %s" % (res,))
-    return {"width": _num(res["width"]), "height": _num(res["height"])}
+    return LuaDict({"width": _num(res["width"]), "height": _num(res["height"])})
 
 
 def deviceInfo():
     ok, res = get_device().get_device_info()
     if not ok:
         raise RuntimeError("deviceInfo failed: %s" % (res,))
+    info = LuaDict(res)
     try:
         ok2, bat = get_device().get_battery_info()
         if ok2:
-            res = dict(res, battery=bat)
+            info["battery"] = _to_lua(bat) if isinstance(bat, (dict, list)) else bat
     except Exception:
         pass
-    return res
+    return info
 
 
 # ---------------------------------------------------------------- HTTP / file / json
@@ -918,11 +1099,26 @@ def appendFile(path, content):
 
 
 def jsonDecode(s):
-    return json.loads(s)
+    """Parse a JSON string into a Lua-style table (docs/IDE/ioscontrol.md).
+
+    The result is a :class:`LuaDict`, so both field-access syntaxes work
+    after this runs as Python (directly or via transpiled Lua):
+
+        local config = jsonDecode(raw)
+        log(config.loops)        -- dot access, like Lua
+        log(config["delay"])     -- subscript, like Python
+    """
+    return _to_lua(json.loads(s))
 
 
 def jsonEncode(obj):
-    return json.dumps(obj)
+    """Encode a Lua table / dict / list / tuple as a JSON string.
+
+    Tuples and sets become JSON arrays (``findColor`` points, nested
+    ``{{1,2},{3,4}}`` tables), and non-ASCII text is kept readable rather
+    than escaped, matching what a Lua user would expect from the table.
+    """
+    return json.dumps(_jsonable(obj), ensure_ascii=False)
 
 
 def randomInt(mins, maxs):
@@ -1189,7 +1385,7 @@ def wifiInfo():
             ip = ""
         finally:
             s.close()
-    return {"ssid": None, "ip": ip}
+    return LuaDict({"ssid": None, "ip": ip})
 
 
 def getIP(timeout=15):
@@ -1507,6 +1703,9 @@ def install(namespace=None):
 __all__ = [
     "get_device", "set_device", "disconnect",
     "setDebugVisual", "clearDebugVisual",
+    # Lua-table + multi-return helpers (used by the dashboard transpiler and
+    # by scripts that want Lua syntax from Python).
+    "LuaDict", "zxRange", "zxUnpackMatch", "zxConcat",
     "tap", "touchDown", "touchMove", "touchUp", "swipe", "longPress",
     "pinch", "rotate",
     "getColor", "getColors", "findColor", "findColors", "waitForColor",
