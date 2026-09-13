@@ -31,6 +31,8 @@ static const unsigned long long ZXDashboardMaximumAssetSize = 25ULL * 1024ULL * 
 static const NSUInteger ZXDashboardMaximumLogLength = 256 * 1024;
 static const NSUInteger ZXEditorMaximumCodeLength = 256 * 1024;
 static NSString *const ZXVNCEnabledKey = @"vnc_server_enabled";
+static const NSTimeInterval ZXDashboardStatusCacheTTL = 2.0;
+static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 static NSString *ZXVNCLaunchDaemonPath(void)
@@ -50,6 +52,22 @@ static void ZXVNCApplyEnabledState(BOOL enabled)
                          disabledValue, daemonPath, disabledValue, daemonPath, verb, daemonPath];
     int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
     if (systemFunction) systemFunction(command.UTF8String);
+}
+
+static BOOL ZXVNCProbePort(uint16_t port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NO;
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
+    struct timeval timeout = {0, 300000};
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    BOOL open = connect(fd, (struct sockaddr *)&address, sizeof(address)) == 0;
+    close(fd);
+    return open;
 }
 #endif
 
@@ -83,6 +101,9 @@ static NSString *ZXDashboardIPAddress(void)
 @property(nonatomic, copy) NSString *lastAction;
 @property(nonatomic, copy) NSArray<NSDictionary *> *appsCache;
 @property(nonatomic, strong) NSDate *appsCacheAt;
+@property(nonatomic, copy) NSDictionary *statusCache;
+@property(nonatomic, strong) NSDate *statusCacheAt;
+@property(nonatomic, strong) NSDate *vncRecoveryAt;
 @end
 
 @implementation ZXRemoteDashboardServer
@@ -262,14 +283,42 @@ static NSString *ZXDashboardIPAddress(void)
 
 - (NSDictionary *)status
 {
+    if (self.statusCache && self.statusCacheAt && [[NSDate date] timeIntervalSinceDate:self.statusCacheAt] < ZXDashboardStatusCacheTTL) {
+        return self.statusCache;
+    }
     NSString *rawSize = [self sendSocketCommand:@"251" expectsReply:YES];
+    if (![rawSize hasPrefix:@"0"]) {
+        NSDictionary *offline = @{
+            @"running": @(self.server.running),
+            @"serviceOnline": @NO,
+            @"stale": self.statusCache != nil ? @YES : @NO,
+            @"port": @(self.server.port),
+            @"screen": @{ @"width": @"", @"height": @"" },
+            @"orientation": @"", @"battery": @"", @"foregroundApp": @"",
+            @"scriptPlaying": @NO, @"recording": @NO,
+            @"deviceName": @"", @"systemName": @"", @"systemVersion": @"", @"model": @"",
+            @"vnc": @{ @"port": @5901, @"httpPort": @5801,
+                       @"vncPortOpen": @(ZXVNCProbePort(5901)),
+                       @"httpPortOpen": @(ZXVNCProbePort(5801)) },
+            @"lastAction": self.lastAction ?: @"Ready",
+            @"lastError": self.lastError ?: @"ZXTouch service unavailable.",
+            @"scriptCount": @([self scripts].count)
+        };
+        self.statusCache = offline;
+        self.statusCacheAt = [NSDate date];
+        return offline;
+    }
     NSString *rawOrientation = [self sendSocketCommand:@"252" expectsReply:YES];
+    if (![rawOrientation hasPrefix:@"0"]) { self.statusCache = nil; return @{ @"running": @(self.server.running), @"serviceOnline": @NO, @"stale": @NO, @"vnc": @{ @"port": @5901, @"httpPort": @5801, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)) }, @"lastError": self.lastError ?: @"ZXTouch service unavailable.", @"scriptCount": @([self scripts].count) }; }
     NSString *rawBattery = [self sendSocketCommand:@"2531" expectsReply:YES];
+    if (![rawBattery hasPrefix:@"0"]) { self.statusCache = nil; return @{ @"running": @(self.server.running), @"serviceOnline": @NO, @"stale": @NO, @"vnc": @{ @"port": @5901, @"httpPort": @5801, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)) }, @"lastError": self.lastError ?: @"ZXTouch service unavailable.", @"scriptCount": @([self scripts].count) }; }
     NSString *rawRuntime = [self sendSocketCommand:@"2532" expectsReply:YES];
+    if (![rawRuntime hasPrefix:@"0"]) { self.statusCache = nil; return @{ @"running": @(self.server.running), @"serviceOnline": @NO, @"stale": @NO, @"vnc": @{ @"port": @5901, @"httpPort": @5801, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)) }, @"lastError": self.lastError ?: @"ZXTouch service unavailable.", @"scriptCount": @([self scripts].count) }; }
     // Task 25 (device info) + subtask 30 = name;;systemName;;systemVersion;;model;;vendorID.
     // Model (uname.machine, e.g. iPhone12,8 / iPhone14,6) drives the
     // physical-Home vs swipe-Home detection in the dashboard (Pure-VNC plan).
     NSString *rawDeviceInfo = [self sendSocketCommand:@"2530" expectsReply:YES];
+    if (![rawDeviceInfo hasPrefix:@"0"]) { self.statusCache = nil; return @{ @"running": @(self.server.running), @"serviceOnline": @NO, @"stale": @NO, @"vnc": @{ @"port": @5901, @"httpPort": @5801, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)) }, @"lastError": self.lastError ?: @"ZXTouch service unavailable.", @"scriptCount": @([self scripts].count) }; }
     NSString *size = [self payloadFromSocketReply:rawSize];
     NSString *orientation = [self payloadFromSocketReply:rawOrientation];
     NSString *battery = [self payloadFromSocketReply:rawBattery];
@@ -279,7 +328,7 @@ static NSString *ZXDashboardIPAddress(void)
     NSArray *batteryParts = [battery componentsSeparatedByString:@";;"];
     NSArray *runtimeParts = [runtime componentsSeparatedByString:@";;"];
     NSArray *deviceParts = [deviceInfo componentsSeparatedByString:@";;"];
-    return @{
+    NSDictionary *fresh = @{
         @"running": @(self.server.running),
         @"serviceOnline": @([rawSize hasPrefix:@"0"]),
         @"port": @(self.server.port),
@@ -295,11 +344,45 @@ static NSString *ZXDashboardIPAddress(void)
         @"model": deviceParts.count > 3 ? deviceParts[3] : @"",
         // TrollVNC endpoints bundled in the same (rootless) .deb. These values
         // are diagnostic metadata; they do not prove the daemon is listening.
-        @"vnc": @{ @"port": @5901, @"httpPort": @5801 },
+        @"vnc": @{ @"port": @5901, @"httpPort": @5801,
+                   @"vncPortOpen": @(ZXVNCProbePort(5901)),
+                   @"httpPortOpen": @(ZXVNCProbePort(5801)) },
         @"lastAction": self.lastAction ?: @"Ready",
         @"lastError": self.lastError ?: @"",
         @"scriptCount": @([self scripts].count)
     };
+    self.statusCache = fresh;
+    self.statusCacheAt = [NSDate date];
+    return fresh;
+}
+
+- (NSDictionary *)recoverVNC
+{
+    BOOL vncOpen = ZXVNCProbePort(5901);
+    BOOL httpOpen = ZXVNCProbePort(5801);
+    if (vncOpen) return @{ @"ok": @YES, @"started": @NO, @"vncPortOpen": @YES, @"httpPortOpen": @(httpOpen), @"message": @"VNC server is already running." };
+    NSDate *now = [NSDate date];
+    if (self.vncRecoveryAt && [now timeIntervalSinceDate:self.vncRecoveryAt] < ZXVNCRecoverCooldown) {
+        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @NO, @"httpPortOpen": @(httpOpen), @"message": @"VNC recovery is cooling down." };
+    }
+    self.vncRecoveryAt = now;
+    NSString *plist = ZXVNCLaunchDaemonPath();
+    NSString *binary = @"/var/jb/usr/bin/trollvncserver";
+    NSString *log = @"/var/mobile/Library/ZXTouch/trollvnc.log";
+    NSString *command = [NSString stringWithFormat:
+        @"(/var/jb/bin/launchctl load %@ >/dev/null 2>&1 || launchctl load %@ >/dev/null 2>&1); "
+         @"if ! ps -ax 2>/dev/null | grep -q '[t]rollvncserver'; then "
+         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s 0.75 -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null & fi",
+        plist, plist, binary, log];
+    int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
+    if (systemFunction) systemFunction(command.UTF8String);
+    [NSThread sleepForTimeInterval:1.0];
+    vncOpen = ZXVNCProbePort(5901);
+    httpOpen = ZXVNCProbePort(5801);
+    self.statusCache = nil;
+    self.statusCacheAt = nil;
+    return @{ @"ok": @(vncOpen), @"started": @YES, @"vncPortOpen": @(vncOpen), @"httpPortOpen": @(httpOpen),
+              @"message": vncOpen ? @"VNC server started." : @"Unable to start VNC server." };
 }
 
 - (NSString *)recentLogs
@@ -421,6 +504,19 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"status": [strongSelf status] } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"GET" path:@"/api/health" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"dashboard": @YES, @"port": @(strongSelf.server.port) } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/vnc/recover" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        NSDictionary *result = [strongSelf recoverVNC];
+        return [strongSelf jsonResponse:result status:[result[@"ok"] boolValue] ? 200 : 503];
     }];
 
     // GET /api/apps — installed apps as { name, bundleId }, sorted by name.
@@ -664,6 +760,14 @@ static NSString *ZXDashboardIPAddress(void)
     } error:&error];
     self.lastError = started ? @"" : (error.localizedDescription ?: @"Unable to start dashboard.");
     if (!started) self.server = nil;
+    if (started) {
+        // LaunchDaemons can be absent after a jailbreak re-enable or can stop
+        // without launchd recovering them. Give the dashboard one guarded
+        // chance to restore VNC without waiting for a browser retry cycle.
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            [self recoverVNC];
+        });
+    }
     return started;
 }
 

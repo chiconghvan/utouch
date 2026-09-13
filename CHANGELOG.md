@@ -7,6 +7,20 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.11] — 2026-09-14
+
+### Đã thêm
+- Dashboard gọi `POST /api/vnc/recover` để backend tự nạp lại daemon TrollVNC (có thời gian chờ 30 giây giữa các lần) khi auto-retry hết lượt, thay vì dừng hẳn ở trạng thái Offline.
+- Trạng thái thiết bị báo đúng tình trạng cổng VNC thực tế (`vncPortOpen` / `httpPortOpen`); dashboard ghi log khi cổng 5901 đóng.
+- Endpoint `GET /api/health` để kiểm tra dashboard HTTP đang sống.
+
+### Đã thay đổi
+- Kết quả `/api/status` được cache 2 giây để giảm tải cho IPC với service ZXTouch; khi service không phản hồi, dashboard nhận về payload offline rõ ràng (kèm cờ `stale`) thay vì lỗi chung.
+
+### Đã sửa
+- noVNC không còn gọi `disconnect()` trên RFB object đã đóng hoặc đang disconnect (kiểm tra trạng thái kết nối nội bộ trước khi teardown); hết treo khi bắt tay quá hạn hoặc bấm Disconnect lặp.
+- `postinst` (rootless và roothide) ghi lỗi `launchctl load` TrollVNC vào `trollvnc.log` kèm thông báo dashboard sẽ tự khôi phục, thay vì âm thầm bỏ qua.
+
 ## [0.3.9] — 2026-09-13
 
 ### Đã thêm
@@ -166,6 +180,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.11]: https://github.com/chiconghvan/utouch/compare/v0.3.10...v0.3.11
 [0.3.9]: https://github.com/chiconghvan/utouch/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/chiconghvan/utouch/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/chiconghvan/utouch/compare/v0.3.6...v0.3.7

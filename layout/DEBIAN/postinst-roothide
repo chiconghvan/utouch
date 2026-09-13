@@ -130,7 +130,9 @@ if [ -n "$TVNC_BIN" ] && [ -x "$TVNC_BIN" ]; then
     fi
     if command -v launchctl >/dev/null 2>&1 && [ -n "$TVNC_PLIST" ]; then
         launchctl unload "$TVNC_PLIST" 2>/dev/null || true
-        launchctl load "$TVNC_PLIST" 2>/dev/null || true
+        if ! launchctl load "$TVNC_PLIST" 2>>/var/mobile/Library/ZXTouch/trollvnc.log; then
+            echo "ZXTouch: launchctl could not load TrollVNC; dashboard recovery will retry." >> /var/mobile/Library/ZXTouch/trollvnc.log
+        fi
     fi
 else
     echo "ZXTouch: warning — trollvncserver not found. Rebuild with tools/trollvnc/build-and-stage.sh for live-screen support." >&2

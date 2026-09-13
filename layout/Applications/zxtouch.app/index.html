@@ -451,6 +451,9 @@
       elements.stop.disabled = !online || !status.scriptPlaying; elements.recordStart.disabled = !online || status.recording; elements.recordStop.disabled = !online || !status.recording;
       elements.scripts.querySelectorAll('.run-script').forEach(button => { if (button.dataset.busy !== '1') button.disabled = !online; });
       if (typeof updateVncDevice === 'function') updateVncDevice(status);
+      if (status.vnc && status.vnc.vncPortOpen === false && !state.vnc.connected && !state.vnc.connecting) {
+        vncLog('health', 'TrollVNC port 5901 is closed');
+      }
       // First visit: start the stream as soon as the service is known online,
       // so the Live Screen fills without a manual Connect. One shot — after
       // this the retry chain owns the lifecycle.
@@ -1660,10 +1663,18 @@
       // double-count an attempt.
       if (vncRetry.timer || state.vnc.manualOffline || !vncAutoOn() || state.vnc.connected) return;
       if (vncRetry.attempt >= VNC_RETRY_STEPS.length) {
-        setVncStatus('Offline', false);
-        vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(why || 'connection failed'))}<br>Auto-retry stopped after ${VNC_RETRY_STEPS.length} attempts.<br><button class="button primary" id="vncRetryNow" type="button">Retry now</button>`);
-        const b = document.getElementById('vncRetryNow');
-        if (b) b.addEventListener('click', () => { vncRetry.attempt = 0; vncConnect(); });
+        setVncStatus('Recovering VNC…', false);
+        vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(why || 'connection failed'))}<br>Restarting VNC server…`);
+        vncLog('recover', 'requesting backend VNC recovery');
+        fetch('/api/vnc/recover', { method: 'POST' })
+          .then(async response => { const payload = await response.json(); if (!response.ok || !payload.ok) throw new Error(payload.message || 'VNC server recovery failed.'); return payload; })
+          .then(() => { vncRetry.attempt = 0; vncLog('recover', 'backend recovery succeeded'); vncConnect('recover'); })
+          .catch(error => {
+            setVncStatus('Offline', false);
+            vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(error.message || 'VNC server recovery failed.'))}<br>Auto-retry stopped after ${VNC_RETRY_STEPS.length} attempts.<br><button class="button primary" id="vncRetryNow" type="button">Retry now</button>`);
+            const b = document.getElementById('vncRetryNow');
+            if (b) b.addEventListener('click', () => { vncRetry.attempt = 0; vncConnect(); });
+          });
         vncLog('retry', `gave up after ${VNC_RETRY_STEPS.length} attempts`);
         return;
       }
@@ -1689,9 +1700,10 @@
         vncLog('step 1/3 ok', 'RFB class loaded');
         const wsUrl = elements.vncUrl?.value?.trim() || defaultWsUrl();
         vncLog('step 2/3', `opening ${wsUrl} (secureContext=${window.isSecureContext})`);
-        // Avoid calling disconnect twice on a failed noVNC object.
-        if (state.vnc.rfb && (state.vnc.connected || state.vnc.connecting)) {
-          try { state.vnc.rfb.disconnect(); } catch (_) {}
+        const oldRfb = state.vnc.rfb;
+        const oldState = oldRfb && oldRfb._rfb_connection_state;
+        if (oldRfb && oldState && oldState !== 'disconnected' && oldState !== 'disconnecting') {
+          try { oldRfb.disconnect(); } catch (_) {}
         }
         state.vnc.rfb = null;
         const rfb = new RFB(elements.vncScreen, wsUrl, { shared: true });
@@ -1705,7 +1717,10 @@
           vncRetry.watchdog = null;
           if (!state.vnc.connected) {
             vncLog('timeout', `no handshake in ${VNC_CONNECT_TIMEOUT / 1000}s — tearing down`);
-            try { rfb.disconnect(); } catch (_) {}
+            const currentState = rfb._rfb_connection_state;
+            if (currentState && currentState !== 'disconnected' && currentState !== 'disconnecting') {
+              try { rfb.disconnect(); } catch (_) {}
+            }
             state.vnc.connecting = false;
             vncScheduleRetry('no VNC handshake');
           }
@@ -1733,7 +1748,7 @@
         vncScheduleRetry(error.message);
       }
     }
-    function vncDisconnect() { vncLog('button', 'Disconnect (auto-retry paused)'); state.vnc.manualOffline = true; vncClearRetry(); vncClearWatchdog(); try { state.vnc.rfb && state.vnc.rfb.disconnect(); } catch (_) {} state.vnc.connected = false; state.vnc.connecting = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
+    function vncDisconnect() { vncLog('button', 'Disconnect (auto-retry paused)'); state.vnc.manualOffline = true; vncClearRetry(); vncClearWatchdog(); const rfb = state.vnc.rfb; const s = rfb && rfb._rfb_connection_state; if (rfb && s && s !== 'disconnected' && s !== 'disconnecting') { try { rfb.disconnect(); } catch (_) {} } state.vnc.rfb = null; state.vnc.connected = false; state.vnc.connecting = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
     elements.vncConnect.addEventListener('click', () => vncConnect());
     elements.vncDisconnect.addEventListener('click', vncDisconnect);
     if (elements.vncAuto) {
