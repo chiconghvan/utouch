@@ -1,5 +1,6 @@
 import time
 import socket
+import random
 from zxtouch import tasktypes
 from zxtouch import datahandler
 from zxtouch import kbdtasktypes
@@ -272,6 +273,8 @@ class zxtouch:
                 self.s.send(
                     datahandler.format_socket_data(tasktypes.TASK_KEYBOARDIMPL, kbdtasktypes.KEYBOARD_INSERT_TEXT, ch))
                 datahandler.decode_socket_data(self.s.recv(1024))
+            # Keep synthetic input close to human typing instead of a paste burst.
+            time.sleep(random.uniform(0.01, 0.03))
         return True, ""
 
 

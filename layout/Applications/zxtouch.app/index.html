@@ -533,7 +533,7 @@
     elements.downloadLogs.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([state.rawLogs], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = `zxtouch-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); elements.clearLogs.addEventListener('click', clearLogs);
 
     // ── Script Editor tab (Monaco + Lua→Python + instant run) ──────
-    const editorState = { monaco: null, model: null, ready: false, useFallback: false, running: false };
+    const editorState = { monaco: null, model: null, view: null, ready: false, useFallback: false, running: false, dirty: false, saving: false, autoSaveTimer: null };
     const LUA_SAMPLE = '-- Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     const PY_SAMPLE = '# Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     // Function palette: [name, luaTpl, pyTpl?]. Click inserts at cursor.
@@ -675,7 +675,7 @@
       const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       // Longest first so "waitForImage" wins over "waitFor", "crane.list" over "list".
       const sorted = [...words].sort((a, b) => b.length - a.length);
-      return { re: sorted.length ? new RegExp(sorted.map(esc).join('|'), 'g') : null };
+      return { words, re: sorted.length ? new RegExp(sorted.map(esc).join('|'), 'g') : null };
     })();
 
     // Blank out strings and comments so a call name inside them isn't painted.
@@ -706,20 +706,35 @@
     let funcHlTimer = 0;
     function refreshFuncHighlights() {
       const view = editorState.view, model = editorState.model, monaco = editorState.monaco;
-      if (!view || !model || !monaco || !FUNC_HL.re) return;
+      if (!view || !model || !monaco) return;
       // Read the language off the model, not the <select>: they can differ if
       // something calls setModelLanguage() directly, and comment syntax must
       // match what is actually being scanned.
       const lang = model.getLanguageId() === 'python' ? 'python' : 'lua';
+      const words = new Set(FUNC_HL.words);
+      const source = model.getValue();
+      if (lang === 'python') {
+        const defRe = /^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)\s*\(/gm;
+        let def;
+        while ((def = defRe.exec(source))) words.add(def[1]);
+      } else {
+        const functionRe = /^\s*function\s+([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)\s*\(/gm;
+        let fn;
+        while ((fn = functionRe.exec(source))) words.add(fn[1]);
+      }
+      const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const sorted = [...words].sort((a, b) => b.length - a.length);
+      const callRe = sorted.length ? new RegExp(sorted.map(esc).join('|'), 'g') : null;
+      if (!callRe) { funcDecoIds = view.deltaDecorations(funcDecoIds, []); return; }
       const deco = [];
       const lineCount = model.getLineCount();
       for (let ln = 1; ln <= lineCount; ln++) {
         const text = model.getLineContent(ln);
         if (!text) continue;
         const scan = maskNonCode(text, lang);
-        FUNC_HL.re.lastIndex = 0;
+         callRe.lastIndex = 0;
         let m;
-        while ((m = FUNC_HL.re.exec(scan))) {
+         while ((m = callRe.exec(scan))) {
           const start = m.index, end = start + m[0].length;
           const prev = start > 0 ? scan[start - 1] : '';
           if (prev && /[\w.]/.test(prev)) continue;      // "mytap(" / "x.tap(" are not our calls
@@ -727,7 +742,7 @@
           while (k < scan.length && scan[k] === ' ') k++;
           if (scan[k] !== '(') continue;                  // bare reference/assignment, not a call
           deco.push({ range: new monaco.Range(ln, start + 1, ln, end + 1), options: { inlineClassName: 'fn-call' } });
-          FUNC_HL.re.lastIndex = end;
+          callRe.lastIndex = end;
         }
       }
       funcDecoIds = view.deltaDecorations(funcDecoIds, deco);
@@ -1209,8 +1224,9 @@
         const text = model.getValue();
         const seen = new Set();
         const out = [];
-        const push = name => {
-          if (!name || seen.has(name)) return;
+       const push = name => {
+           name = String(name).trim();
+           if (!name || seen.has(name)) return;
           if (RESERVED[lang].has(name) || FUNC_NAMES.has(name)) return;
           if (!/^[A-Za-z_]\w*$/.test(name)) return;
           seen.add(name);
@@ -1226,7 +1242,7 @@
             range: undefined, // filled per-request like functions
           });
         };
-        const pushList = s => String(s).split(',').forEach(push);
+         const pushList = s => String(s).split(',').map(name => name.trim()).filter(Boolean).forEach(push);
         let m;
         // local x / local x, y = ... (lua)
         if (lang === 'lua') {
@@ -1248,14 +1264,10 @@
         }
         // assignments: x = ..., x, y = ... (both langs). Guard against
         // ==/<=/>=/!= by checking the char before '='.
-        const reAssign = /([A-Za-z_][\w\s,]*?)\s*=[^=]/g;
-        while ((m = reAssign.exec(text))) {
-          const eq = m.index + m[0].length - 2;
-          let i = eq - 1;
-          while (i >= 0 && (text[i] === ' ' || text[i] === '\t')) i--;
-          if (i >= 0 && '=!<>'.includes(text[i])) continue;
-          pushList(m[1]);
-        }
+         const reAssign = /(^|[;\n])\s*([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*=[^=]/gm;
+         while ((m = reAssign.exec(text))) {
+           pushList(m[2]);
+         }
         varCache = { version: model.getVersionId(), lang, items: out };
         return out;
       };
@@ -1402,21 +1414,35 @@
       catch (error) { showToast(error.message, true); }
       finally { setButtonBusy(elements.editorStop, false); }
     }
-    async function editorSave() {
+    async function editorSave(options = {}) {
+      if (editorState.saving) return false;
       let code;
-      try { code = currentPayload(); } catch (e) { showToast(e.message, true); return; }
+      try { code = currentPayload(); } catch (e) { if (!options.silent) showToast(e.message, true); return false; }
       const openPath = elements.editorOpen.value;
       const body = openPath ? { path: openPath, code } : { name: elements.editorName.value.trim(), code };
-      if (!openPath && !body.name) { showToast('Type a script name, or pick a library script to overwrite.', true); elements.editorName.focus(); return; }
+      if (!openPath && !body.name) {
+        if (!options.silent) { showToast('Type a script name, or pick a library script to overwrite.', true); elements.editorName.focus(); }
+        return false;
+      }
+      editorState.saving = true;
       setButtonBusy(elements.editorSave, true, 'Saving…');
       try {
         const payload = await api('/api/editor/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        showToast(`Saved as ${decodeURIComponent(payload.path)}`);
+        editorState.dirty = false;
+        if (!options.silent) showToast(`Saved as ${decodeURIComponent(payload.path)}`);
         setEditorStatus('Saved — ' + decodeURIComponent(payload.path));
         await loadScripts();
         syncEditorOpen();
-      } catch (error) { showToast(error.message, true); }
-      finally { setButtonBusy(elements.editorSave, false); }
+        return true;
+      } catch (error) { if (!options.silent) showToast(error.message, true); return false; }
+      finally { editorState.saving = false; setButtonBusy(elements.editorSave, false); }
+    }
+    function markEditorDirty() { editorState.dirty = true; setEditorStatus('Unsaved changes'); }
+    function startEditorAutoSave() {
+      clearInterval(editorState.autoSaveTimer);
+      editorState.autoSaveTimer = setInterval(() => {
+        if (editorState.dirty && !editorState.saving) editorSave({ silent: true });
+      }, 5000);
     }
     async function editorLoadSelected() {
       const path = elements.editorOpen.value;
@@ -1428,6 +1454,7 @@
         elements.editorLang.value = 'python';
         applyEditorLanguage();
         editorSet(payload.code || '');
+        editorState.dirty = false;
         setEditorStatus('Loaded — ' + payload.name);
         showToast(`Loaded ${payload.name}.`);
       } catch (error) { showToast(error.message, true); }
@@ -1467,9 +1494,19 @@
       });
       elements.editorRun.addEventListener('click', editorRun);
       elements.editorStop.addEventListener('click', editorStop);
-      elements.editorSave.addEventListener('click', editorSave);
+      elements.editorSave.addEventListener('click', () => editorSave());
       elements.editorOpen.addEventListener('change', editorLoadSelected);
       elements.editorLang.addEventListener('change', applyEditorLanguage);
+      elements.editorFallback.addEventListener('input', markEditorDirty);
+      document.addEventListener('keydown', event => {
+        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+        const target = event.target;
+        if (target === elements.editorFallback || target === elements.monacoHost || elements.monacoHost.contains(target) || target === elements.editorName) {
+          event.preventDefault();
+          editorSave();
+        }
+      });
+      startEditorAutoSave();
       const bootFallback = msg => {
         editorState.useFallback = true;
         elements.editorFallback.hidden = false;
@@ -1489,6 +1526,9 @@
                   value: LUA_SAMPLE, language: 'lua', theme: 'vs-dark',
                   automaticLayout: true, minimap: { enabled: false },
                   fontSize: 13, scrollBeyondLastLine: false, padding: { top: 10 },
+                  insertSpaces: true, tabSize: 4, detectIndentation: false,
+                  autoIndent: 'full', formatOnType: true, formatOnPaste: true,
+                  trimAutoWhitespace: true,
                   // Render the suggest widget (and hover) outside the editor's
                   // overflow container, so when the caret is near the bottom
                   // of the pane Monaco flips the dropdown above the cursor
@@ -1502,8 +1542,9 @@
                 registerEditorAutocomplete();
                 // Paint API names as soon as the first tokens are drawn, then
                 // keep them in sync with edits (debounced; O(lines) per burst).
-                editorState.model.onDidChangeContent(scheduleFuncHighlights);
+                editorState.model.onDidChangeContent(() => { markEditorDirty(); scheduleFuncHighlights(); });
                 refreshFuncHighlights();
+                editorState.dirty = false;
                 resolve();
               } catch (e) { reject(e); }
             }, reject);
