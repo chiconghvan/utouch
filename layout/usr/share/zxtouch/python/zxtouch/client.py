@@ -23,11 +23,16 @@ class zxtouch:
         :param y: y coordinate
         :return: None
         """
-        if int(type) > 19:
+        event_type = int(type)
+        finger = int(finger_index)
+        px = int(x * 10)
+        py = int(y * 10)
+        if event_type > 19:
             print("Touch index should not be greater than 19.")
+        print("[touch-wire] send type=%d finger=%d x=%s y=%s payload=1%d%02d%05d%05d" %
+              (event_type, finger, x, y, event_type, finger, px, py))
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PERFORM_TOUCH,
-                                                   '1{}{:02d}{:05d}{:05d}'.format(type, finger_index, int(x * 10),
-                                                                                  int(y * 10))))
+                                                   '1{}{:02d}{:05d}{:05d}'.format(event_type, finger, px, py)))
 
     def touch_with_list(self, touch_list: list):
         """Perform touch events with a list of events

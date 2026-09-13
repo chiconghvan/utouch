@@ -58,6 +58,19 @@ _HTTP_USER_AGENT = (
 _DEBUG_VISUAL = True
 _DEBUG_DURATION = 1.5
 _DEBUG_TAP_RADIUS = 60
+_DEBUG_TOUCH_LOG = True
+
+
+def setDebugTouchLog(enabled=True):
+    """Enable or disable diagnostic logging for touch helpers."""
+    global _DEBUG_TOUCH_LOG
+    _DEBUG_TOUCH_LOG = bool(enabled)
+    return _DEBUG_TOUCH_LOG
+
+
+def _touch_log(message):
+    if _DEBUG_TOUCH_LOG:
+        print("[touch] %s" % message)
 
 
 def setDebugVisual(enabled=True, duration=1.5):
@@ -159,11 +172,15 @@ def disconnect():
 
 def tap(x, y, finger=1):
     """Tap at coordinates (DOWN + short hold + UP)."""
+    _touch_log("tap start x=%s y=%s finger=%s" % (x, y, finger))
     _dbg_circle(x, y)
     d = get_device()
+    _touch_log("tap down x=%s y=%s finger=%s" % (x, y, finger))
     d.touch(TOUCH_DOWN, finger, x, y)
     time.sleep(0.05)
+    _touch_log("tap up x=%s y=%s finger=%s" % (x, y, finger))
     d.touch(TOUCH_UP, finger, x, y)
+    _touch_log("tap complete x=%s y=%s finger=%s" % (x, y, finger))
 
 
 def touchDown(fid, x, y):
@@ -753,16 +770,27 @@ def tapText(text, timeout=10.0, index=1, region=None, lang=None):
     if idx <= 0:
         idx = 1  # 0 = first match (legacy Python callers)
     want = idx - 1
+    _touch_log("tapText start text=%r index=%s timeout=%s region=%s lang=%s" %
+               (text, idx, timeout, region, lang))
     end = time.time() + timeout
+    attempts = 0
     while time.time() <= end:
+        attempts += 1
         matches = findText(text, region=region, lang=lang)
+        _touch_log("tapText OCR attempt=%s matches=%s wanted_index=%s" %
+                   (attempts, len(matches), idx))
         if len(matches) > want:
             m = _sorted_matches(matches)[want]
             cx, cy = _match_center(m)
             print("tapText: %r -> (%d, %d) [%s]" % (text, cx, cy, m.get("text", "")))
+            _touch_log("tapText match text=%r x=%s y=%s bbox=(%s,%s,%s,%s)" %
+                       (m.get("text", ""), cx, cy, m.get("x"), m.get("y"),
+                        m.get("width"), m.get("height")))
             tap(cx, cy)
+            _touch_log("tapText complete text=%r x=%s y=%s" % (text, cx, cy))
             return m
         time.sleep(0.5)
+    _touch_log("tapText timeout text=%r attempts=%s" % (text, attempts))
     return None
 
 
@@ -1698,6 +1726,7 @@ record_save = recordSave
 record_load = recordLoad
 set_debug_visual = setDebugVisual
 clear_debug_visual = clearDebugVisual
+set_debug_touch_log = setDebugTouchLog
 
 
 def install(namespace=None):
@@ -1715,7 +1744,7 @@ def install(namespace=None):
 
 __all__ = [
     "get_device", "set_device", "disconnect",
-    "setDebugVisual", "clearDebugVisual",
+    "setDebugVisual", "clearDebugVisual", "setDebugTouchLog",
     # Lua-table + multi-return helpers (used by the dashboard transpiler and
     # by scripts that want Lua syntax from Python).
     "LuaDict", "zxRange", "zxUnpackMatch", "zxConcat",
@@ -1754,5 +1783,5 @@ __all__ = [
     "wifi_info", "get_ip", "set_airplane_mode", "set_cellular_data",
     "set_proxy_system", "clear_proxy_system",
     "record_start", "record_stop", "record_play", "record_save",
-    "record_load", "set_debug_visual", "clear_debug_visual",
+    "record_load", "set_debug_visual", "clear_debug_visual", "set_debug_touch_log",
 ]

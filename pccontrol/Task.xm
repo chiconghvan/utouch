@@ -50,6 +50,7 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     if (taskType == TASK_PERFORM_TOUCH)
     {
         @autoreleasepool{
+			NSLog(@"[ZXTouch][task] TASK_PERFORM_TOUCH payload=%s", eventData);
             performTouchFromRawData(eventData);
         }
     }

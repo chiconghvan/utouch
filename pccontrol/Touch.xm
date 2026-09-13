@@ -24,7 +24,18 @@ static CGFloat device_screen_height = 0;
 IOHIDEventSystemClientRef ioHIDEventSystemForSenderID = NULL;
 
 // touch event sender id
-unsigned long long int senderID = 0x0;
+volatile unsigned long long int senderID = 0x0;
+
+static BOOL waitForSenderID(void)
+{
+    // initSenderId() runs asynchronously after SpringBoard loads. Do not
+    // discard the first script tap while the sender id is being restored.
+    for (int attempt = 0; attempt < 20 && senderID == 0; attempt++)
+    {
+        usleep(25000);
+    }
+    return senderID != 0;
+}
 
 
 // valid type x y
@@ -157,18 +168,65 @@ Perform touch events with data received from socket
 */
 void performTouchFromRawData(UInt8 *eventData)
 {
+	if (!eventData)
+	{
+		NSLog(@"[ZXTouch][touch] drop: NULL event data");
+		return;
+	}
+
+	int count = getTouchCountFromDataArray(eventData);
+	if (count <= 0 || count > MAX_FINGER_INDEX)
+	{
+		NSLog(@"[ZXTouch][touch] drop: invalid event count=%d", count);
+		return;
+	}
+
+	if (device_screen_width <= 0 || device_screen_height <= 0)
+	{
+		NSLog(@"[ZXTouch][touch] drop: invalid screen size %.1fx%.1f",
+			  device_screen_width, device_screen_height);
+		return;
+	}
+
+	if (!waitForSenderID())
+	{
+		NSLog(@"[ZXTouch][touch] drop: senderID is still 0 after 500ms");
+		return;
+	}
+
+	NSLog(@"[ZXTouch][touch] dispatch count=%d senderID=%llx screen=%.1fx%.1f",
+		  count, senderID, device_screen_width, device_screen_height);
+
     // generate a parent event
 	IOHIDEventRef parent = IOHIDEventCreateDigitizerEvent(kCFAllocatorDefault, mach_absolute_time(), 3, 99, 1, 0, 0, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0, 0, 0); 
+	if (!parent)
+	{
+		NSLog(@"[ZXTouch][touch] drop: cannot create parent HID event");
+		return;
+	}
     IOHIDEventSetIntegerValue(parent , 0xb0019, 1); //set flags of parent event   flags: 0x20001 -> 0xa0001
     IOHIDEventSetIntegerValue(parent , 0x4, 1); //set flags of parent event   flags: 0xa0001 -> 0xa0011
 
-    for (int i = 0; i < getTouchCountFromDataArray(eventData); i++)
+	for (int i = 0; i < count; i++)
     {
         //NSLog(@"### com.zjx.springboard: get data. index: %d. type: %d. touchIndex: %d. x: %f. y: %f", i, getTouchTypeFromDataArray(eventData, i), getTouchIndexFromDataArray(eventData, i), getTouchXFromDataArray(eventData, i), getTouchYFromDataArray(eventData, i));
         int touchType = getTouchTypeFromDataArray(eventData, i);
         int x = getTouchXFromDataArray(eventData, i);
         int y = getTouchYFromDataArray(eventData, i);
         int index = getTouchIndexFromDataArray(eventData, i);
+
+		if (touchType < TOUCH_UP || touchType > TOUCH_MOVE ||
+			index <= 0 || index >= MAX_FINGER_INDEX ||
+			x < 0 || y < 0 || x > device_screen_width || y > device_screen_height)
+		{
+			NSLog(@"[ZXTouch][touch] drop: invalid event[%d] type=%d finger=%d x=%d y=%d",
+				  i, touchType, index, x, y);
+			CFRelease(parent);
+			return;
+		}
+
+		NSLog(@"[ZXTouch][touch] event[%d] type=%d finger=%d x=%d y=%d",
+			  i, touchType, index, x, y);
 
         appendChildEvent(parent, touchType, index, x, y); // append child event to parent
 
@@ -228,10 +286,11 @@ static void postIOHIDEvent(IOHIDEventRef event)
     	IOHIDEventSetSenderID(event, senderID);
 	else
 	{		
-		NSLog(@"### com.zjx.springboard: sender id is 0!");
+		NSLog(@"[ZXTouch][touch] drop: sender id is 0");
 		return;
 	}
     IOHIDEventSystemClientDispatchEvent(ioSystemClient, event);
+	NSLog(@"[ZXTouch][touch] HID event dispatched senderID=%llx", senderID);
 }
 
 /*
