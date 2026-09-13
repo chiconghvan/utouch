@@ -7,6 +7,19 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.8] — 2026-09-13
+
+### Đã thêm
+- Tham số `lang` cho các hàm OCR: `findText`, `ocrFind`, `waitForText`, `tapText`, `ocrText` — nhận một mã (`"vi"`, `"en"`) hoặc danh sách (`{"vi", "en"}`) để nhận diện tiếng Việt có dấu chính xác hơn.
+- Bảng `{k = v}` do `jsonDecode` trả về truy cập được như bảng Lua: `cfg.nested.a.b`, `cfg.loops[i]` — cả khi chạy Python trực tiếp lẫn qua editor Lua.
+- Nối chuỗi `..` trong editor Lua hoạt động với số (`"gia tri: " .. 42`); `nil`, `~=`, `#` và các bảng một vị trí (`{1, 2, 3}`) dịch đúng, kể cả trên các dòng nối tiếp của lệnh nhiều dòng.
+
+### Đã sửa
+- Vòng lặp `for i = n, 1, -1` bước âm không còn bỏ sót lượt lặp cuối.
+- Gán nhiều giá trị từ các hàm chạm/tìm (`local x, y = tapText(...)`, `tapImage`, `findImage`, `waitForImage`, `swipeUntil*`) dịch đúng trên mọi ví dụ trong tài liệu.
+- `pairs(t)` với hai biến lặp theo cặp khóa–giá trị; với một biến vẫn lặp theo khóa như Lua.
+- `findColor` kẹp ngưỡng màu về 0–255 và ghi log khi không tìm đủ số kết quả yêu cầu; `findImage` ghi log vùng tìm không được hỗ trợ thay vì âm thầm bỏ qua.
+
 ## [0.3.7] — 2026-09-13
 
 ### Đã thêm
@@ -135,6 +148,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.8]: https://github.com/chiconghvan/utouch/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/chiconghvan/utouch/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/chiconghvan/utouch/compare/v0.3.5...v0.3.6
 [0.3.5]: https://github.com/chiconghvan/utouch/compare/v0.3.4...v0.3.5
