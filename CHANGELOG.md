@@ -7,12 +7,7 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
-## [0.3.10] — 2026-09-13
-
-### Đã sửa
-- Đảm bảo package build thất bại rõ ràng nếu thiếu `trollvncserver` hoặc bundled noVNC, thay vì phát hành bản không thể kết nối VNC.
-- Sửa retry noVNC để không gọi `disconnect()` lặp trên RFB object đã đóng.
-- Làm mới TrollVNC daemon khi cài package và đồng bộ tài liệu WebSocket dùng cổng `5901`.
+## [0.3.9] — 2026-09-13
 
 ### Đã thêm
 - Thêm công tắc `VNC server management` dưới `Remote Management` để bật hoặc tắt VNC streaming screen và lưu trạng thái qua lần khởi động lại thiết bị.
@@ -26,6 +21,9 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 ### Đã sửa
 - Touch dispatch không còn bỏ sót thao tác chạm đầu tiên khi `senderID` chưa được khởi tạo; dữ liệu touch, kích thước màn hình và việc tạo hoặc dispatch HID event được kiểm tra an toàn hơn.
 - Sửa liên kết symbol và điều khiển VNC daemon trong SpringBoard; trạng thái bật/tắt VNC được áp dụng đúng sau khi tải lại cấu hình.
+- Đảm bảo package build thất bại rõ ràng nếu thiếu `trollvncserver` hoặc bundled noVNC, thay vì phát hành bản không thể kết nối VNC.
+- Sửa retry noVNC để không gọi `disconnect()` lặp trên RFB object đã đóng.
+- Làm mới TrollVNC daemon khi cài package và đồng bộ tài liệu WebSocket dùng cổng `5901`.
 
 ## [0.3.8] — 2026-09-13
 
@@ -168,7 +166,6 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
-[0.3.10]: https://github.com/chiconghvan/utouch/compare/v0.3.9...v0.3.10
 [0.3.9]: https://github.com/chiconghvan/utouch/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/chiconghvan/utouch/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/chiconghvan/utouch/compare/v0.3.6...v0.3.7
