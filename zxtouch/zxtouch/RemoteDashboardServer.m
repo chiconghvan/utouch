@@ -12,8 +12,6 @@
 #import <notify.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
-#import <limits.h>
-#import <stdlib.h>
 
 #import "Config.h"
 #if !ZX_DASHBOARD_SPRINGBOARD_SERVER
@@ -32,37 +30,28 @@ static const unsigned long long ZXDashboardMaximumAssetSize = 25ULL * 1024ULL * 
 static const NSUInteger ZXDashboardMaximumLogLength = 256 * 1024;
 static const NSUInteger ZXEditorMaximumCodeLength = 256 * 1024;
 static NSString *const ZXVNCEnabledKey = @"vnc_server_enabled";
-static NSString *ZXVNCSettingsLastError = @"";
+
+#if ZX_DASHBOARD_SPRINGBOARD_SERVER
+extern int call_system(const char *cmd);
 
 static NSString *ZXVNCLaunchDaemonPath(void)
 {
     NSString *rootlessPath = @"/var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist";
     if ([[NSFileManager defaultManager] fileExistsAtPath:rootlessPath]) return rootlessPath;
 
-    FILE *pipe = popen("jbroot /Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null", "r");
-    if (!pipe) return rootlessPath;
-    char buffer[PATH_MAX] = {0};
-    fgets(buffer, sizeof(buffer), pipe);
-    pclose(pipe);
-    NSString *path = [[NSString stringWithUTF8String:buffer] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-    return path.length ? path : rootlessPath;
+    return @"/Library/LaunchDaemons/com.zjx.trollvnc.plist";
 }
 
-static BOOL ZXVNCLaunchDaemon(BOOL enabled)
+static void ZXVNCApplyEnabledState(BOOL enabled)
 {
     NSString *daemonPath = ZXVNCLaunchDaemonPath();
     NSString *verb = enabled ? @"load" : @"unload";
     NSString *disabledValue = enabled ? @"NO" : @"YES";
     NSString *command = [NSString stringWithFormat:@"(/usr/bin/plutil -replace Disabled -bool %@ %@ || /usr/bin/plutil -insert Disabled -bool %@ %@) >/dev/null 2>&1; launchctl %@ %@ >/dev/null 2>&1",
                          disabledValue, daemonPath, disabledValue, daemonPath, verb, daemonPath];
-    int result = system(command.UTF8String);
-    if (result != 0) {
-        ZXVNCSettingsLastError = [NSString stringWithFormat:@"Unable to %@ VNC server.", enabled ? @"start" : @"stop"];
-        return NO;
-    }
-    ZXVNCSettingsLastError = @"";
-    return YES;
+    call_system(command.UTF8String);
 }
+#endif
 
 static NSString *ZXDashboardIPAddress(void)
 {
@@ -699,6 +688,7 @@ void ZXDashboardReloadConfiguration(void)
         if (migrated.count) [migrated writeToFile:ZXDashboardConfigPath atomically:YES];
         configuration = migrated;
     }
+    ZXVNCApplyEnabledState(configuration[ZXVNCEnabledKey] == nil ? YES : [configuration[ZXVNCEnabledKey] boolValue]);
     BOOL enabled = [configuration[ZXDashboardEnabledKey] boolValue];
     if (!enabled) {
         [ZXDashboardServer stop];
@@ -712,6 +702,7 @@ void ZXDashboardReloadConfiguration(void)
 #else
 
 static NSString *ZXDashboardSettingsLastError = @"";
+static NSString *ZXVNCSettingsLastError = @"";
 
 static NSMutableDictionary *ZXDashboardConfiguration(void)
 {
@@ -766,7 +757,8 @@ BOOL ZXVNCServerSetEnabled(BOOL enabled)
         ZXVNCSettingsLastError = directoryError.localizedDescription ?: @"Unable to save VNC server settings.";
         return NO;
     }
-    return ZXVNCLaunchDaemon(enabled);
+    if (saved) notify_post(ZXDashboardConfigurationNotification);
+    return saved;
 }
 
 BOOL ZXVNCServerIsEnabled(void)
