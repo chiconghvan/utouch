@@ -12,6 +12,7 @@
 #import <notify.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
+#import <dlfcn.h>
 
 #import "Config.h"
 #if !ZX_DASHBOARD_SPRINGBOARD_SERVER
@@ -32,8 +33,6 @@ static const NSUInteger ZXEditorMaximumCodeLength = 256 * 1024;
 static NSString *const ZXVNCEnabledKey = @"vnc_server_enabled";
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
-extern int call_system(const char *cmd);
-
 static NSString *ZXVNCLaunchDaemonPath(void)
 {
     NSString *rootlessPath = @"/var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist";
@@ -49,7 +48,8 @@ static void ZXVNCApplyEnabledState(BOOL enabled)
     NSString *disabledValue = enabled ? @"NO" : @"YES";
     NSString *command = [NSString stringWithFormat:@"(/usr/bin/plutil -replace Disabled -bool %@ %@ || /usr/bin/plutil -insert Disabled -bool %@ %@) >/dev/null 2>&1; launchctl %@ %@ >/dev/null 2>&1",
                          disabledValue, daemonPath, disabledValue, daemonPath, verb, daemonPath];
-    call_system(command.UTF8String);
+    int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
+    if (systemFunction) systemFunction(command.UTF8String);
 }
 #endif
 
