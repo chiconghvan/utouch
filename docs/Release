@@ -6,16 +6,16 @@ Version: 1.0
 Architectures: iphoneos-arm64
 Components: main
 Description: ZXTouch rootless repo (iOS 15-17)
-Date: Sun, 13 Sep 2026 15:20:10 UTC
+Date: Sun, 13 Sep 2026 15:22:25 UTC
 MD5Sum:
- f9bb73218261921430915073335a3def            16493 Packages
- d77195f3d8006226912f0f7389592515             3492 Packages.gz
- 719ec037feede6eb9876b101902ad380             3399 Packages.bz2
+ d9b3eb85bd3da1752a27a232a69d7143            16493 Packages
+ 76e03a65bbf22e90d7b066fe8187efda             3488 Packages.gz
+ a95261bd52c80ab7e35e95687e42eb37             3417 Packages.bz2
 SHA1:
- 85f9fa6ad15fa3faff1ebc135a60f6b805d32efa            16493 Packages
- c84c9b6c33dc1ea6dfafc4fe3534c444ab2f72f2             3492 Packages.gz
- f0f814551b47c383b27b57777558482a6e49eabd             3399 Packages.bz2
+ 39df93cbcec4453c640c40a0c20f99faf5f69b3c            16493 Packages
+ 4ea0a45db6c98fd54f7795a130569c66e23b2e3a             3488 Packages.gz
+ 7575a50c265907ee9bf0e9e193678ac4b1de66b6             3417 Packages.bz2
 SHA256:
- 2b65dae95c1515225dd38c76388e577f9bd7c21861b71958cb03a54e23b9cd73            16493 Packages
- bd5095d49bd8cd3ca116480baee3a847bd0abdf35b30426c547721d24a66cca7             3492 Packages.gz
- ea94978e649863595472956d0a523e8354092a59e866357da87ba6d300f28e37             3399 Packages.bz2
+ f927f0641defa67967e3136dbe63462ebe929caba12c7a9c150572ad1779893c            16493 Packages
+ 522494902ceeff70fd380d485cdb815ce461b6ca79e782590cfc5532af69b97c             3488 Packages.gz
+ b6639f47bd08e644ca1bcd186e86bde8e735245a21a1155a93a031606fee6ed6             3417 Packages.bz2

@@ -214,10 +214,10 @@ Installed-Size: 11084
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
 Recommends: com.opa334.crane
 Filename: debs/com.zjx.ioscontrol_0.3.10_roothide.deb
-Size: 2793414
-MD5sum: a750f640952a37429e602f8f4ebd9ec6
-SHA1: fe7803643c3c9d9c4617a3076ed77ecf6ec45fe9
-SHA256: 6b759a4ca540204b469d190b282c36694dba53f0d9045b3f4e8cf4b9d19c5340
+Size: 2793544
+MD5sum: 6699f0d49b6928aa1d82788800790c9a
+SHA1: 5511b16931899e1532092adaf5dabcd3a3a2b36c
+SHA256: 01f33156365a47272a69e8ef722b72d956d08f37be7290ef35c92ed052d16fc4
 Section: Utilities
 Description: ZXTouch Main Application (rootless, iOS 15-16)
 Tag: role::developer
@@ -232,10 +232,10 @@ Installed-Size: 11116
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
 Recommends: com.opa334.crane
 Filename: debs/com.zjx.ioscontrol_0.3.10_rootless.deb
-Size: 2795764
-MD5sum: f34dec7c02ac26c1865350625cce0242
-SHA1: 20e351066c69b1c288b7da3c7a95ade2012547a6
-SHA256: 874f57bcdb5bbd64c0f8698863738d5aa0a5ddb228695efe1e617e36f9a6d20c
+Size: 2795760
+MD5sum: 6543c6b536ca287ec7dd8d5460ad38e2
+SHA1: ed6e1f0aa360c457ead64c9b9c003aa94044e7b5
+SHA256: 4763bbab636f0517958a481a2157d507a0c7d336ed801b02f25e69f822af5ae8
 Section: Utilities
 Description: ZXTouch Main Application (rootless, iOS 15-16)
 Tag: role::developer
