@@ -80,7 +80,14 @@ jobs:
               exit 1
             fi
             sed -i -E "s/^Version: .*/Version: $version/" "$work/DEBIAN/control"
-            dpkg-deb -b "$work" "$deb" >/dev/null
+            rebuilt="$deb.rebuilt"
+            dpkg-deb -b "$work" "$rebuilt" >/dev/null
+            mv -f "$rebuilt" "$deb"
+            actual=$(dpkg-deb -f "$deb" Version)
+            if [ "$actual" != "$version" ]; then
+              echo "Package metadata mismatch: expected $version, got $actual" >&2
+              exit 1
+            fi
             rm -rf "$work"
             echo "normalized $(basename "$deb") to Version: $version"
           done
