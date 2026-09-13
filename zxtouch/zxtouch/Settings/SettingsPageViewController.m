@@ -172,6 +172,12 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
             @"row_click_handler": NSStringFromSelector(@selector(handleDashboardURLTap:))
         }];
     }
+    [cells addObject:@{
+        @"type": @(SETTING_CELL_SWITCH),
+        @"title": @"VNC server management",
+        @"switch_click_handler": NSStringFromSelector(@selector(handleVNCServerWithSwitchCellInstance:)),
+        @"switch_init_status": @(ZXVNCServerIsEnabled())
+    }];
     return cells;
 }
 
@@ -534,6 +540,21 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [Util showAlertBoxWithOneOption:self title:@"Dashboard URL"
         message:[NSString stringWithFormat:@"%@\n\nCopied to the clipboard.", url]
         buttonString:@"OK"];
+}
+
+- (void)handleVNCServerWithSwitchCellInstance:(UISwitch *)s {
+    BOOL enabled = [s isOn];
+    if (ZXVNCServerSetEnabled(enabled)) {
+        [self reloadSettingsModel];
+        return;
+    }
+
+    [s setOn:!enabled animated:YES];
+    NSString *error = ZXVNCServerLastError();
+    [Util showAlertBoxWithOneOption:self title:@"VNC server unavailable"
+        message:error.length ? error : @"Unable to update the VNC server."
+        buttonString:@"OK"];
+    [self reloadSettingsModel];
 }
 
 - (void)handleDarkModeToggle:(UISwitch*)s {

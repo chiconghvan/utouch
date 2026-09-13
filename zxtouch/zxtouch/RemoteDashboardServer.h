@@ -6,5 +6,8 @@ FOUNDATION_EXPORT BOOL ZXRemoteDashboardSetEnabled(BOOL enabled);
 FOUNDATION_EXPORT BOOL ZXRemoteDashboardIsEnabled(void);
 FOUNDATION_EXPORT NSString *ZXRemoteDashboardURL(void);
 FOUNDATION_EXPORT NSString *ZXRemoteDashboardLastError(void);
+FOUNDATION_EXPORT BOOL ZXVNCServerSetEnabled(BOOL enabled);
+FOUNDATION_EXPORT BOOL ZXVNCServerIsEnabled(void);
+FOUNDATION_EXPORT NSString *ZXVNCServerLastError(void);
 
 NS_ASSUME_NONNULL_END
