@@ -68,6 +68,23 @@ jobs:
           gh release download "${{ steps.tag.outputs.value }}" --pattern '*.deb' --dir /tmp/newdebs
           ls -la /tmp/newdebs
 
+      - name: Normalize package metadata
+        run: |
+          for deb in /tmp/newdebs/*.deb; do
+            [ -e "$deb" ] || continue
+            work=$(mktemp -d)
+            dpkg-deb -R "$deb" "$work"
+            version=$(printf '%s\n' "$(basename "$deb")" | sed -n 's/.*_\([0-9][0-9.]*\)_[^_]*\.deb$/\1/p')
+            if [ -z "$version" ]; then
+              echo "Unable to determine version from $deb" >&2
+              exit 1
+            fi
+            sed -i -E "s/^Version: .*/Version: $version/" "$work/DEBIAN/control"
+            dpkg-deb -b "$work" "$deb" >/dev/null
+            rm -rf "$work"
+            echo "normalized $(basename "$deb") to Version: $version"
+          done
+
       - name: Install APT tooling
         run: sudo apt-get update -y && sudo apt-get install -y dpkg-dev gzip bzip2
 
