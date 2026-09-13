@@ -683,12 +683,12 @@ if m:
 ```
 ---
 
-### `findText(text, region)`
+### `findText(text, region, lang)`
 
 - Type: `func`
-- EN: Find text on screen using OCR. Returns x, y, text (three values) or nil. Alias: ocrFind()
-- VI: Tìm chữ trên màn hình bằng OCR. Trả về x, y, text (ba giá trị) hoặc nil. Bí danh: ocrFind()
-- Return: `[object Object]`
+- EN: Find all matching text on screen using OCR. Always returns a list of matches. Alias: ocrFind() returns the first match.
+- VI: Tìm tất cả chữ khớp trên màn hình bằng OCR. Luôn trả về một mảng kết quả. Bí danh: ocrFind() trả về kết quả đầu tiên.
+- Return: list of `{x, y, text}` objects
 
 **Params:**
 
@@ -696,6 +696,7 @@ if m:
 |---|---|---|---|---|
 | `text` | `string` | yes | Text to search for | Chữ cần tìm |
 | `region` | `table` | no | {x, y, w, h} search area (POINT) | Vùng tìm {x, y, w, h} (POINT) |
+| `lang` | `string/table` | no | OCR language code, or codes such as `"vi"`, `{"vi", "en"}` | Mã ngôn ngữ OCR, hoặc các mã như `"vi"`, `{"vi", "en"}` |
 
 **Example (Lua/cURL):**
 
@@ -714,7 +715,7 @@ local x, y = findText("OK", {0, 600, 414, 200})
 ```
 ---
 
-### `waitForText(text, timeout)`
+### `waitForText(text, timeout, lang)`
 
 - Type: `func`
 - EN: Wait for text to appear on screen (OCR). Polls every 500ms. Returns table {x=, y=, text=} on success, false on timeout.
@@ -727,6 +728,7 @@ local x, y = findText("OK", {0, 600, 414, 200})
 |---|---|---|---|---|
 | `text` | `string` | yes | Text to wait for | Chữ cần chờ |
 | `timeout` | `number` | no | Timeout in seconds (default: 10) | Thời gian chờ giây (mặc định: 10) |
+| `lang` | `string/table` | no | OCR language code(s) | Mã ngôn ngữ OCR |
 
 **Example (Lua/cURL):**
 
@@ -770,7 +772,7 @@ tapImage("btn.png", 10, 0.85, {0, 400, 414, 200})
 ```
 ---
 
-### `tapText(text, timeout, index, region)`
+### `tapText(text, timeout, index, region, lang)`
 
 - Type: `func`
 - EN: Find text on screen (OCR) and tap it. If multiple matches exist, use index to select which one. Optional region to limit search area.
@@ -785,6 +787,7 @@ tapImage("btn.png", 10, 0.85, {0, 400, 414, 200})
 | `timeout` | `number` | no | Timeout seconds (default 5) | Thời gian chờ (mặc định 5) |
 | `index` | `number` | no | Which occurrence to tap (1=first, 2=second...). Sorted top→bottom, left→right. Default: 1 | Thứ tự kết quả cần chạm (1=đầu tiên, 2=thứ hai...). Sắp xếp trên→dưới, trái→phải. Mặc định: 1 |
 | `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
+| `lang` | `string/table` | no | OCR language code(s) | Mã ngôn ngữ OCR |
 
 **Example (Lua/cURL):**
 

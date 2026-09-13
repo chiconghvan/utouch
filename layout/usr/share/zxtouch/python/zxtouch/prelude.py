@@ -624,15 +624,28 @@ def convertBase64(path):
         return base64.b64encode(f.read()).decode("ascii")
 
 
-def ocrText(x, y, w, h):
-    """OCR region -> joined text string."""
-    ok, items = get_device().ocr((x, y, w, h))
+def _ocr_languages(lang):
+    """Normalize short OCR language names to Apple's language identifiers."""
+    if lang is None:
+        return []
+    if isinstance(lang, str):
+        lang = [lang]
+    elif not isinstance(lang, (list, tuple)):
+        raise TypeError("lang must be a string or a list/tuple of strings")
+
+    aliases = {"vi": "vi-VN", "en": "en-US"}
+    return [aliases.get(str(code), str(code)) for code in lang]
+
+
+def ocrText(x, y, w, h, lang=None):
+    """OCR region -> joined text string. ``lang`` may be a code or sequence."""
+    ok, items = get_device().ocr((x, y, w, h), languages=_ocr_languages(lang))
     if not ok:
         raise RuntimeError("ocrText failed: %s" % (items,))
     return "\n".join(i.get("text", "") for i in items)
 
 
-def findText(text, region=None, case_sensitive=False):
+def findText(text, region=None, case_sensitive=False, lang=None):
     """OCR full screen (or region) -> list of matches containing ``text``.
 
     Each match is a dict ``{text, x, y, width, height}`` in device pixels
@@ -643,7 +656,7 @@ def findText(text, region=None, case_sensitive=False):
     """
     if region is None:
         region = _default_region()
-    ok, items = get_device().ocr(region)
+    ok, items = get_device().ocr(region, languages=_ocr_languages(lang))
     if not ok:
         return []
     needle = str(text) if case_sensitive else str(text).lower()
@@ -689,7 +702,7 @@ class OcrFindResult(tuple):
     __nonzero__ = __bool__  # Python 2 style guard (harmless on py3)
 
 
-def ocrFind(text, region=None, case_sensitive=False):
+def ocrFind(text, region=None, case_sensitive=False, lang=None):
     """Lua-style single result: ``(x, y, matched_text)`` center in pixels.
 
     Returns the topmost-leftmost match containing ``text``, or
@@ -698,7 +711,7 @@ def ocrFind(text, region=None, case_sensitive=False):
     ``x, y, text = ocrFind("Login")`` in Python. The result is falsy when
     nothing matched, so ``if ocrFind("OK"):`` works like Lua's nil check.
     """
-    matches = findText(text, region=region, case_sensitive=case_sensitive)
+    matches = findText(text, region=region, case_sensitive=case_sensitive, lang=lang)
     if not matches:
         return OcrFindResult(None, None, None)
     m = _sorted_matches(matches)[0]
@@ -706,10 +719,10 @@ def ocrFind(text, region=None, case_sensitive=False):
     return OcrFindResult(cx, cy, m.get("text", ""))
 
 
-def waitForText(text, timeout=10.0, interval=0.5, region=None):
+def waitForText(text, timeout=10.0, interval=0.5, region=None, lang=None):
     end = time.time() + timeout
     while time.time() <= end:
-        if findText(text, region=region):
+        if findText(text, region=region, lang=lang):
             return True
         time.sleep(interval)
     return False
@@ -725,7 +738,7 @@ def tapImage(path, timeout=10.0, threshold=0.8, region=None):
     return m
 
 
-def tapText(text, timeout=10.0, index=1, region=None):
+def tapText(text, timeout=10.0, index=1, region=None, lang=None):
     """Wait for OCR text and tap match ``index`` (1-based, top-bottom).
 
     ``index`` follows docs/IDE/ioscontrol.md: 1 = first (topmost-leftmost),
@@ -742,7 +755,7 @@ def tapText(text, timeout=10.0, index=1, region=None):
     want = idx - 1
     end = time.time() + timeout
     while time.time() <= end:
-        matches = findText(text, region=region)
+        matches = findText(text, region=region, lang=lang)
         if len(matches) > want:
             m = _sorted_matches(matches)[want]
             cx, cy = _match_center(m)
@@ -771,7 +784,7 @@ def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5)
     return findImage(path, threshold=threshold)
 
 
-def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5):
+def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5, lang=None):
     dirs = {
         "up": (200, 600, 200, 200),
         "down": (200, 200, 200, 600),
@@ -780,11 +793,11 @@ def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5):
     }
     x1, y1, x2, y2 = dirs.get(direction, dirs["up"])
     for _ in range(maxSwipes):
-        if findText(text):
+        if findText(text, lang=lang):
             return True
         swipe(x1, y1, x2, y2, speed)
         time.sleep(0.5)
-    return bool(findText(text))
+    return bool(findText(text, lang=lang))
 
 
 # ---------------------------------------------------------------- Interaction

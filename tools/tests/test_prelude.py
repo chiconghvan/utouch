@@ -48,8 +48,8 @@ class FakeDevice:
         self.calls.append(("image", a))
         return (True, {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"})
 
-    def ocr(self, region):
-        self.calls.append(("ocr", region))
+    def ocr(self, region, **kwargs):
+        self.calls.append(("ocr", region, kwargs))
         return (True, list(self.ocr_items))
 
     def show_toast(self, *a):
@@ -232,6 +232,38 @@ def test_find_text_filters():
                    {"text": "other", "x": "5", "y": "6", "width": "7", "height": "8"}]
     assert len(prelude.findText("hello")) == 1
     assert prelude.findText("zzz") == []
+
+
+def test_ocr_lang_is_normalized_and_forwarded():
+    d = use_fake()
+    d.ocr_items = [{"text": "Người", "x": "1", "y": "2", "width": "3", "height": "4"}]
+
+    def last_ocr_call():
+        return [call for call in d.calls if call[0] == "ocr"][-1]
+
+    assert prelude.findText("Người", lang="vi")
+    assert last_ocr_call()[2]["languages"] == ["vi-VN"]
+
+    prelude.ocrText(0, 0, 100, 100, lang=("vi", "en"))
+    assert last_ocr_call()[2]["languages"] == ["vi-VN", "en-US"]
+
+    prelude.ocrFind("Người", lang="vi-VN")
+    assert last_ocr_call()[2]["languages"] == ["vi-VN"]
+
+
+def test_ocr_lang_propagates_through_wrappers():
+    d = use_fake()
+    d.ocr_items = [{"text": "Settings", "x": "1", "y": "2", "width": "3", "height": "4"}]
+
+    def last_ocr_call():
+        return [call for call in d.calls if call[0] == "ocr"][-1]
+
+    assert prelude.waitForText("Settings", timeout=0.1, lang="en")
+    assert last_ocr_call()[2]["languages"] == ["en-US"]
+    assert prelude.tapText("Settings", timeout=0.1, lang="en")
+    assert last_ocr_call()[2]["languages"] == ["en-US"]
+    assert prelude.swipeUntilText("Settings", maxSwipes=0, lang="en")
+    assert last_ocr_call()[2]["languages"] == ["en-US"]
 
 
 def test_ocr_find_unpacks_like_lua():
