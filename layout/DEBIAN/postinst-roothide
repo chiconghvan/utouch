@@ -129,6 +129,7 @@ if [ -n "$TVNC_BIN" ] && [ -x "$TVNC_BIN" ]; then
         sed -i "s|/var/jb|$JBROOT|g" "$TVNC_PLIST" 2>/dev/null || true
     fi
     if command -v launchctl >/dev/null 2>&1 && [ -n "$TVNC_PLIST" ]; then
+        launchctl unload "$TVNC_PLIST" 2>/dev/null || true
         launchctl load "$TVNC_PLIST" 2>/dev/null || true
     fi
 else

@@ -293,8 +293,8 @@ static NSString *ZXDashboardIPAddress(void)
         @"systemName": deviceParts.count > 1 ? deviceParts[1] : @"",
         @"systemVersion": deviceParts.count > 2 ? deviceParts[2] : @"",
         @"model": deviceParts.count > 3 ? deviceParts[3] : @"",
-        // TrollVNC endpoints bundled in the same (rootless) .deb.
-        // Pure-VNC plan: dashboard embeds noVNC RFB.js and talks here directly.
+        // TrollVNC endpoints bundled in the same (rootless) .deb. These values
+        // are diagnostic metadata; they do not prove the daemon is listening.
         @"vnc": @{ @"port": @5901, @"httpPort": @5801 },
         @"lastAction": self.lastAction ?: @"Ready",
         @"lastError": self.lastError ?: @"",

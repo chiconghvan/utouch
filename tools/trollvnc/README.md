@@ -11,7 +11,9 @@ dashboard's Live Screen dock. Two parts:
 ## TrollVNC server on device (required for stream)
 
 Install **one** of these on the iPhone, then enable the server with
-VNC port `5901` + HTTP port `5801` (dashboard Connect → `ws://<ip>:5801`):
+VNC port `5901` + HTTP port `5801` (dashboard Connect →
+`ws://<ip>:5901/websockify`; port `5801` serves the optional standalone web
+client only):
 
 1. TrollVNC from Havoc (`havoc.app/search/TrollVNC`), or
 2. Fork `owngoal-dev/TrollVNC` → Actions → “Build TrollVNC” → install the

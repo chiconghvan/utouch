@@ -115,8 +115,10 @@ if [ -x /var/jb/usr/bin/trollvncserver ]; then
     mkdir -p /var/mobile/Library/ZXTouch
     chown mobile:mobile /var/mobile/Library/ZXTouch 2>/dev/null || true
     if [ -x /var/jb/bin/launchctl ]; then
+        /var/jb/bin/launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null || true
         /var/jb/bin/launchctl load /var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null || true
     elif command -v launchctl >/dev/null 2>&1; then
+        launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null || true
         launchctl load /var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null || true
     fi
 else

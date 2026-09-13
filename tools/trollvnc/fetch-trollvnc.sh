@@ -2,7 +2,7 @@
 # Vendor TrollVNC (rootless) into this repo's single .deb.
 # NOTE (verified 2026-09-12): upstream GitHub Releases ship NO .deb assets
 # (TrollVNC is distributed via Havoc / self-built CI artifacts), so this
-# script prefers an explicit local .deb and otherwise warns:
+# script prefers an explicit local .deb and otherwise fails:
 #   TROLLVNC_DEB=/path/to/trollvnc-rootless.deb sh vendor/trollvnc/fetch-trollvnc.sh
 #   sh vendor/trollvnc/fetch-trollvnc.sh /path/to/trollvnc-rootless.deb
 #   sh vendor/trollvnc/fetch-trollvnc.sh 3.2-272   # tries GitHub release assets
@@ -24,12 +24,9 @@ else
   URL="$(curl -fsSL "https://api.github.com/repos/$REPO/releases/tags/v$VERSION" \
     | grep -o "https://[^\" ]*rootless[^\" ]*\.deb" | head -1)"
   if [ -z "$URL" ]; then
-    echo "WARNING: no rootless .deb asset in upstream release v$VERSION." >&2
-    echo "  TrollVNC server will NOT be bundled. Install TrollVNC on the" >&2
-    echo "  device separately (Havoc, or fork + 'Build TrollVNC' workflow)," >&2
-    echo "  enable it with VNC :5901 + HTTP :5801, then dashboard Connect works." >&2
-    echo "  To bundle: TROLLVNC_DEB=<rootless.deb> sh vendor/trollvnc/fetch-trollvnc.sh" >&2
-    exit 0
+    echo "ERROR: no rootless .deb asset in upstream release v$VERSION." >&2
+    echo "  Build TrollVNC first, or provide TROLLVNC_DEB=<rootless.deb>." >&2
+    exit 1
   fi
   curl -fsSL -o "$TMP/trollvnc.deb" "$URL"
   DEB="$TMP/trollvnc.deb"
@@ -46,7 +43,7 @@ for f in "$TMP/tvnc/var/jb/usr/bin/trollvncserver" "$TMP/tvnc/usr/bin/trollvncse
   fi
 done
 if [ ! -x "$ROOT/layout/usr/bin/trollvncserver" ]; then
-  echo "ERROR: trollvncserver binary not found in $URL" >&2; exit 1
+  echo "ERROR: trollvncserver binary not found in $DEB" >&2; exit 1
 fi
 # Bundled dylibs (vncserver, turbojpeg, png, ssl, crypto, sasl2, lzo2)
 for d in "$TMP/tvnc/var/jb/usr/lib" "$TMP/tvnc/usr/lib" "$TMP/tvnc/var/jb/usr/lib/trollvnc"; do
@@ -62,7 +59,8 @@ if [ -d "$ROOT/layout/usr/share/trollvnc/webclients/novnc/core" ]; then
   cp -Rf "$ROOT/layout/usr/share/trollvnc/webclients/novnc/"* "$ROOT/zxtouch/zxtouch/http/novnc/"
   echo "==> noVNC copied to zxtouch/zxtouch/http/novnc/"
 else
-  echo "WARNING: webclients/novnc not found - dashboard falls back to :5801 iframe." >&2
+  echo "ERROR: TrollVNC noVNC webclient is missing from $DEB" >&2
+  exit 1
 fi
 # GPLv2 attribution must ship inside the single .deb
 for f in "$TMP/tvnc/COPYING" "$TMP/tvnc/usr/share/doc/trollvnc/copyright"; do

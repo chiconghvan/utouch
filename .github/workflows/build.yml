@@ -105,6 +105,9 @@ jobs:
           git submodule update --init vendor/TrollVNC
           chmod +x tools/trollvnc/build-and-stage.sh
           bash tools/trollvnc/build-and-stage.sh
+          test -x layout/usr/bin/trollvncserver
+          test -f layout/usr/share/trollvnc/webclients/novnc/core/rfb.js
+          echo "Verified TrollVNC runtime and bundled noVNC assets"
         env:
           THEOS: ${{ github.workspace }}/theos
 
@@ -118,6 +121,8 @@ jobs:
         run: |
           mkdir -p artifacts
           DEB=$(ls packages/*.deb | head -1)
+          test -x layout/usr/bin/trollvncserver
+          test -f layout/Applications/zxtouch.app/novnc/core/rfb.js
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
@@ -144,6 +149,8 @@ jobs:
       - name: Save Roothide .deb
         run: |
           DEB=$(ls packages/*.deb | head -1)
+          test -x layout/usr/bin/trollvncserver
+          test -f layout/Applications/zxtouch.app/novnc/core/rfb.js
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"

@@ -1689,7 +1689,11 @@
         vncLog('step 1/3 ok', 'RFB class loaded');
         const wsUrl = elements.vncUrl?.value?.trim() || defaultWsUrl();
         vncLog('step 2/3', `opening ${wsUrl} (secureContext=${window.isSecureContext})`);
-        if (state.vnc.rfb) { try { state.vnc.rfb.disconnect(); } catch (_) {} }
+        // Avoid calling disconnect twice on a failed noVNC object.
+        if (state.vnc.rfb && (state.vnc.connected || state.vnc.connecting)) {
+          try { state.vnc.rfb.disconnect(); } catch (_) {}
+        }
+        state.vnc.rfb = null;
         const rfb = new RFB(elements.vncScreen, wsUrl, { shared: true });
         state.vnc.rfb = rfb;
         rfb.viewOnly = false;
