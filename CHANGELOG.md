@@ -7,6 +7,11 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.9] — 2026-09-13
+
+### Đã thêm
+- Thêm công tắc `VNC server management` dưới `Remote Management` để bật hoặc tắt VNC streaming screen và lưu trạng thái qua lần khởi động lại thiết bị.
+
 ## [0.3.8] — 2026-09-13
 
 ### Đã thêm
@@ -148,6 +153,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.9]: https://github.com/chiconghvan/utouch/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/chiconghvan/utouch/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/chiconghvan/utouch/compare/v0.3.6...v0.3.7
 [0.3.6]: https://github.com/chiconghvan/utouch/compare/v0.3.5...v0.3.6
