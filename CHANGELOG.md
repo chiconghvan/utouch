@@ -11,6 +11,16 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ### Đã thêm
 - Thêm công tắc `VNC server management` dưới `Remote Management` để bật hoặc tắt VNC streaming screen và lưu trạng thái qua lần khởi động lại thiết bị.
+- Editor tự lưu script sau một khoảng thời gian, hỗ trợ `Ctrl+S`/`Cmd+S`, báo trạng thái chưa lưu và tự nhận diện tên các hàm do người dùng định nghĩa để tô sáng.
+- Bổ sung `setDebugTouchLog()` / `set_debug_touch_log()` để bật hoặc tắt log chẩn đoán cho các thao tác chạm và `tapText`.
+
+### Đã thay đổi
+- Monaco Editor tự thụt lề, định dạng khi gõ hoặc dán, dùng khoảng trắng với tab rộng 4 ký tự; gợi ý biến trong editor xử lý đúng khoảng trắng và phép gán nhiều biến.
+- Python client thêm khoảng trễ ngẫu nhiên ngắn giữa các ký tự khi chèn văn bản để mô phỏng thao tác gõ thay vì gửi một đợt dán quá nhanh.
+
+### Đã sửa
+- Touch dispatch không còn bỏ sót thao tác chạm đầu tiên khi `senderID` chưa được khởi tạo; dữ liệu touch, kích thước màn hình và việc tạo hoặc dispatch HID event được kiểm tra an toàn hơn.
+- Sửa liên kết symbol và điều khiển VNC daemon trong SpringBoard; trạng thái bật/tắt VNC được áp dụng đúng sau khi tải lại cấu hình.
 
 ## [0.3.8] — 2026-09-13
 
