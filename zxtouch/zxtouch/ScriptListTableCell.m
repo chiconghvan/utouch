@@ -66,7 +66,7 @@
     NSString* result = [springBoardSocket recv:1024];
     if ([result characterAtIndex:0] != '0')
     {
-        [Util showAlertBoxWithOneOption:_parentViewController title:@"Error" message:[NSString stringWithFormat:@"Cannot play script. Error: %@", result] buttonString:@"OK"];
+        [Util showRunScriptErrorToast:_parentViewController];
     }
     [springBoardSocket close];
 }
