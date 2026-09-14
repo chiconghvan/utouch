@@ -7,6 +7,14 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.14] — 2026-09-14
+
+### Đã sửa
+- Chuẩn hóa owner và permission của `com.zjx.ocr.plist` cùng binary OCR daemon trước khi `launchctl load`, tránh lỗi `path had bad ownership/permission` trên Dopamine rootless.
+- Ghi lỗi load OCR daemon vào `ocrd.log` sau khi đã chuẩn hóa quyền để chẩn đoán được lỗi launchd còn lại.
+- Sửa toàn bộ chuỗi thư mục `LaunchDaemons` (plist dashboard, TrollVNC và OCR) về `root:wheel` khi cài package — nguồn gốc lỗi là deb được build từ uid 1001 của runner.
+- Workflow APT repo dựng lại deb với `--root-owner-group` để package phân phối qua GitHub Pages mang ownership root đúng chuẩn.
+
 ## [0.3.13] — 2026-09-14
 
 ### Đã thêm
@@ -204,6 +212,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.14]: https://github.com/chiconghvan/utouch/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/chiconghvan/utouch/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/chiconghvan/utouch/compare/v0.3.11...v0.3.12
 [0.3.11]: https://github.com/chiconghvan/utouch/compare/v0.3.10...v0.3.11
