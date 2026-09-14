@@ -7,6 +7,12 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.15] — 2026-09-14
+
+### Đã sửa
+- OCR daemon lấy kích thước màn hình bằng `_unjailedReferenceBoundsInPixels` (cách TrollVNC dùng trong daemon) thay vì `mainScreen.bounds` vốn trả về zero khi không có UIApplication scene — sửa lỗi `surface_create ok=0` khiến OCR hoàn toàn không hoạt động.
+- Thêm fallback `bounds × scale` và `nativeBounds` cùng log nguồn kích thước (`size_source=`) để chẩn đoán capture.
+
 ## [0.3.14] — 2026-09-14
 
 ### Đã sửa
@@ -212,6 +218,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.15]: https://github.com/chiconghvan/utouch/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/chiconghvan/utouch/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/chiconghvan/utouch/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/chiconghvan/utouch/compare/v0.3.11...v0.3.12
