@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Vision/Vision.h>
-#import "../pccontrol/headers/IOSurface/IOSurface.h"
+#import <IOSurface/IOSurfaceRef.h>
 #import <QuartzCore/QuartzCore.h>
 #import <ImageIO/ImageIO.h>
 #include <arpa/inet.h>
@@ -11,6 +11,9 @@
 #include <unistd.h>
 
 extern "C" void CARenderServerRenderDisplay(kern_return_t, CFStringRef, IOSurfaceRef, int, int);
+extern "C" IOSurfaceRef IOSurfaceCreate(CFDictionaryRef properties);
+extern "C" kern_return_t IOSurfaceLock(IOSurfaceRef buffer, uint32_t options, uint32_t *seed);
+extern "C" kern_return_t IOSurfaceUnlock(IOSurfaceRef buffer, uint32_t options, uint32_t *seed);
 extern "C" CGImageRef UICreateCGImageFromIOSurface(IOSurfaceRef);
 
 static NSString *const kSocketPath = @"/var/mobile/Library/ZXTouch/ocrd.sock";
