@@ -134,16 +134,19 @@ Enable Settings, then Web Server, and tap the dashboard URL row to copy the priv
 
 Scripts searches and filters the library, runs or stops scripts, downloads entries, and controls recording. Assets uploads files such as image-matching templates into a selected script bundle. Logs follows, filters, copies, exports, or clears runtime output. Device shows live service state, display size, orientation, battery, foreground app, and server diagnostics, plus an **Installed Apps** card that lists every app on the device vertically (app name + bundle ID); tap a row to copy its bundle ID, filter with search, and use Reload to rescan. The row of the current foreground app is badged "front".
 
-The Live Screen panel auto-connects to TrollVNC when the dashboard first loads and retries a dropped or refused stream with a capped backoff (2/4/8/15/30s, then a Retry now button). An **Auto-connect & retry** checkbox in the panel turns this off and remembers the choice per browser.
+The Live Screen panel auto-connects to TrollVNC when the dashboard first loads and retries a dropped or refused stream with a capped backoff (2/4/8/15/30s, then backend VNC recovery). An **Auto-connect & retry** checkbox in the panel turns this off and remembers the choice per browser.
 
-No login or token is required: opening `http://&lt;iphone-ip&gt;:8080/` from the same Wi-Fi network gives full control. Do not expose port 8080 outside your local network. Dashboard hosting runs inside SpringBoard, so it remains available when the ZXTouch app is closed.
+No login or token is required: opening `http://&lt;iphone-ip&gt;:8080/` from the same Wi-Fi network gives full control. Do not expose port 8080 outside your local network. Dashboard HTTP is served by the standalone `com.zjx.dashboard` daemon (`zxtouch-dashboardd`, auto-restarted by launchd), so a dashboard crash no longer takes SpringBoard down; SpringBoard keeps a fallback server until the daemon binds `:8080`.
 
 ### Live screen (TrollVNC, built from source)
 
 The same `.deb` ships TrollVNC (`owngoal-dev/TrollVNC` v3.2-272 submodule,
 GPLv2 — see `tools/trollvnc/README.md`), compiled with Theos in CI and
 started at boot via `com.zjx.trollvnc.plist`: VNC on `5901`, browser client
-on `5801` (`-s 0.75 -F 30:60:120 -O on -B off -A 15`). No separate install.
+on `5801` (`-s 0.3 -F 30:60:120 -O on -B off -A 15`). No separate install.
+Stream quality on the dashboard switches the framebuffer scale (`0.3` saver
+default, `0.5`, `0.6`, `0.7`, `1.0` pixel-perfect) via `POST /api/vnc/scale`,
+which restarts the server with the new scale.
 
 The dashboard shows a fixed leftside **Live Screen** panel: stream + direct
 touch control (Pure-VNC, no extra backend). Three buttons:

@@ -138,6 +138,25 @@ else
     echo "ZXTouch: warning — trollvncserver not found. Rebuild with tools/trollvnc/build-and-stage.sh for live-screen support." >&2
 fi
 
+# Standalone dashboard daemon (crash-isolated HTTP :8080). SpringBoard keeps a
+# fallback until this daemon binds after respring/reboot.
+DASH_BIN=$(jbroot /usr/bin/zxtouch-dashboardd 2>/dev/null)
+DASH_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null)
+if [ -n "$DASH_BIN" ] && [ -x "$DASH_BIN" ]; then
+    JBROOT="${DASH_BIN%/usr/bin/zxtouch-dashboardd}"
+    if [ -n "$DASH_PLIST" ] && [ -f "$DASH_PLIST" ] && [ "$JBROOT" != "/var/jb" ]; then
+        sed -i "s|/var/jb|$JBROOT|g" "$DASH_PLIST" 2>/dev/null || true
+    fi
+    if command -v launchctl >/dev/null 2>&1 && [ -n "$DASH_PLIST" ]; then
+        launchctl unload "$DASH_PLIST" 2>/dev/null || true
+        if ! launchctl load "$DASH_PLIST" 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
+            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8080." >> /var/mobile/Library/ZXTouch/dashboardd.log
+        fi
+    fi
+else
+    echo "ZXTouch: warning — zxtouch-dashboardd not found. Dashboard stays SpringBoard-hosted." >&2
+fi
+
 # Never restart SpringBoard from a maintainer script. Package managers run this
 # inside the dpkg transaction, so a restart can kill their helper before dpkg
 # records the package as configured. Sileo can offer a respring after dpkg exits.

@@ -123,6 +123,8 @@ jobs:
           DEB=$(ls packages/*.deb | head -1)
           test -x layout/usr/bin/trollvncserver
           test -f layout/Applications/zxtouch.app/novnc/core/rfb.js
+          dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-dashboardd'
+          echo "Verified dashboard daemon in rootless .deb"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
@@ -151,6 +153,8 @@ jobs:
           DEB=$(ls packages/*.deb | head -1)
           test -x layout/usr/bin/trollvncserver
           test -f layout/Applications/zxtouch.app/novnc/core/rfb.js
+          dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-dashboardd'
+          echo "Verified dashboard daemon in roothide .deb"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"
