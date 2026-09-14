@@ -9,4 +9,11 @@
     <key>com.apple.QuartzCore.secure-capture</key><true/>
     <key>com.apple.QuartzCore.system-layers</key><true/>
     <key>com.apple.private.IOSurface.protected-access</key><true/>
+    <!-- Required on iOS 15+: creating an IOSurface opens the IOSurfaceRoot
+         user client, which is gated by this entitlement. Without it
+         IOSurfaceCreate returns NULL (same list TrollVNC's daemon uses). -->
+    <key>com.apple.security.iokit-user-client-class</key>
+    <array>
+        <string>IOSurfaceRootUserClient</string>
+    </array>
 </dict></plist>
