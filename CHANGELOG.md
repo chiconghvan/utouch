@@ -7,6 +7,11 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.17] — 2026-09-14
+
+### Đã sửa
+- Thêm entitlement `com.apple.security.iokit-user-client-class` → `IOSurfaceRootUserClient` cho OCR daemon — trên iOS 15, tạo IOSurface phải mở user client này của kernel, thiếu là `IOSurfaceCreate` trả NULL (`surface_create ok=0`) dù size/properties đã đúng. Cùng entitlement daemon capture của TrollVNC đang dùng.
+
 ## [0.3.16] — 2026-09-14
 
 ### Đã sửa
@@ -223,6 +228,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.17]: https://github.com/chiconghvan/utouch/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/chiconghvan/utouch/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/chiconghvan/utouch/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/chiconghvan/utouch/compare/v0.3.13...v0.3.14
