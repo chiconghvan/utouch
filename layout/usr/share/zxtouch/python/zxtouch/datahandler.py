@@ -13,12 +13,19 @@ def decode_socket_data(data):
     :param data: socket data
     :return: a tuple. (success?, error message)
     """
-    data = str(data.decode())
-    data.replace("\r\n", "")
+    if not data:
+        return (False, "empty response from zxtouch")
+
+    try:
+        data = data.decode(errors="replace")
+    except AttributeError:
+        data = str(data)
+    data = data.rstrip("\r\n")
+    if not data:
+        return (False, "empty response from zxtouch")
 
     temp = data.split(";;")
-    temp[-1] = temp[-1].replace("\r\n", "")
-    if data[0] != "0":
+    if temp[0] != "0":
         err_message = "Unknown err because zxtouch doesn't send any error info to python"
         if len(temp) >= 2:
             err_message = temp[1]

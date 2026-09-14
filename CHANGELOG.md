@@ -7,6 +7,12 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.19] — 2026-09-14
+
+### Đã sửa
+- OCR không còn áp dụng ngưỡng chiều cao mặc định khi người dùng không chỉ định `minimum_height`, khôi phục khả năng nhận diện các nhãn chữ nhỏ.
+- Python client xử lý an toàn phản hồi socket rỗng, dữ liệu không phải bytes và dòng kết thúc CRLF.
+
 ## [0.3.18] — 2026-09-14
 
 ### Đã sửa
@@ -234,6 +240,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.19]: https://github.com/chiconghvan/utouch/compare/v0.3.18...v0.3.19
+[0.3.18]: https://github.com/chiconghvan/utouch/compare/v0.3.17...v0.3.18
 [0.3.17]: https://github.com/chiconghvan/utouch/compare/v0.3.16...v0.3.17
 [0.3.16]: https://github.com/chiconghvan/utouch/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/chiconghvan/utouch/compare/v0.3.14...v0.3.15

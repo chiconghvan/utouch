@@ -146,7 +146,9 @@ static NSString *recognize(NSString *payload, NSError **error) {
     if (@available(iOS 14.0, *)) request.revision = 2;
     else if (@available(iOS 13.0, *)) request.revision = 1;
     request.recognitionLevel = [parts[4] intValue] == 1 ? VNRequestTextRecognitionLevelFast : VNRequestTextRecognitionLevelAccurate;
-    request.minimumTextHeight = [parts[3] floatValue] > 0 ? [parts[3] floatValue] : (1.0f / 32.0f);
+    // Keep the v0.3.12 behavior: an omitted minimum height means no
+    // minimum-height filter, so small labels are still eligible for OCR.
+    request.minimumTextHeight = [parts[3] floatValue] > 0 ? [parts[3] floatValue] : 0.0f;
     if ([parts[2] length]) request.customWords = [parts[2] componentsSeparatedByString:@",,"];
     if ([parts[5] length]) request.recognitionLanguages = [parts[5] componentsSeparatedByString:@",,"];
     request.usesLanguageCorrection = [parts[6] boolValue];
