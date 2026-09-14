@@ -7,7 +7,7 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
-## [Chưa phát hành]
+## [0.3.12] — 2026-09-14
 
 ### Đã thêm
 - Dashboard HTTP chạy dưới launch daemon riêng `com.zjx.dashboard` (`zxtouch-dashboardd`, `UserName mobile`, tự restart): crash dashboard không còn kéo SpringBoard theo; SpringBoard chỉ giữ fallback cho tới khi daemon chiếm port `:8080`.
@@ -16,6 +16,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ### Đã thay đổi
 - Framebuffer TrollVNC mặc định giảm từ `-s 0.75` xuống `-s 0.3` để nhẹ RAM/bandwidth; launchd plist, recovery fallback và docs đồng bộ theo preset mới.
+- Báo lỗi khi chạy script hiển thị bằng toast đỏ tự ẩn sau 3 giây thay vì hộp thoại alert chặn thao tác.
 
 ## [0.3.11] — 2026-09-14
 
@@ -190,6 +191,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.12]: https://github.com/chiconghvan/utouch/compare/v0.3.11...v0.3.12
 [0.3.11]: https://github.com/chiconghvan/utouch/compare/v0.3.10...v0.3.11
 [0.3.9]: https://github.com/chiconghvan/utouch/compare/v0.3.8...v0.3.9
 [0.3.8]: https://github.com/chiconghvan/utouch/compare/v0.3.7...v0.3.8
