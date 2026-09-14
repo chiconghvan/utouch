@@ -1,11 +1,14 @@
 #include "TextRecognizer.h"
 #import "VKOcrManager.h"
+#import "OcrDaemonClient.h"
 #import "../Screen.h"
 #include "../Common.h"
 #include "../AlertBox.h"
 
 NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error)
 {
+    static volatile uint64_t requestCounter = 0;
+    uint64_t requestId = __sync_add_and_fetch(&requestCounter, 1);
     if (SYSTEM_VERSION_LESS_THAN(@"13.0"))
     {
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;OCR only supports iOS13 or newer version of iOS. iOS12 or older may be supported in the future.\r\n"}];
@@ -30,6 +33,22 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
             NSLog(@"com.zjx.springboard: Data not in good format. The format should be 1;;x1,,y1,,width,,height;;custom_words;;minimum_height;;level;;languages;;correct;;debug_path.");
             *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Data not in good format. The format should be 1;;x1,,y1,,width,,height;;custom_words;;minimum_height;;level;;languages;;correct;;debug_path\r\n"}];
             return nil;
+        }
+
+        if ([data[7] length] == 0) {
+            NSString *daemonResult = nil;
+            NSError *daemonError = nil;
+            NSString *daemonPayload = [NSString stringWithFormat:@"%s;;%d;;%llu", eventData,
+                                       [Screen getScreenOrientation], requestId];
+            int daemonStatus = ZXPerformOcrThroughDaemon(daemonPayload, &daemonResult, &daemonError);
+            if (daemonStatus == 1) {
+                NSLog(@"[ZXTouch][OCR][id=%llu][ipc] daemon_success result_length=%lu", requestId, (unsigned long)daemonResult.length);
+                return daemonResult;
+            }
+            NSLog(@"[ZXTouch][OCR][id=%llu][ipc] daemon_%@ fallback=local",
+                  requestId, daemonStatus < 0 ? @"error" : @"unavailable");
+        } else {
+            NSLog(@"[ZXTouch][OCR][id=%llu][ipc] debug_image_requested fallback=local", requestId);
         }
 
         VNRequestTextRecognitionLevel level = VNRequestTextRecognitionLevelAccurate;
@@ -58,7 +77,7 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         // parse minimum_height part
         if (minimumHeight <= 0)
         {
-            minimumHeight = 1/32;
+            minimumHeight = 1.0f/32.0f;
         }
 
         // parse level
@@ -69,8 +88,15 @@ NSString* performTextRecognizerTextFromRawData(UInt8* eventData, NSError** error
         // parse languages part
         NSArray *languages = [languagesData componentsSeparatedByString:@",,"];
 
-        // screen shot
+        NSLog(@"[ZXTouch][OCR][id=%llu][local] capture_start region=%@ level=%d languages=%lu",
+              requestId, NSStringFromCGRect(recognizeRect), levelData, (unsigned long)languages.count);
         CGImageRef screenshot = [Screen createScreenShotCGImageRef];
+        if (!screenshot) {
+            NSLog(@"[ZXTouch][OCR][id=%llu][local] capture_failed", requestId);
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:901
+                     userInfo:@{NSLocalizedDescriptionKey:@"-1;;OCR screenshot capture failed.\r\n"}];
+            return nil;
+        }
 
         int orientation = [Screen getScreenOrientation];
 

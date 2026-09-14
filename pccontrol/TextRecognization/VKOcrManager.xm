@@ -117,20 +117,29 @@ Return the string from a area
     inProgress = true;
 
     NSError *err = nil;
+    CFAbsoluteTime visionStart = CFAbsoluteTimeGetCurrent();
     [requestHandler performRequests:@[request] error:&err];
 
     if (err)
     {
-        NSLog(@"com.zjx.springboard: error happened while performing ocr. %@", err);
+        NSLog(@"[ZXTouch][OCR][vision] failed elapsed_ms=%.1f error=%@",
+              (CFAbsoluteTimeGetCurrent() - visionStart) * 1000.0, err);
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Error happened while performing ocr. Error: %@\r\n", err]}];
+        inProgress = false;
         return nil;
     }
     
     NSMutableArray<NSString*>* stringList = [[NSMutableArray alloc] init];
 
+    NSUInteger emptyCandidateCount = 0;
     for (VNRecognizedTextObservation* i in requestResult.results)
     {
-        VNRecognizedText* text = [i topCandidates:1][0];
+        NSArray<VNRecognizedText *> *candidates = [i topCandidates:1];
+        if (candidates.count == 0) {
+            emptyCandidateCount++;
+            continue;
+        }
+        VNRecognizedText* text = candidates[0];
         NSString* textString = [text string];
 
         VNRectangleObservation* boundingBox = [text boundingBoxForRange:NSMakeRange(0, [textString length]) error:nil];
@@ -155,6 +164,11 @@ Return the string from a area
     }
 
     inProgress = false;
+    NSLog(@"[ZXTouch][OCR][vision] complete elapsed_ms=%.1f observations=%lu empty_candidates=%lu results=%lu",
+          (CFAbsoluteTimeGetCurrent() - visionStart) * 1000.0,
+          (unsigned long)requestResult.results.count,
+          (unsigned long)emptyCandidateCount,
+          (unsigned long)stringList.count);
     return [stringList componentsJoinedByString:@";;"];
 }
 
@@ -237,7 +251,11 @@ Return area that contain text
 
     for (VNRecognizedTextObservation* i in arr)
     {
-        VNRecognizedText* text = [i topCandidates:1][0];
+        NSArray<VNRecognizedText *> *candidates = [i topCandidates:1];
+        if (candidates.count == 0) {
+            continue;
+        }
+        VNRecognizedText* text = candidates[0];
         NSString* textString = [text string];
             
         NSError *err = nil;

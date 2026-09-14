@@ -29,7 +29,7 @@ static BOOL ZXWriteExact(int fd, const void *buffer, size_t length) {
     return YES;
 }
 
-int ZXPerformOcrThroughDaemon(UInt8 *eventData, NSString **result, NSError **error) {
+int ZXPerformOcrThroughDaemon(NSString *payload, NSString **result, NSError **error) {
     if (result) *result = nil;
     if (error) *error = nil;
 
@@ -54,10 +54,11 @@ int ZXPerformOcrThroughDaemon(UInt8 *eventData, NSString **result, NSError **err
         return 0;
     }
 
-    uint32_t requestLength = (uint32_t)strlen((char *)eventData);
+    NSData *requestData = [payload dataUsingEncoding:NSUTF8StringEncoding];
+    uint32_t requestLength = (uint32_t)requestData.length;
     uint32_t networkLength = htonl(requestLength);
     BOOL ok = ZXWriteExact(fd, &networkLength, sizeof(networkLength)) &&
-        ZXWriteExact(fd, eventData, requestLength);
+        ZXWriteExact(fd, requestData.bytes, requestLength);
     if (!ok) {
         close(fd);
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouch.ocrd" code:2

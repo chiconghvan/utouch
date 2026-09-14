@@ -7,6 +7,19 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.13] — 2026-09-14
+
+### Đã thêm
+- Tách OCR thành daemon `com.zjx.ocr` chạy nền, cho phép xử lý nhận dạng văn bản ngoài tiến trình SpringBoard.
+- Bổ sung IPC OCR qua Unix socket, tự động quay về xử lý cục bộ khi daemon không khả dụng.
+
+### Đã thay đổi
+- Tái sử dụng IOSurface khi chụp màn hình OCR và ghi log chi tiết hơn cho quá trình capture, IPC và Vision.
+- Bổ sung Vision và CoreImage vào các framework cần thiết cho pipeline OCR.
+
+### Đã sửa
+- Xử lý an toàn kết quả OCR không có candidate và sửa phép tính `minimumHeight` để dùng số thực chính xác.
+
 ## [0.3.12] — 2026-09-14
 
 ### Đã thêm
@@ -191,6 +204,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.13]: https://github.com/chiconghvan/utouch/compare/v0.3.12...v0.3.13
 [0.3.12]: https://github.com/chiconghvan/utouch/compare/v0.3.11...v0.3.12
 [0.3.11]: https://github.com/chiconghvan/utouch/compare/v0.3.10...v0.3.11
 [0.3.9]: https://github.com/chiconghvan/utouch/compare/v0.3.8...v0.3.9

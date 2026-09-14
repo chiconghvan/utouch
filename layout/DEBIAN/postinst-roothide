@@ -157,6 +157,15 @@ else
     echo "ZXTouch: warning — zxtouch-dashboardd not found. Dashboard stays SpringBoard-hosted." >&2
 fi
 
+OCR_BIN=$(jbroot /usr/bin/zxtouch-ocrd 2>/dev/null)
+OCR_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.ocr.plist 2>/dev/null)
+if [ -n "$OCR_BIN" ] && [ -x "$OCR_BIN" ] && [ -n "$OCR_PLIST" ] && [ -f "$OCR_PLIST" ]; then
+    JBROOT="${OCR_BIN%/usr/bin/zxtouch-ocrd}"
+    if [ "$JBROOT" != "/var/jb" ]; then sed -i "s|/var/jb|$JBROOT|g" "$OCR_PLIST" 2>/dev/null || true; fi
+    launchctl unload "$OCR_PLIST" 2>/dev/null || true
+    launchctl load "$OCR_PLIST" 2>>/var/mobile/Library/ZXTouch/ocrd.log || true
+fi
+
 # Never restart SpringBoard from a maintainer script. Package managers run this
 # inside the dpkg transaction, so a restart can kill their helper before dpkg
 # records the package as configured. Sileo can offer a respring after dpkg exits.

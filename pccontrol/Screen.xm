@@ -116,6 +116,11 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void);
 
 + (CGImageRef)createScreenShotCGImageRef
 {
+    static IOSurfaceRef cachedSurface = NULL;
+    static int cachedWidth = 0;
+    static int cachedHeight = 0;
+    static int cachedBytesPerRow = 0;
+    @synchronized([Screen class]) {
     Boolean isiPad8orUp = false;
 
     CGFloat scale = [UIScreen mainScreen].scale;
@@ -166,16 +171,51 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void);
                                 , IOSurfaceBytesPerElement, @"IOSurfaceBytesPerElement", IOSurfaceBytesPerRow, @"IOSurfaceBytesPerRow", nheight, @"IOSurfaceHeight", 
                                 IOSurfaceIsGlobal, @"IOSurfaceIsGlobal", IOSurfacePixelFormat, @"IOSurfacePixelFormat", nwidth, @"IOSurfaceWidth", nil];    
 
-    IOSurfaceRef screenSurface = IOSurfaceCreate((__bridge CFDictionaryRef)(properties));
+    BOOL cacheChanged = cachedSurface == NULL || cachedWidth != width ||
+        cachedHeight != height || cachedBytesPerRow != bytesPerRow;
+    if (cacheChanged) {
+        if (cachedSurface) CFRelease(cachedSurface);
+        cachedSurface = IOSurfaceCreate((__bridge CFDictionaryRef)(properties));
+        cachedWidth = width;
+        cachedHeight = height;
+        cachedBytesPerRow = bytesPerRow;
+        NSLog(@"[ZXTouch][OCR][capture] surface_create width=%d height=%d bytes=%d ok=%d",
+              width, height, bytesPerRow * height, cachedSurface != NULL);
+    } else {
+        NSLog(@"[ZXTouch][OCR][capture] surface_reuse width=%d height=%d", width, height);
+    }
 
     properties = nil;
-    
-    IOSurfaceLock(screenSurface, 0, NULL);
-    CARenderServerRenderDisplay(0, CFSTR("LCD"), screenSurface, 0, 0);
+    if (!cachedSurface) {
+        NSLog(@"[ZXTouch][OCR][capture] surface_create_failed");
+        return nil;
+    }
+    kern_return_t lockResult = IOSurfaceLock(cachedSurface, 0, NULL);
+    if (lockResult != KERN_SUCCESS) {
+        NSLog(@"[ZXTouch][OCR][capture] surface_lock_failed status=%d", lockResult);
+        return nil;
+    }
+    NSLog(@"[ZXTouch][OCR][capture] render_start");
+    CARenderServerRenderDisplay(0, CFSTR("LCD"), cachedSurface, 0, 0);
         
     CGImageRef cgImageRef = nil;
-    if (screenSurface) {
-        cgImageRef = UICreateCGImageFromIOSurface(screenSurface);
+    if (cachedSurface) {
+        cgImageRef = UICreateCGImageFromIOSurface(cachedSurface);
+        if (!cgImageRef) {
+            NSLog(@"[ZXTouch][OCR][capture] cgimage_create_failed");
+        }
+        if (!cgImageRef) {
+            IOSurfaceUnlock(cachedSurface, 0, NULL);
+            return nil;
+        }
+        CGImageRef detachedImage = CGImageCreateCopy(cgImageRef);
+        CGImageRelease(cgImageRef);
+        cgImageRef = detachedImage;
+        if (!cgImageRef) {
+            NSLog(@"[ZXTouch][OCR][capture] cgimage_detach_failed");
+            IOSurfaceUnlock(cachedSurface, 0, NULL);
+            return nil;
+        }
         int targetWidth = CGImageGetWidth(cgImageRef);
         int targetHeight = CGImageGetHeight(cgImageRef);
 
@@ -207,11 +247,11 @@ OBJC_EXTERN UIImage *_UICreateScreenUIImage(void);
             CGContextRelease(bitmap);
         }
     }
-    IOSurfaceUnlock(screenSurface, 0, NULL);
-    CFRelease(screenSurface);
-    screenSurface = nil;
+    IOSurfaceUnlock(cachedSurface, 0, NULL);
+    NSLog(@"[ZXTouch][OCR][capture] render_complete image=1");
 
     return cgImageRef;
+    }
 }
 
 
