@@ -12,6 +12,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface Util : NSObject
 + (void)showAlertBoxWithOneOption:(UIViewController*)vc title:(NSString*)aTitle message:(NSString*)aMessage buttonString:(NSString*)aBts;
++ (void)showRunScriptErrorToast:(UIViewController*)vc;
 @end
 
 NS_ASSUME_NONNULL_END
