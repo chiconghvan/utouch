@@ -16,6 +16,40 @@ extern "C" kern_return_t IOSurfaceLock(IOSurfaceRef buffer, uint32_t options, ui
 extern "C" kern_return_t IOSurfaceUnlock(IOSurfaceRef buffer, uint32_t options, uint32_t *seed);
 extern "C" CGImageRef UICreateCGImageFromIOSurface(IOSurfaceRef);
 
+// Private UIScreen API (same one TrollVNC's daemon uses): the only reliable
+// way to get the real pixel size inside a launchd daemon that has no
+// UIApplication scene. mainScreen.bounds is CGRectZero there.
+@interface UIScreen (ZXOcrPrivate)
+- (CGRect)_unjailedReferenceBoundsInPixels;
+@end
+
+static void ZXScreenPixelSize(int *outWidth, int *outHeight) {
+    int width = 0, height = 0;
+    UIScreen *screen = [UIScreen mainScreen];
+    if ([screen respondsToSelector:@selector(_unjailedReferenceBoundsInPixels)]) {
+        CGSize pixels = [screen _unjailedReferenceBoundsInPixels].size;
+        width = (int)round(pixels.width);
+        height = (int)round(pixels.height);
+        NSLog(@"[ZXTouch][OCRD][capture] size_source=unjailedReferenceBounds w=%d h=%d", width, height);
+    }
+    if (width <= 0 || height <= 0) {
+        CGSize bounds = screen.bounds.size;
+        CGFloat scale = screen.scale;
+        width = (int)round(bounds.width * scale);
+        height = (int)round(bounds.height * scale);
+        NSLog(@"[ZXTouch][OCRD][capture] size_source=bounds*scale bounds=%@ scale=%.2f w=%d h=%d",
+              NSStringFromCGSize(bounds), (double)scale, width, height);
+    }
+    if (width <= 0 || height <= 0) {
+        CGSize native = screen.nativeBounds.size;
+        width = (int)round(native.width);
+        height = (int)round(native.height);
+        NSLog(@"[ZXTouch][OCRD][capture] size_source=nativeBounds w=%d h=%d", width, height);
+    }
+    if (outWidth) *outWidth = width;
+    if (outHeight) *outHeight = height;
+}
+
 static NSString *const kSocketPath = @"/var/mobile/Library/ZXTouch/ocrd.sock";
 static IOSurfaceRef sSurface = NULL;
 static int sWidth = 0, sHeight = 0, sBytesPerRow = 0;
@@ -32,9 +66,12 @@ static BOOL writeExact(int fd, const void *buffer, size_t length) {
 }
 
 static CGImageRef captureScreen(void) {
-    CGSize size = [UIScreen mainScreen].bounds.size;
-    int width = (int)round(size.width * [UIScreen mainScreen].scale);
-    int height = (int)round(size.height * [UIScreen mainScreen].scale);
+    int width = 0, height = 0;
+    ZXScreenPixelSize(&width, &height);
+    if (width <= 0 || height <= 0) {
+        NSLog(@"[ZXTouch][OCRD][capture] invalid_size w=%d h=%d", width, height);
+        return nil;
+    }
     int bytesPerRow = (width * 4 + 31) & ~31;
     @synchronized([NSValue class]) {
         if (!sSurface || width != sWidth || height != sHeight || bytesPerRow != sBytesPerRow) {
