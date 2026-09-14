@@ -94,12 +94,28 @@ static CGImageRef captureScreen(void) {
         } else {
             NSLog(@"[ZXTouch][OCRD][capture] surface_reuse width=%d height=%d", width, height);
         }
-        if (!sSurface || IOSurfaceLock(sSurface, 0, NULL) != KERN_SUCCESS) return nil;
+        if (!sSurface) {
+            NSLog(@"[ZXTouch][OCRD][capture] surface_create_failed");
+            return nil;
+        }
+
+        // The render server is the producer of this surface. Do not hold an
+        // IOSurface lock while asking it to render; daemon captures such as
+        // TrollVNC render first and lock only when reading the pixels.
+        NSLog(@"[ZXTouch][OCRD][capture] render_start");
         CARenderServerRenderDisplay(0, CFSTR("LCD"), sSurface, 0, 0);
+        NSLog(@"[ZXTouch][OCRD][capture] render_complete");
+
+        kern_return_t lockResult = IOSurfaceLock(sSurface, 0, NULL);
+        if (lockResult != KERN_SUCCESS) {
+            NSLog(@"[ZXTouch][OCRD][capture] surface_lock_failed status=%d", lockResult);
+            return nil;
+        }
         CGImageRef image = UICreateCGImageFromIOSurface(sSurface);
         CGImageRef detachedImage = image ? CGImageCreateCopy(image) : NULL;
         if (image) CGImageRelease(image);
         IOSurfaceUnlock(sSurface, 0, NULL);
+        NSLog(@"[ZXTouch][OCRD][capture] image_copy_complete image=%d", detachedImage != NULL);
         if (!detachedImage) NSLog(@"[ZXTouch][OCRD][capture] cgimage_detach_failed");
         return detachedImage;
     }

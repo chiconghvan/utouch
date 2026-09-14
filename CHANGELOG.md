@@ -7,6 +7,12 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.18] — 2026-09-14
+
+### Đã sửa
+- OCR daemon không còn giữ IOSurface lock khi gọi `CARenderServerRenderDisplay` — render server là producer của surface, khóa trước khi render dễ deadlock/failed capture; nay render xong mới lock để đọc pixel, đúng thứ tự mà TrollVNC dùng trong daemon capture.
+- Thêm log dọc pipeline capture (`render_start` / `render_complete` / `surface_lock_failed status=` / `image_copy_complete`) để chẩn đoán OCR stuck ở bước nào.
+
 ## [0.3.17] — 2026-09-14
 
 ### Đã sửa
