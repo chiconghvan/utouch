@@ -1,7 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <Vision/Vision.h>
-#import <IOSurface/IOSurface.h>
+#import "../pccontrol/headers/IOSurface/IOSurface.h"
 #import <QuartzCore/QuartzCore.h>
 #import <ImageIO/ImageIO.h>
 #include <arpa/inet.h>
