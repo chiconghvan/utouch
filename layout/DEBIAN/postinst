@@ -109,6 +109,26 @@ if [ -x /var/jb/usr/bin/ldid ]; then
     /var/jb/usr/bin/ldid -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
 fi
 
+# launchd (rootless) refuses to load any LaunchDaemon whose path chain is not
+# root-owned / not group/world-writable, but dpkg preserves the build runner's
+# tar uid/gid (1001). Normalize the whole LaunchDaemons path chain plus every
+# daemon plist/binary once, before any launchctl load below runs.
+for d in /var/jb /var/jb/usr /var/jb/usr/bin /var/jb/Library /var/jb/Library/LaunchDaemons; do
+    [ -d "$d" ] || continue
+    chown root:wheel "$d" 2>/dev/null || true
+    chmod 0755 "$d" 2>/dev/null || true
+done
+for f in com.zjx.ocr.plist com.zjx.dashboard.plist com.zjx.trollvnc.plist; do
+    [ -f "/var/jb/Library/LaunchDaemons/$f" ] || continue
+    chown root:wheel "/var/jb/Library/LaunchDaemons/$f" 2>/dev/null || true
+    chmod 0644 "/var/jb/Library/LaunchDaemons/$f" 2>/dev/null || true
+done
+for b in /var/jb/usr/bin/zxtouch-ocrd /var/jb/usr/bin/zxtouch-dashboardd /var/jb/usr/bin/trollvncserver; do
+    [ -f "$b" ] || continue
+    chown root:wheel "$b" 2>/dev/null || true
+    chmod 0755 "$b" 2>/dev/null || true
+done
+
 # TrollVNC bundled in the same .deb (single-.deb plan): VNC :5901 + noVNC :5801.
 # Binary lives at /var/jb/usr/bin/trollvncserver (layout/usr/bin + rootless prefix).
 if [ -x /var/jb/usr/bin/trollvncserver ]; then
@@ -152,12 +172,18 @@ fi
 if [ -x /var/jb/usr/bin/zxtouch-ocrd ]; then
     mkdir -p /var/mobile/Library/ZXTouch
     chown mobile:mobile /var/mobile/Library/ZXTouch 2>/dev/null || true
+    # Ownership/mode were normalized in the launchd block above (runs before
+    # every launchctl load); the daemon itself creates the mobile-owned socket.
     if [ -x /var/jb/bin/launchctl ]; then
         /var/jb/bin/launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.ocr.plist 2>/dev/null || true
-        /var/jb/bin/launchctl load /var/jb/Library/LaunchDaemons/com.zjx.ocr.plist 2>>/var/mobile/Library/ZXTouch/ocrd.log || true
+        if ! /var/jb/bin/launchctl load /var/jb/Library/LaunchDaemons/com.zjx.ocr.plist 2>>/var/mobile/Library/ZXTouch/ocrd.log; then
+            echo "ZXTouch: OCR daemon launchd load failed after ownership normalization." >> /var/mobile/Library/ZXTouch/ocrd.log
+        fi
     elif command -v launchctl >/dev/null 2>&1; then
         launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.ocr.plist 2>/dev/null || true
-        launchctl load /var/jb/Library/LaunchDaemons/com.zjx.ocr.plist 2>>/var/mobile/Library/ZXTouch/ocrd.log || true
+        if ! launchctl load /var/jb/Library/LaunchDaemons/com.zjx.ocr.plist 2>>/var/mobile/Library/ZXTouch/ocrd.log; then
+            echo "ZXTouch: OCR daemon launchd load failed after ownership normalization." >> /var/mobile/Library/ZXTouch/ocrd.log
+        fi
     fi
 fi
 

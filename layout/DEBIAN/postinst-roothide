@@ -118,6 +118,32 @@ if [ -x "$LDID" ]; then
     "$LDID" -S/tmp/zxtouch-ent.plist "$APP/zxtouch"
 fi
 
+# launchd refuses to load any LaunchDaemon whose path chain is not root-owned
+# / not group/world-writable, but dpkg preserves the build runner's uid/gid.
+# Normalize the daemon path chain plus every plist/binary once, before any
+# launchctl load below runs.
+JBROOT_ROOT=$(jbroot 2>/dev/null || echo /var/jb)
+for d in "$JBROOT_ROOT" "$JBROOT_ROOT/usr" "$JBROOT_ROOT/usr/bin" "$JBROOT_ROOT/Library" "$JBROOT_ROOT/Library/LaunchDaemons"; do
+    [ -d "$d" ] || continue
+    chown root:wheel "$d" 2>/dev/null || true
+    chmod 0755 "$d" 2>/dev/null || true
+done
+LDAEMON_DIR="$JBROOT_ROOT/Library/LaunchDaemons"
+if [ -n "$LDAEMON_DIR" ] && [ -d "$LDAEMON_DIR" ]; then
+    chown root:wheel "$LDAEMON_DIR" 2>/dev/null || true
+    chmod 0755 "$LDAEMON_DIR" 2>/dev/null || true
+    for f in com.zjx.ocr.plist com.zjx.dashboard.plist com.zjx.trollvnc.plist; do
+        [ -f "$LDAEMON_DIR/$f" ] || continue
+        chown root:wheel "$LDAEMON_DIR/$f" 2>/dev/null || true
+        chmod 0644 "$LDAEMON_DIR/$f" 2>/dev/null || true
+    done
+fi
+for b in $(jbroot /usr/bin/zxtouch-ocrd 2>/dev/null) $(jbroot /usr/bin/zxtouch-dashboardd 2>/dev/null) $(jbroot /usr/bin/trollvncserver 2>/dev/null); do
+    [ -f "$b" ] || continue
+    chown root:wheel "$b" 2>/dev/null || true
+    chmod 0755 "$b" 2>/dev/null || true
+done
+
 # TrollVNC bundled in the same .deb (single-.deb plan): VNC :5901 + noVNC :5801.
 TVNC_BIN=$(jbroot /usr/bin/trollvncserver 2>/dev/null)
 TVNC_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null)
@@ -162,8 +188,13 @@ OCR_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.ocr.plist 2>/dev/null)
 if [ -n "$OCR_BIN" ] && [ -x "$OCR_BIN" ] && [ -n "$OCR_PLIST" ] && [ -f "$OCR_PLIST" ]; then
     JBROOT="${OCR_BIN%/usr/bin/zxtouch-ocrd}"
     if [ "$JBROOT" != "/var/jb" ]; then sed -i "s|/var/jb|$JBROOT|g" "$OCR_PLIST" 2>/dev/null || true; fi
+    chown root:wheel "$OCR_PLIST" "$OCR_BIN" 2>/dev/null || true
+    chmod 0644 "$OCR_PLIST" 2>/dev/null || true
+    chmod 0755 "$OCR_BIN" 2>/dev/null || true
     launchctl unload "$OCR_PLIST" 2>/dev/null || true
-    launchctl load "$OCR_PLIST" 2>>/var/mobile/Library/ZXTouch/ocrd.log || true
+    if ! launchctl load "$OCR_PLIST" 2>>/var/mobile/Library/ZXTouch/ocrd.log; then
+        echo "ZXTouch: OCR daemon launchd load failed after ownership normalization." >>/var/mobile/Library/ZXTouch/ocrd.log
+    fi
 fi
 
 # Never restart SpringBoard from a maintainer script. Package managers run this

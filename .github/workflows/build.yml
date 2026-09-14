@@ -121,9 +121,19 @@ jobs:
         run: |
           mkdir -p artifacts
           DEB=$(ls packages/*.deb | head -1)
+          # dpkg-deb from CI preserves the runner uid/gid (1001); launchd then
+          # rejects the daemon plists ("bad ownership/permission"). Rebuild the
+          # archive with every entry forced to root:wheel.
+          work=$(mktemp -d)
+          dpkg-deb -R "$DEB" "$work"
+          dpkg-deb -b --root-owner-group "$work" "$DEB.norm" >/dev/null
+          mv -f "$DEB.norm" "$DEB"
+          rm -rf "$work"
           test -x layout/usr/bin/trollvncserver
           test -f layout/Applications/zxtouch.app/novnc/core/rfb.js
           dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-dashboardd'
+          dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-ocrd'
+          dpkg-deb -c "$DEB" | grep -q 'Library/LaunchDaemons/com.zjx.ocr.plist'
           echo "Verified dashboard daemon in rootless .deb"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
@@ -151,9 +161,18 @@ jobs:
       - name: Save Roothide .deb
         run: |
           DEB=$(ls packages/*.deb | head -1)
+          # Same launchd ownership problem as the rootless artifact: force all
+          # tar entries to root:wheel before publishing.
+          work=$(mktemp -d)
+          dpkg-deb -R "$DEB" "$work"
+          dpkg-deb -b --root-owner-group "$work" "$DEB.norm" >/dev/null
+          mv -f "$DEB.norm" "$DEB"
+          rm -rf "$work"
           test -x layout/usr/bin/trollvncserver
           test -f layout/Applications/zxtouch.app/novnc/core/rfb.js
           dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-dashboardd'
+          dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-ocrd'
+          dpkg-deb -c "$DEB" | grep -q 'Library/LaunchDaemons/com.zjx.ocr.plist'
           echo "Verified dashboard daemon in roothide .deb"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"

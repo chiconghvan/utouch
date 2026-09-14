@@ -69,6 +69,9 @@ jobs:
           ls -la /tmp/newdebs
 
       - name: Normalize package metadata
+        # dpkg-deb -R/-b runs as the runner user, so rebuilt archives would
+        # inherit uid/gid 1001 — launchd then refuses the daemon plists/binaries
+        # it carries. --root-owner-group rewrites every tar entry as root:wheel.
         run: |
           for deb in /tmp/newdebs/*.deb; do
             [ -e "$deb" ] || continue
@@ -81,7 +84,7 @@ jobs:
             fi
             sed -i -E "s/^Version: .*/Version: $version/" "$work/DEBIAN/control"
             rebuilt="$deb.rebuilt"
-            dpkg-deb -b "$work" "$rebuilt" >/dev/null
+            dpkg-deb -b --root-owner-group "$work" "$rebuilt" >/dev/null
             mv -f "$rebuilt" "$deb"
             actual=$(dpkg-deb -f "$deb" Version)
             if [ "$actual" != "$version" ]; then
@@ -89,7 +92,7 @@ jobs:
               exit 1
             fi
             rm -rf "$work"
-            echo "normalized $(basename "$deb") to Version: $version"
+            echo "normalized $(basename "$deb") to Version: $version (root-owned)"
           done
 
       - name: Install APT tooling
