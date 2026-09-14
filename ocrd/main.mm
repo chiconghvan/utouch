@@ -94,7 +94,7 @@ static NSString *recognize(NSString *payload, NSError **error) {
     if ([parts[2] length]) request.customWords = [parts[2] componentsSeparatedByString:@",,"];
     if ([parts[5] length]) request.recognitionLanguages = [parts[5] componentsSeparatedByString:@",,"];
     request.usesLanguageCorrection = [parts[6] boolValue];
-    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCIImage:image options:nil];
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCIImage:image options:@{}];
     NSError *visionError = nil;
     CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
     [handler performRequests:@[request] error:&visionError];
@@ -104,12 +104,13 @@ static NSString *recognize(NSString *payload, NSError **error) {
         NSArray *candidates = [observation topCandidates:1];
         if (!candidates.count) continue;
         VNRecognizedText *text = candidates[0]; NSString *value = text.string ?: @"";
-        VNRectangleObservation *box = [text boundingBoxForRange:NSMakeRange(0, value.length) error:nil];
+         NSError *boxError = nil;
+         VNRectangleObservation *box = [text boundingBoxForRange:NSMakeRange(0, value.length) error:&boxError];
         if (!box) box = (VNRectangleObservation *)observation;
         int x = (int)lroundf(box.topLeft.x * area.size.width + area.origin.x);
         int y = (int)lroundf((1 - box.topLeft.y) * area.size.height + area.origin.y);
         int w = (int)lroundf((box.topRight.x - box.topLeft.x) * area.size.width);
-        int h = (int)lroundf(fabsf(box.topLeft.y - box.bottomLeft.y) * area.size.height);
+         int h = (int)lround((double)fabs(box.topLeft.y - box.bottomLeft.y) * area.size.height);
         [items addObject:[NSString stringWithFormat:@"%@,,%d,,%d,,%d,,%d", value, x, y, w, h]];
     }
     NSLog(@"[ZXTouch][OCRD][id=%@][vision] complete elapsed_ms=%.1f observations=%lu results=%lu", requestId, (CFAbsoluteTimeGetCurrent() - start) * 1000.0, (unsigned long)request.results.count, (unsigned long)items.count);
