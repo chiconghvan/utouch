@@ -7,6 +7,11 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.16] — 2026-09-14
+
+### Đã sửa
+- Bỏ `IOSurfaceIsGlobal` khỏi properties tạo surface trong OCR daemon — global surface chỉ window-server host (SpringBoard) mới tạo được, daemon gọi sẽ bị kernel từ chối (`surface_create ok=0`). Properties giờ giống TrollVNC (daemon capture đã chạy ổn định).
+
 ## [0.3.15] — 2026-09-14
 
 ### Đã sửa
@@ -218,6 +223,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.16]: https://github.com/chiconghvan/utouch/compare/v0.3.15...v0.3.16
 [0.3.15]: https://github.com/chiconghvan/utouch/compare/v0.3.14...v0.3.15
 [0.3.14]: https://github.com/chiconghvan/utouch/compare/v0.3.13...v0.3.14
 [0.3.13]: https://github.com/chiconghvan/utouch/compare/v0.3.12...v0.3.13
