@@ -35,6 +35,9 @@ NSString *getCommonConfigFilePath();
 pid_t system2(const char *command, int *infp, int *outfp);
 pid_t system2Cancelable(const char *command, int *infp, int *outfp,
                         pid_t *processGroup, volatile sig_atomic_t *cancelRequested);
+pid_t system2CancelableWithPause(const char *command, int *infp, int *outfp,
+                                 pid_t *processGroup, volatile sig_atomic_t *cancelRequested,
+                                 volatile sig_atomic_t *pauseRequested);
 int call_system(const char *cmd);
 int roundUp(int numToRound, int multiple);
 Boolean isIpad();

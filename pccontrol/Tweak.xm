@@ -35,6 +35,7 @@
 #include "Record.h"
 #include "Toast.h"
 #include "Play.h"
+#include "FloatingControl.h"
 #include "TouchIndicator/TouchIndicatorWindow.h"
 #include <roothide.h>
 
@@ -411,6 +412,7 @@ Boolean init()
 
             if (!init()) { return; }
             [@"6-init-done" writeToFile:@"/var/mobile/d6.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];
+            initFloatingControl();
 
             call_system("chown -R mobile:mobile /var/mobile/Library/ZXTouch");
             [@"7-before-socketServer" writeToFile:@"/var/mobile/d7.txt" atomically:YES encoding:NSUTF8StringEncoding error:nil];

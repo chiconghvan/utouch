@@ -11,6 +11,17 @@
 static BOOL switchAppBeforeRunScript = true;
 ScriptPlayer *scriptPlayer;
 static float currentRunSpeed = 1.0f;
+NSString * const ZXScriptStateDidChangeNotification = @"com.zjx.zxtouch.script-state-changed";
+
+void notifyScriptState(NSString *state)
+{
+    if (!state) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[NSNotificationCenter defaultCenter] postNotificationName:ZXScriptStateDidChangeNotification
+                                                            object:nil
+                                                          userInfo:@{ @"state": state }];
+    });
+}
 
 void initScriptPlayer()
 {
@@ -84,7 +95,27 @@ int playScriptWithSettings(UInt8* path, int repeatTime, float playSpeed, float s
 
 void stopScriptPlaying(NSError **error)
 {
-    [scriptPlayer forceStop:error];
+    if (scriptPlayer) [scriptPlayer forceStop:error];
+    notifyScriptState(@"stopped");
+}
+
+void pauseScriptPlaying(void)
+{
+    if (!scriptPlayer || ![scriptPlayer isPlaying]) return;
+    [scriptPlayer pause];
+    notifyScriptState(@"paused");
+}
+
+void resumeScriptPlaying(void)
+{
+    if (!scriptPlayer) return;
+    [scriptPlayer resume];
+    notifyScriptState(@"resumed");
+}
+
+BOOL isScriptPaused(void)
+{
+    return scriptPlayer && [scriptPlayer isPaused];
 }
 
 BOOL isScriptPlaying()
@@ -94,6 +125,7 @@ BOOL isScriptPlaying()
 
 void playHasStoppedCallBack()
 {
+    notifyScriptState(@"finished");
     // "Script Finished" popup is OFF by default (it interrupts automation).
     // Users can turn it back on in the app's settings
     // (Script -> Script Finished Popup).

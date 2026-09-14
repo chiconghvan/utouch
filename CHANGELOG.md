@@ -7,6 +7,22 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.20] — 2026-09-14
+
+### Đã thêm
+- Nút nổi toàn hệ thống: khi rảnh chạm để mở panel ZXTouch; khi script đang chạy chạm để tạm dừng, hiện toast "Script: Pause" kèm hộp "Stop Script?" (Yes = dừng hẳn, No = chạy tiếp). Nút kéo-thả được, tự dính mép, nhớ vị trí và tự xoay theo màn hình.
+- Tạm dừng / tiếp tục script: áp dụng cho cả script raw (chờ có điều kiện, sleep chia nhỏ theo tốc độ phát) lẫn script Python (SIGSTOP/SIGCONT trên process group).
+- Hạ tầng thông báo trạng thái script (`started` / `paused` / `resumed` / `stopped` / `finished`) để nút nổi và toast tự đồng bộ.
+- Toast bền (persistent) không tự ẩn cho trạng thái tạm dừng.
+
+### Đã thay đổi
+- `system2Cancelable` có biến thể hỗ trợ pause cho tiến trình Python.
+- Playback raw rút gọn xử lý tốc độ phát; các đường lỗi mở file / thiếu python dùng `clear` thống nhất.
+
+### Đã sửa
+- Toast cũ không còn ẩn nhầm toast mới (bộ đếm generation).
+- `forceStop` / `clear` đánh thức các waiter đang pause và dừng runloop replay, tránh kẹt script.
+
 ## [0.3.19] — 2026-09-14
 
 ### Đã sửa
@@ -240,6 +256,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.20]: https://github.com/chiconghvan/utouch/compare/v0.3.19...v0.3.20
 [0.3.19]: https://github.com/chiconghvan/utouch/compare/v0.3.18...v0.3.19
 [0.3.18]: https://github.com/chiconghvan/utouch/compare/v0.3.17...v0.3.18
 [0.3.17]: https://github.com/chiconghvan/utouch/compare/v0.3.16...v0.3.17

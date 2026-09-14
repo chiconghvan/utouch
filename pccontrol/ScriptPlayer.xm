@@ -9,6 +9,7 @@
 #include "Common.h"
 #import <sys/stat.h>
 #include <errno.h>
+#include <signal.h>
 
 static BOOL isPlaying = false;
 
@@ -104,8 +105,11 @@ static NSString *ZXPythonModulePath(void)
     int currentScriptType; // -1 no task has specified; 0 not playing but has upcoming task; 1 raw file playing; 2 py file playing
     NSTimer *replayTimer;
     UIView *circleView;
-    Boolean scriptPlayForceStop;
+    volatile sig_atomic_t scriptPlayForceStop;
     volatile sig_atomic_t scriptStopRequested;
+    volatile sig_atomic_t scriptPauseRequested;
+    NSCondition *pauseCondition;
+    CFRunLoopRef replayRunLoop;
     pid_t pythonProcessGroup;
     Boolean switchAppBeforePlaying;
     int _completedRuns;
@@ -179,6 +183,9 @@ static NSString *ZXPythonModulePath(void)
     {
         [self clear];
         scriptStopRequested = 0;
+        scriptPauseRequested = 0;
+        pauseCondition = [[NSCondition alloc] init];
+        replayRunLoop = NULL;
         pythonProcessGroup = 0;
     }
     return self;
@@ -191,6 +198,9 @@ static NSString *ZXPythonModulePath(void)
         scriptBundlePath = path;
         currentScriptType = -1;
         scriptStopRequested = 0;
+        scriptPauseRequested = 0;
+        pauseCondition = [[NSCondition alloc] init];
+        replayRunLoop = NULL;
         pythonProcessGroup = 0;
     }
     return self;
@@ -230,6 +240,8 @@ static NSString *ZXPythonModulePath(void)
 
     NSString *foregroundApp = scriptInfo[@"FrontApp"];
     // call different functions depending on file extension
+    isPlaying = true;
+    notifyScriptState(@"started");
 
     // show indicator
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -292,8 +304,77 @@ static NSString *ZXPythonModulePath(void)
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unable to run the script. Another script is currently running.\r\n"}];
         return -1;
     }
+    scriptPlayForceStop = false;
+    scriptPauseRequested = 0;
     _completedRuns = 0;
     [self runScript:error];
+}
+
+- (BOOL)isPaused
+{
+    return scriptPauseRequested != 0;
+}
+
+- (void)pause
+{
+    if (!isPlaying) return;
+    scriptPauseRequested = 1;
+    [pauseCondition lock];
+    [pauseCondition broadcast];
+    [pauseCondition unlock];
+
+    pid_t processGroup = pythonProcessGroup;
+    if (currentScriptType == 2 && processGroup > 0) {
+        kill(-processGroup, SIGSTOP);
+    }
+}
+
+- (void)resume
+{
+    scriptPauseRequested = 0;
+    [pauseCondition lock];
+    [pauseCondition broadcast];
+    [pauseCondition unlock];
+
+    pid_t processGroup = pythonProcessGroup;
+    if (currentScriptType == 2 && processGroup > 0) {
+        kill(-processGroup, SIGCONT);
+    }
+}
+
+- (BOOL)waitUntilRunnable
+{
+    [pauseCondition lock];
+    while (scriptPauseRequested && !scriptPlayForceStop) {
+        [pauseCondition wait];
+    }
+    BOOL shouldContinue = !scriptPlayForceStop;
+    [pauseCondition unlock];
+    return shouldContinue;
+}
+
+- (BOOL)waitForMicroseconds:(int)microseconds
+{
+    NSTimeInterval remaining = MAX(0.0, (double)microseconds / 1000000.0);
+    while (remaining > 0.0) {
+        if (![self waitUntilRunnable]) return NO;
+
+        NSDate *started = [NSDate date];
+        [pauseCondition lock];
+        if (scriptPauseRequested && !scriptPlayForceStop) {
+            [pauseCondition unlock];
+            continue;
+        }
+        NSTimeInterval slice = MIN(remaining, 0.05);
+        [pauseCondition waitUntilDate:[NSDate dateWithTimeIntervalSinceNow:slice]];
+        BOOL shouldContinue = !scriptPlayForceStop;
+        BOOL paused = scriptPauseRequested != 0;
+        [pauseCondition unlock];
+
+        if (!shouldContinue) return NO;
+        if (!paused) remaining -= -[started timeIntervalSinceNow];
+    }
+    return [self waitUntilRunnable];
 }
 
 
@@ -326,38 +407,36 @@ static NSString *ZXPythonModulePath(void)
     if (!file)
     {
         showAlertBox(@"Error", [NSString stringWithFormat:@"Cannot play this script because zxtouch cannot open the file. File path: %@", filePath], 999);
-        isPlaying = false;
+        [self clear];
         return;
     }
     
     char buffer[256];
-    int taskType;
-    int sleepTime;
     
     BOOL stoppedByUser = NO;
     while (fgets(buffer, sizeof(char)*256, file) != NULL)
     {
-        if (scriptPlayForceStop)
+        if (![self waitUntilRunnable])
         {
-            scriptPlayForceStop = false;
             stoppedByUser = YES;
             break;
         }
+
+        int taskType = 0;
+        int taskSleep = 0;
+        sscanf(buffer, "%2d%d", &taskType, &taskSleep);
+        if (taskType == TASK_USLEEP) {
+            if (speed > 0 && speed != 1) taskSleep = (int)(taskSleep / speed);
+            if (![self waitForMicroseconds:taskSleep]) {
+                stoppedByUser = YES;
+                break;
+            }
+            continue;
+        }
+
         if (speed > 0 && speed != 1)
         {
-            // check whether need to speed up
-            int type, sleepTime;
-            sscanf(buffer, "%2d", &type);
-            if (type == TASK_USLEEP)
-            {
-                sscanf(buffer, "%2d%d", &type, &sleepTime);
-                sleepTime = sleepTime / speed; // truncate the float part
-                processTask((UInt8*)[[NSString stringWithFormat:@"18%d", sleepTime] UTF8String], NULL);
-            }
-            else
-            {
-                processTask((UInt8*)buffer, NULL);
-            }
+            processTask((UInt8*)buffer, NULL);
         }
         else
         {
@@ -398,14 +477,14 @@ static NSString *ZXPythonModulePath(void)
         showAlertBox(@"Python not installed",
                      @"ZXTouch could not find a working python3 on this device.\n\nOpen Sileo and install the 'python3' package from Procursus, then reinstall ZXTouch so it can register the new interpreter.",
                      999);
-        isPlaying = false;
+        [self clear];
         return;
     }
 
     if (![[NSFileManager defaultManager] fileExistsAtPath:filePath])
     {
         showAlertBox(@"Error", [NSString stringWithFormat:@"Cannot play this script. Script file not found in bdl folder. Script path: %@", filePath], 999);
-        isPlaying = false;
+        [self clear];
         return;
     }
     // Ensure output log file exists so the >> redirect doesn't fail
@@ -438,8 +517,9 @@ static NSString *ZXPythonModulePath(void)
                               ZXShellQuote(statusFile)];
     NSLog(@"com.zjx.springboard: command to run for running py file %@", commandToRun);
 
-    int shellExitCode = system2Cancelable([commandToRun UTF8String], NULL, NULL,
-                                          &pythonProcessGroup, &scriptStopRequested);
+    int shellExitCode = system2CancelableWithPause([commandToRun UTF8String], NULL, NULL,
+                                                    &pythonProcessGroup, &scriptStopRequested,
+                                                    &scriptPauseRequested);
     BOOL stoppedByUser = scriptStopRequested != 0;
     scriptStopRequested = 0;
     NSString *statusText = [NSString stringWithContentsOfFile:statusFile encoding:NSUTF8StringEncoding error:nil];
@@ -494,6 +574,10 @@ static NSString *ZXPythonModulePath(void)
 
 - (void)replay:(NSTimer*)nstimer {
     NSLog(@"com.zjx.springboard: script is replaying...");
+    if (![self waitUntilRunnable]) {
+        CFRunLoopStop(CFRunLoopGetCurrent());
+        return;
+    }
     NSError *err = nil;
 
     [self runScript:&err];
@@ -525,7 +609,9 @@ static NSString *ZXPythonModulePath(void)
 
         currentScriptType = 0;
 
+        replayRunLoop = CFRunLoopGetCurrent();
         CFRunLoopRun();
+        replayRunLoop = NULL;
     }
     else
     {
@@ -538,12 +624,17 @@ static NSString *ZXPythonModulePath(void)
 }
 
 - (void)clear {
+    BOOL hadActiveScript = isPlaying || currentScriptType != -1;
     repeatTime = 0;
     interval = 0.0f;
     speed = 1.0f;
     scriptBundlePath = nil;
     isPlaying = false;
     currentScriptType = -1;
+    scriptPauseRequested = 0;
+    [pauseCondition lock];
+    [pauseCondition broadcast];
+    [pauseCondition unlock];
     //scriptPlayForceStop = false;
 
     // remove indicator
@@ -556,6 +647,13 @@ static NSString *ZXPythonModulePath(void)
         [replayTimer invalidate];
 
     replayTimer = nil;
+
+    if (replayRunLoop) {
+        CFRunLoopStop(replayRunLoop);
+        replayRunLoop = NULL;
+    }
+
+    if (hadActiveScript) notifyScriptState(@"stopped");
 }
 
 - (void)forceStop:(NSError**)error {
@@ -568,6 +666,7 @@ static NSString *ZXPythonModulePath(void)
 
     if (currentScriptType == 0)
     {
+        scriptPlayForceStop = true;
         [self clear];
     }
     else if (currentScriptType == 1)
@@ -584,6 +683,9 @@ static NSString *ZXPythonModulePath(void)
             NSLog(@"com.zjx.springboard: failed to stop Python process group %d: errno %d",
                   processGroup, errno);
         }
+        [pauseCondition lock];
+        [pauseCondition broadcast];
+        [pauseCondition unlock];
         [self clear];
     }
     else

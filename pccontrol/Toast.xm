@@ -7,6 +7,11 @@ static int windowHeight = 200;
 static NSDictionary* backgroundColorDict = @{@"4":[UIColor colorWithRed:0.282f green:0.78f blue:0.45f alpha:1.0f], @"1":[UIColor colorWithRed:0.945f green:0.275f blue:0.408f alpha:1.0f],@"2":[UIColor colorWithRed:1.0f green:0.867f blue:0.341f alpha:1.0f],@"3":[UIColor whiteColor]};
 static NSDictionary* fontColorDict = @{@"4":[UIColor whiteColor], @"1":[UIColor whiteColor],@"2":[UIColor colorWithRed:0.0f green:0.0f blue:0.0f alpha:0.7f],@"3":[UIColor colorWithRed:0.0f green:0.0f blue:0.0f alpha:0.7f]};
 static UIWindow *_window;
+static NSUInteger _toastGeneration = 0;
+
+@interface Toast ()
++ (void) showToastWithContent:(NSString*)content type:(int)type duration:(float)duration position:(int)position fontSize:(int)afontSize generation:(NSUInteger)generation persistent:(BOOL)persistent;
+@end
 void showToastFromRawData(UInt8 *eventData, NSError **error)
 {
     @autoreleasepool{
@@ -58,6 +63,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
 + (void) hideToast
 {
     dispatch_async(dispatch_get_main_queue(), ^{
+        _toastGeneration++;
         if (_window != NULL)
         {
             _window.hidden = YES;
@@ -67,6 +73,18 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
 }
 
 + (void) showToastWithContent:(NSString*)content type:(int)type duration:(float)duration position:(int)position fontSize:(int)afontSize // positon: 0 top 1 bottom 2 left(not supported) 3 right (ns)
+{
+    NSUInteger generation = ++_toastGeneration;
+    [self showToastWithContent:content type:type duration:duration position:position fontSize:afontSize generation:generation persistent:NO];
+}
+
++ (void) showPersistentToastWithContent:(NSString*)content type:(int)type position:(int)position fontSize:(int)afontSize
+{
+    NSUInteger generation = ++_toastGeneration;
+    [self showToastWithContent:content type:type duration:0 position:position fontSize:afontSize generation:generation persistent:YES];
+}
+
++ (void) showToastWithContent:(NSString*)content type:(int)type duration:(float)duration position:(int)position fontSize:(int)afontSize generation:(NSUInteger)generation persistent:(BOOL)persistent
 {
     __block UIWindow* currentWindow = NULL;
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -161,10 +179,11 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
         _window.hidden = NO;
 
     });
+    if (persistent) return;
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         [NSThread sleepForTimeInterval:duration];
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (currentWindow != _window)
+            if (currentWindow != _window || generation != _toastGeneration)
             {
                 return;
             }

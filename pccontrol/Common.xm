@@ -142,6 +142,13 @@ pid_t system2(const char *command, int *infp, int *outfp)
 pid_t system2Cancelable(const char *command, int *infp, int *outfp,
                         pid_t *processGroup, volatile sig_atomic_t *cancelRequested)
 {
+    return system2CancelableWithPause(command, infp, outfp, processGroup, cancelRequested, NULL);
+}
+
+pid_t system2CancelableWithPause(const char *command, int *infp, int *outfp,
+                                  pid_t *processGroup, volatile sig_atomic_t *cancelRequested,
+                                  volatile sig_atomic_t *pauseRequested)
+{
     int p_stdin[2] = {-1, -1};
     int p_stdout[2] = {-1, -1};
     if (processGroup) *processGroup = 0;
@@ -239,6 +246,9 @@ pid_t system2Cancelable(const char *command, int *infp, int *outfp,
     if (processGroup) *processGroup = pid;
     if (cancelRequested && *cancelRequested) {
         kill(-pid, SIGKILL);
+    }
+    if (pauseRequested && *pauseRequested && (!cancelRequested || !*cancelRequested)) {
+        kill(-pid, SIGSTOP);
     }
 
     close(p_stdin[0]);
