@@ -12,7 +12,7 @@
         <string>-p</string><string>5901</string>
         <string>-H</string><string>5801</string>
         <string>-n</string><string>ZXTouch</string>
-        <string>-s</string><string>0.75</string>
+        <string>-s</string><string>0.3</string>
         <string>-F</string><string>30:60:120</string>
         <string>-d</string><string>0.008</string>
         <string>-Q</string><string>1</string>

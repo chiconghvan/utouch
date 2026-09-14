@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Standalone ZXTouch dashboard: same HTTP server as the SpringBoard
+         fallback, but crash-isolated. If this process dies, only :8080 drops
+         and launchd restarts it — SpringBoard stays alive.
+         Theos rootless scheme prefixes layout/ with /var/jb on device,
+         so /usr/bin below resolves to /var/jb/usr/bin/zxtouch-dashboardd. -->
+    <key>Label</key><string>com.zjx.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/jb/usr/bin/zxtouch-dashboardd</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <!-- Serve as mobile: same files, sockets and permissions as the
+         SpringBoard-hosted server. No root needed (port 8080 > 1024). -->
+    <key>UserName</key><string>mobile</string>
+    <key>ThrottleInterval</key><integer>30</integer>
+    <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/dashboardd.log</string>
+    <key>StandardErrorPath</key><string>/var/mobile/Library/ZXTouch/dashboardd.log</string>
+</dict>
+</plist>
