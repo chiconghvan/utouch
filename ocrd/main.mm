@@ -77,13 +77,16 @@ static CGImageRef captureScreen(void) {
         if (!sSurface || width != sWidth || height != sHeight || bytesPerRow != sBytesPerRow) {
             if (sSurface) CFRelease(sSurface);
             NSDictionary *properties = @{
+                // NOTE: no IOSurfaceIsGlobal here — global surfaces can only
+                // be created by the window-server host (SpringBoard). In a
+                // daemon it makes IOSurfaceCreate return NULL. TrollVNC's
+                // daemon captures with the same non-global properties.
                 @"IOSurfaceAllocSize": @(bytesPerRow * height),
                 @"IOSurfaceBytesPerElement": @4,
                 @"IOSurfaceBytesPerRow": @(bytesPerRow),
                 @"IOSurfaceWidth": @(width),
                 @"IOSurfaceHeight": @(height),
                 @"IOSurfacePixelFormat": @0x42475241,
-                @"IOSurfaceIsGlobal": @1,
             };
             sSurface = IOSurfaceCreate((__bridge CFDictionaryRef)properties);
             sWidth = width; sHeight = height; sBytesPerRow = bytesPerRow;
