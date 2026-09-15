@@ -44,6 +44,7 @@
 #define TASK_PING 46
 #define TASK_CRANE 47
 #define TASK_DEBUG_MARK 48
+#define TASK_VALIDATE_SCRIPT 49
 
 
 #define TASK_UPDATE_CACHE 90

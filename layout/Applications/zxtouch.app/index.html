@@ -907,8 +907,111 @@
       funcHlTimer = setTimeout(refreshFuncHighlights, 80);
     }
 
+    // ── Live validation ("compiler") ──────────────────────────────────
+    // Debounced static check of the active document. Lua is transpiled first
+    // (lineMap maps Python diagnostics back to Lua lines); Python is sent as is.
+    // The device runs `zxtouch.checker` and returns per-function diagnostics.
+    let validationTimer = 0;
+    const VALIDATION_DEBOUNCE = 450;
+    // Monaco MarkerSeverity: Hint 1, Info 2, Warning 4, Error 8.
+    const MARKER_SEVERITY = { error: 8, warning: 4, info: 2 };
+
+    function scheduleValidation() {
+      clearTimeout(validationTimer);
+      validationTimer = setTimeout(validateActiveEditor, VALIDATION_DEBOUNCE);
+    }
+
+    function editorDiagnostics(doc) {
+      return (doc && doc.diagnostics) || [];
+    }
+
+    function editorErrorCount(doc) {
+      return editorDiagnostics(doc).filter(item => item.severity === 'error').length;
+    }
+
+    function updateValidationStatus(doc) {
+      const items = editorDiagnostics(doc);
+      if (!items.length) { setEditorStatus('✓ Không phát hiện lỗi'); return; }
+      const errors = items.filter(item => item.severity === 'error').length;
+      const warnings = items.filter(item => item.severity === 'warning').length;
+      const first = items.find(item => item.severity === 'error') || items[0];
+      setEditorStatus(`${errors} lỗi, ${warnings} cảnh báo — dòng ${first.line}`);
+    }
+
+    function diagnosticsToMarkers(doc, diagnostics, lineMap) {
+      const totalLines = doc.model.getLineCount();
+      const mapLine = line => (lineMap && lineMap[line - 1]) || line;
+      return diagnostics.map(item => {
+        const startLine = Math.min(Math.max(mapLine(item.line) || 1, 1), totalLines);
+        const endLine = Math.min(Math.max(mapLine(item.endLine || item.line) || startLine, startLine), totalLines);
+        const startColumn = Math.max(1, item.column || 1);
+        return {
+          severity: MARKER_SEVERITY[item.severity] || 8,
+          message: item.message || item.code || 'Issue',
+          code: item.code,
+          source: 'zxtouch-check',
+          startLineNumber: startLine,
+          startColumn,
+          endLineNumber: endLine,
+          endColumn: Math.max(startColumn + 1, item.endColumn || startColumn + 1),
+        };
+      });
+    }
+
+    async function validateActiveEditor() {
+      const doc = activeEditorDocument();
+      if (!doc || !editorState.monaco || !doc.model) return;
+      const lang = doc.language === 'python' ? 'python' : 'lua';
+      const source = doc.model.getValue();
+      let payloadCode = source;
+      let lineMap = null;
+
+      if (!source.trim()) {
+        doc.diagnostics = [];
+        editorState.monaco.editor.setModelMarkers(doc.model, 'zxtouch', []);
+        setEditorStatus('✓ Không phát hiện lỗi');
+        return;
+      }
+
+      if (lang === 'lua') {
+        try {
+          const result = transpileLuaEx(source);
+          payloadCode = result.code;
+          lineMap = result.lineMap;
+        } catch (error) {
+          const line = Math.min(Math.max(Number(error.line) || 1, 1), doc.model.getLineCount());
+          doc.diagnostics = [{ severity: 'error', code: 'LUA', line, column: 1, endLine: line, endColumn: 2, message: error.message }];
+          editorState.monaco.editor.setModelMarkers(doc.model, 'zxtouch', diagnosticsToMarkers(doc, doc.diagnostics, null));
+          setEditorStatus(`Lỗi Lua dòng ${error.line}: ${error.message}`);
+          return;
+        }
+      }
+
+      if (doc.validating) { doc.validationPending = true; return; }
+      if (doc.validationCode === payloadCode) { updateValidationStatus(doc); return; }
+
+      doc.validating = true;
+      try {
+        const payload = await api('/api/editor/validate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: payloadCode }),
+        });
+        if (activeEditorDocument() !== doc) return;
+        doc.validationCode = payloadCode;
+        doc.diagnostics = Array.isArray(payload.diagnostics) ? payload.diagnostics : [];
+        editorState.monaco.editor.setModelMarkers(doc.model, 'zxtouch', diagnosticsToMarkers(doc, doc.diagnostics, lineMap));
+        updateValidationStatus(doc);
+      } catch (error) {
+        if (activeEditorDocument() === doc) setEditorStatus(`Không kiểm tra được: ${error.message}`);
+      } finally {
+        doc.validating = false;
+        if (doc.validationPending) { doc.validationPending = false; scheduleValidation(); }
+      }
+    }
+
     // Best-effort Lua→Python for the automation subset. Throws {line, message}.
-    function transpileLua(src) {
+    function transpileLuaEx(src) {
       const strings = [];
       const protect = line => line.replace(/\[\[([\s\S]*?)\]\]|("(?:[^"\\]|\\.)*")|('(?:[^'\\]|\\.)*')/g, m => {
         strings.push(m);
@@ -1220,7 +1323,11 @@
       const ONE_LINE_IF = /^if\s+(.+?)\s+then\s+(.+?)\s+end$/;
       const ONE_LINE_LOOP = /^(while|for)\s+(.+?)\s+do\s+(.+?)\s+end$/;
       const out = [];
-      let level = 0, bracketDepth = 0, contBuf = [];
+      const lineMap = [];
+      // Every emitted Python line records the 1-based Lua line it came from, so
+      // checker diagnostics (whose positions are Python) map back exactly.
+      const push = (text, sourceLine) => { out.push(text); lineMap.push(sourceLine); };
+      let level = 0, bracketDepth = 0, contBuf = [], contBufLines = [];
       const lines = src.split('\n');
       for (let ln = 0; ln < lines.length; ln++) {
         let raw = lines[ln];
@@ -1228,7 +1335,7 @@
         const commentAt = line.search(/--(?!\[)/);
         if (commentAt >= 0) line = line.slice(0, commentAt);
         line = line.trim();
-        if (!line) { out.push(''); continue; }
+        if (!line) { push('', ln + 1); continue; }
         const fail = msg => { throw { line: ln + 1, message: msg }; };
         if (/^::.*::$/.test(line)) fail('goto/labels are not supported');
         if (/^repeat\s*$/.test(line)) fail('repeat/until is not supported, use while');
@@ -1240,6 +1347,7 @@
           // `{["Content-Type"] = ...}` only converts correctly when seen as a
           // whole — per-line conversion leaves `=` behind, i.e. invalid Python.
           contBuf.push(line);
+          contBufLines.push(ln + 1);
           bracketDepth += openDepth;
           if (bracketDepth === 0) {
             const joined = luaTableToPy(contBuf.join('\n'));
@@ -1255,9 +1363,10 @@
                 text += pendingTail; // close out deferred `x, y = httpGet(` / unpack pairs
                 pendingTail = null;
               }
-              out.push('    '.repeat(level) + text);
+              push('    '.repeat(level) + text, contBufLines[idx] || contBufLines[contBufLines.length - 1] || (ln + 1));
             });
             contBuf = [];
+            contBufLines = [];
           }
           continue;
         }
@@ -1270,7 +1379,7 @@
         const indent = () => '    '.repeat(level);
         // Every branch below must hand Python `restore()`d text: placeholders
         // are \u0001N\u0001 and any line that skips it leaks garbage.
-        const emit = s => { out.push(indent() + restore(s)); };
+        const emit = s => { push(indent() + restore(s), ln + 1); };
         if (/^else\s*$/.test(line)) { level--; if (level < 0) fail('unexpected "else"'); emit('else:'); level++; continue; }
         if ((m = line.match(ONE_LINE_LOOP))) {
           const [, kw, cond, body] = m;
@@ -1323,6 +1432,7 @@
             // rides inside pendingTail, so the flush fires when the original
             // call closes and the tail re-balances the wrapper.
             contBuf = [norm];
+            contBufLines = [ln + 1];
             bracketDepth = openDepth;
             continue;
           }
@@ -1334,11 +1444,16 @@
       // be emitted (invalid, but visible). With the continuation buffer it would
       // vanish silently, so flush whatever is pending before reporting errors.
       if (contBuf.length) {
-        contBuf.forEach(seg => out.push('    '.repeat(level) + restore(seg)));
+        contBuf.forEach((seg, idx) => push('    '.repeat(level) + restore(seg), contBufLines[idx] || lines.length));
         contBuf = [];
+        contBufLines = [];
       }
       if (level > 0) throw { line: lines.length, message: `${level} unclosed block(s), missing "end"` };
-      return out.join('\n');
+      return { code: out.join('\n'), lineMap };
+    }
+
+    function transpileLua(src) {
+      return transpileLuaEx(src).code;
     }
 
      function editorLang() {
@@ -1562,7 +1677,7 @@
        doc.modelListener = doc.model.onDidChangeContent(() => {
          doc.code = doc.model.getValue();
          if (!doc.suppressDirty) markEditorDirty(doc);
-         if (doc.id === editorState.activeId) scheduleFuncHighlights();
+          if (doc.id === editorState.activeId) { scheduleFuncHighlights(); scheduleValidation(); }
        });
        return doc.model;
      }
@@ -1643,6 +1758,7 @@
        renderEditorTabs();
        renderFuncPane();
        refreshFuncHighlights();
+       scheduleValidation();
        setEditorStatus(doc.dirty ? 'Unsaved changes' : `Ready — ${editorDisplayName(doc)}`);
      }
      function createEditorDocument({ name = '', path = null, language = 'lua', code } = {}) {
@@ -1659,6 +1775,10 @@
          loading: false,
          saving: false,
          suppressDirty: false,
+         diagnostics: [],
+         validationCode: null,
+         validating: false,
+         validationPending: false,
        };
        editorState.docs.push(doc);
        if (!editorState.activeId) editorState.activeId = doc.id;
@@ -1737,6 +1857,11 @@
      async function editorRun() {
        const doc = activeEditorDocument();
        if (!doc) return;
+       const errors = editorErrorCount(doc);
+       if (errors > 0) {
+         const proceed = await ask('Script có lỗi', `${editorDisplayName(doc)} có ${errors} lỗi theo kiểm tra tĩnh. Vẫn chạy?`, 'Vẫn chạy', true);
+         if (proceed !== true) { setEditorStatus('Đã huỷ chạy — sửa lỗi rồi thử lại.'); return; }
+       }
        let code;
        try { code = currentPayload(); } catch (e) { showToast(e.message, true); setEditorStatus('Transpile failed — ' + e.message); return; }
       setButtonBusy(elements.editorRun, true, 'Running…');
@@ -1910,6 +2035,9 @@
          // A language swap changes comment syntax but not content, so it does
          // not fire onDidChangeContent — repaint or the masks go stale.
          refreshFuncHighlights();
+         // Same source, different language => different payload to check.
+         doc.validationCode = null;
+         scheduleValidation();
        }
        if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
        if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);

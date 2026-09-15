@@ -7,6 +7,7 @@
 #include "AlertBox.h"
 #include "Record.h"
 #include "Play.h"
+#include "ScriptPlayer.h"
 #include "SocketServer.h"
 #include "Toast.h"
 #include "Common.h"
@@ -145,6 +146,22 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             if (err)
             {
                 notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            }
+        }
+    }
+    else if (taskType == TASK_VALIDATE_SCRIPT)
+    {
+        @autoreleasepool {
+            NSString *scriptPath = [NSString stringWithUTF8String:(char*)eventData];
+            NSString *validationError = [ScriptPlayer validateScriptAtPath:scriptPath];
+            if (validationError)
+            {
+                NSString *message = [NSString stringWithFormat:@"-1;;%@\r\n", validationError];
+                notifyClient((UInt8*)message.UTF8String, writeStreamRef);
             }
             else
             {

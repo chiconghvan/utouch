@@ -115,6 +115,28 @@ static NSString *ZXPythonModulePath(void)
     int _completedRuns;
 }
 
++ (NSString *)validateScriptAtPath:(NSString *)path
+{
+    if (path.length == 0 || ![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+        return @"Script file not found.";
+    }
+    NSString *pythonPath = ZXPythonPath();
+    if (!pythonPath) {
+        return @"Python is not installed on this device.";
+    }
+    NSString *modulePath = ZXPythonModulePath();
+    NSString *envPrefix = modulePath.length > 0 ? [NSString stringWithFormat:@"PYTHONPATH=%@ ", ZXShellQuote(modulePath)] : @"";
+    // The checker writes <path>.diag.json itself; exit code 0 covers "ran",
+    // including scripts that legitimately have diagnostics.
+    NSString *command = [NSString stringWithFormat:@"%@%@ -m zxtouch.checker %@ 2>&1",
+                         envPrefix, ZXShellQuote(pythonPath), ZXShellQuote(path)];
+    int status = system2([command UTF8String], NULL, NULL);
+    if (status != 0) {
+        return [NSString stringWithFormat:@"Checker exited with status %d.", status];
+    }
+    return nil;
+}
+
 - (BOOL)isPlaying {
     return isPlaying;
 }

@@ -17,6 +17,10 @@
 
 - (id)initWithPath:(NSString*)path;
 
+// Runs `python3 -m zxtouch.checker <path>` synchronously and leaves the report
+// at `<path>.diag.json`. Returns nil on success, or a short error string.
++ (NSString *)validateScriptAtPath:(NSString *)path;
+
 - (int)play:(NSError**)error;
 - (BOOL)isPlaying;
 - (NSString*)getCurrentBundlePath;

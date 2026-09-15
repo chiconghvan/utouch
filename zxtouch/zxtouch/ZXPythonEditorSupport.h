@@ -8,7 +8,15 @@ NS_ASSUME_NONNULL_BEGIN
 + (NSString *)indentationForNewLineAfterText:(NSString *)text cursorLocation:(NSUInteger)cursorLocation;
 + (NSArray<NSDictionary *> *)tokensForSource:(NSString *)source;
 + (NSArray<NSDictionary *> *)completionsForSource:(NSString *)source cursorLocation:(NSUInteger)cursorLocation;
-+
+
+/// Parse the JSON report written by `zxtouch.checker` into normalized
+/// diagnostics: `{ code, severity, line, column, endLine, endColumn, message }`.
++ (NSArray<NSDictionary *> *)diagnosticsFromReportData:(NSData *)data;
+
+/// Convert 1-based line/column diagnostics into `NSRange`s within `source`.
+/// Each result is `{ range, severity, message, code }`, ready for underlining.
++ (NSArray<NSDictionary *> *)rangesForDiagnostics:(NSArray<NSDictionary *> *)diagnostics inSource:(NSString *)source;
+
 @end
 
 NS_ASSUME_NONNULL_END

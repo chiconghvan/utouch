@@ -7,6 +7,15 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [Unreleased]
+
+### Đã thêm
+- "Compiler" kiểm tra tĩnh cho script: vừa gõ vừa kiểm (debounce) và khi Run/Save, áp dụng cho cả Monaco (dashboard) lẫn editor native trên iPhone.
+- Đánh giá dựa trên cấu trúc từng hàm qua `zxtouch.apispec`: sai cú pháp/cấu trúc câu lệnh, hàm không tồn tại, thiếu/thừa/sai keyword, sai kiểu literal, ngoài enum/range.
+- Engine dùng chung `zxtouch.checker` (Python `ast`); task socket `49` chạy checker trên thiết bị; endpoint `POST /api/editor/validate` cho dashboard.
+- Monaco hiển thị gạch chân lỗi (markers) kèm dòng trạng thái; script Lua được map ngược số dòng qua `lineMap` của transpiler.
+- Editor native hiển thị gạch chân đỏ/cam, dòng trạng thái và danh sách Problems; hỏi xác nhận khi lưu script còn lỗi.
+
 ## [0.3.27] — 2026-09-15
 
 ### Đã thay đổi

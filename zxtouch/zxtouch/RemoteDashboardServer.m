@@ -486,6 +486,11 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
 - (NSString *)sendSocketCommand:(NSString *)command expectsReply:(BOOL)expectsReply
 {
+    return [self sendSocketCommand:command expectsReply:expectsReply timeout:2.0];
+}
+
+- (NSString *)sendSocketCommand:(NSString *)command expectsReply:(BOOL)expectsReply timeout:(NSTimeInterval)timeout
+{
     int socketHandle = socket(AF_INET, SOCK_STREAM, 0);
     if (socketHandle < 0) {
         self.lastError = @"Unable to create a local ZXTouch connection.";
@@ -496,9 +501,11 @@ static NSArray *ZXEditorFunctionCatalog(void)
     address.sin_family = AF_INET;
     address.sin_port = htons(6000);
     inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
-    struct timeval timeout = {2, 0};
-    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-    setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
+    struct timeval tv;
+    tv.tv_sec = (time_t)timeout;
+    tv.tv_usec = (suseconds_t)((timeout - (NSTimeInterval)tv.tv_sec) * 1000000.0);
+    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(socketHandle, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
     if (connect(socketHandle, (struct sockaddr *)&address, sizeof(address)) != 0) {
         self.lastError = @"Unable to connect to the local ZXTouch service.";
         close(socketHandle);
@@ -773,6 +780,24 @@ static NSArray *ZXEditorFunctionCatalog(void)
         return nil;
     }
     return bundlePath;
+}
+
+- (NSString *)writeValidationSourceWithCode:(NSString *)code error:(NSError **)error
+{
+    // Fresh file per request so overlapping checks cannot read each other's
+    // report. Lives next to the runtime log dir, outside the script library.
+    NSString *directory = [[RUNTIME_OUTPUT_PATH stringByDeletingLastPathComponent]
+        stringByAppendingPathComponent:@"editorcheck"];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if (![fileManager createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:error]) {
+        return nil;
+    }
+    NSString *path = [directory stringByAppendingPathComponent:
+        [NSString stringWithFormat:@"check_%@.py", [[NSUUID UUID] UUIDString]]];
+    if (![code writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:error]) {
+        return nil;
+    }
+    return path;
 }
 
 - (NSString *)sanitizedScriptName:(id)rawName
@@ -1113,6 +1138,45 @@ static NSArray *ZXEditorFunctionCatalog(void)
         }
         strongSelf.lastAction = [NSString stringWithFormat:@"Editor save %@", relativePath.lastPathComponent];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": relativePath } status:200];
+    }];
+
+    // POST /api/editor/validate {code} — static analysis of the script.
+    // The browser sends Python (Lua is transpiled client-side); the code is
+    // staged to a temp file and the SpringBoard service runs
+    // `python3 -m zxtouch.checker` on it, writing the report next to the file.
+    [self.server addHandlerForMethod:@"POST" path:@"/api/editor/validate" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        NSDictionary *body = [((GCDWebServerDataRequest *)request).jsonObject isKindOfClass:[NSDictionary class]] ? ((GCDWebServerDataRequest *)request).jsonObject : @{};
+        NSString *code = [body[@"code"] isKindOfClass:[NSString class]] ? body[@"code"] : @"";
+        if (code.length > ZXEditorMaximumCodeLength) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Code is too large (256 KB max)." } status:413];
+        }
+        if (code.length == 0) {
+            return [strongSelf jsonResponse:@{ @"ok": @YES, @"clean": @YES, @"diagnostics": @[] } status:200];
+        }
+        NSError *error = nil;
+        NSString *path = [strongSelf writeValidationSourceWithCode:code error:&error];
+        if (!path) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to stage the script for checking." } status:500];
+        }
+        NSString *reportPath = [path stringByAppendingString:@".diag.json"];
+        // Cold Python start + prelude import can exceed the default 2s budget.
+        NSString *reply = [strongSelf sendSocketCommand:[@"49" stringByAppendingString:path] expectsReply:YES timeout:30.0];
+        NSData *reportData = [NSData dataWithContentsOfFile:reportPath];
+        [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+        [[NSFileManager defaultManager] removeItemAtPath:reportPath error:nil];
+        NSDictionary *report = reportData.length ? [NSJSONSerialization JSONObjectWithData:reportData options:0 error:nil] : nil;
+        if (![report isKindOfClass:[NSDictionary class]]) {
+            NSString *message = [reply stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if ([message hasPrefix:@"-1;;"]) message = [message substringFromIndex:4];
+            if (message.length == 0) message = @"The script checker did not return a report.";
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": message } status:503];
+        }
+        strongSelf.lastAction = @"Editor validate";
+        return [strongSelf jsonResponse:@{ @"ok": @YES,
+                                           @"clean": @([report[@"ok"] boolValue]),
+                                           @"diagnostics": report[@"diagnostics"] ?: @[] } status:200];
     }];
 }
 

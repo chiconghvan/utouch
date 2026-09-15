@@ -1,7 +1,18 @@
 #import "ScriptEditorViewController.h"
 #import "ZXPythonEditorSupport.h"
+#import "Socket.h"
 
 @interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate>
+- (void)refreshBarButtons;
+- (void)scheduleValidation;
+- (void)runValidation;
+- (NSString *)validationFilePath;
+- (NSArray<NSDictionary *> *)validateSource:(NSString *)source;
+- (void)applyDiagnosticsToAttributedString:(NSMutableAttributedString *)attributed source:(NSString *)source;
+- (NSInteger)errorCount;
+- (void)updateValidationStatus;
+- (void)showProblems;
+- (void)writeFile;
 @end
 
 @implementation ScriptEditorViewController
@@ -14,6 +25,12 @@
     NSArray<NSDictionary *> *completionItems;
     NSRange completionRange;
     UIBarButtonItem *formatButton;
+    UIBarButtonItem *saveButton;
+    UIBarButtonItem *problemsButton;
+    NSTimer *validationTimer;
+    NSArray<NSDictionary *> *diagnostics;
+    NSString *diagnosticsSource;
+    NSUInteger validationGeneration;
 }
 
 - (void)viewDidLoad {
@@ -36,10 +53,11 @@
                                                         style:UIBarButtonItemStylePlain
                                                        target:self
                                                        action:@selector(formatFile)];
-        self.navigationItem.rightBarButtonItems = @[formatButton];
+        [self refreshBarButtons];
     }
     [self applySyntaxHighlightingPreservingSelection:NO];
     isSaveButtonShown = NO;
+    [self scheduleValidation];
 }
 
 - (void)setFile:(NSString *)file {
@@ -64,23 +82,41 @@
     [self.view addSubview:completionTableView];
 }
 
+- (void)refreshBarButtons {
+    NSMutableArray<UIBarButtonItem *> *items = [NSMutableArray array];
+    if (formatButton) [items addObject:formatButton];
+    if (diagnostics.count > 0) {
+        if (!problemsButton) {
+            problemsButton = [[UIBarButtonItem alloc] initWithTitle:@"Problems"
+                                                              style:UIBarButtonItemStylePlain
+                                                             target:self
+                                                             action:@selector(showProblems)];
+        }
+        [items addObject:problemsButton];
+    }
+    if (isSaveButtonShown) {
+        if (!saveButton) {
+            saveButton = [[UIBarButtonItem alloc] initWithTitle:@"Save"
+                                                          style:UIBarButtonItemStylePlain
+                                                         target:self
+                                                         action:@selector(saveFile)];
+        }
+        [items addObject:saveButton];
+    }
+    self.navigationItem.rightBarButtonItems = items.count ? items : nil;
+}
+
 - (void)showSaveButton {
     if (!isSaveButtonShown) {
-        UIBarButtonItem *save = [[UIBarButtonItem alloc] initWithTitle:@"Save"
-                                                                  style:UIBarButtonItemStylePlain
-                                                                 target:self
-                                                                 action:@selector(saveFile)];
-        if (formatButton) self.navigationItem.rightBarButtonItems = @[formatButton, save];
-        else [self.navigationItem setRightBarButtonItem:save animated:YES];
         isSaveButtonShown = YES;
+        [self refreshBarButtons];
     }
 }
 
 - (void)hideSaveButton {
     if (isSaveButtonShown) {
-        if (formatButton) self.navigationItem.rightBarButtonItems = @[formatButton];
-        else [self.navigationItem setRightBarButtonItem:nil animated:YES];
         isSaveButtonShown = NO;
+        [self refreshBarButtons];
     }
 }
 
@@ -94,6 +130,7 @@
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
     [self updateCompletions];
+    [self scheduleValidation];
 }
 
 - (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
@@ -109,6 +146,7 @@
         [self applySyntaxHighlightingPreservingSelection:YES];
         [self showSaveButton];
         [self updateCompletions];
+        [self scheduleValidation];
         return NO;
     }
     if (text.length > 1 && [text containsString:@"\n"]) {
@@ -182,6 +220,8 @@
         [self applyColor:[UIColor systemBlueColor] pattern:@"`[^`]+`" options:0 inString:content attributedString:highlighted];
         [self applyColor:[UIColor systemGreenColor] pattern:@"\\[[^\\]]+\\]\\([^\\)]+\\)" options:0 inString:content attributedString:highlighted];
     }
+
+    if ([extension isEqualToString:@"py"]) [self applyDiagnosticsToAttributedString:highlighted source:content];
 
     isApplyingHighlight = YES;
     _textInput.attributedText = highlighted;
@@ -268,6 +308,131 @@
     [self hideCompletions];
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
+    [self scheduleValidation];
+}
+
+#pragma mark - Validation
+
+- (void)scheduleValidation {
+    [validationTimer invalidate];
+    if (![self isPythonFile]) return;
+    validationTimer = [NSTimer scheduledTimerWithTimeInterval:0.6
+                                                       target:self
+                                                     selector:@selector(runValidation)
+                                                     userInfo:nil
+                                                      repeats:NO];
+}
+
+- (NSString *)validationFilePath {
+    NSString *directory = @"/var/mobile/Library/ZXTouch/tmp";
+    [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
+    return [directory stringByAppendingPathComponent:@"editor_check.py"];
+}
+
+- (void)runValidation {
+    if (![self isPythonFile] || isApplyingEdit) return;
+    NSString *source = _textInput.text ?: @"";
+    validationGeneration += 1;
+    NSUInteger generation = validationGeneration;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        typeof(self) strongSelf = weakSelf;
+        if (!strongSelf) return;
+        NSArray<NSDictionary *> *results = [strongSelf validateSource:source];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) main = weakSelf;
+            if (!main || generation != main->validationGeneration) return;
+            main->diagnostics = results ?: @[];
+            main->diagnosticsSource = source;
+            [main applySyntaxHighlightingPreservingSelection:YES];
+            [main updateValidationStatus];
+        });
+    });
+}
+
+- (NSArray<NSDictionary *> *)validateSource:(NSString *)source {
+    NSString *path = [self validationFilePath];
+    NSError *error = nil;
+    if (![source writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:&error]) return @[];
+    NSString *reportPath = [path stringByAppendingString:@".diag.json"];
+    [[NSFileManager defaultManager] removeItemAtPath:reportPath error:nil];
+
+    // The SpringBoard service runs `python3 -m zxtouch.checker` and writes the
+    // report next to the staged file; the reply is only an ack.
+    Socket *socket = [[Socket alloc] init];
+    if ([socket connect:@"127.0.0.1" byPort:6000] != 0) return @[];
+    [socket setReceiveTimeout:30];
+    [socket send:[NSString stringWithFormat:@"49%@\r\n", path]];
+    [socket recv:256];
+    [socket close];
+
+    NSData *data = [NSData dataWithContentsOfFile:reportPath];
+    NSArray<NSDictionary *> *results = [ZXPythonEditorSupport diagnosticsFromReportData:data];
+    [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    [[NSFileManager defaultManager] removeItemAtPath:reportPath error:nil];
+    return results;
+}
+
+- (void)applyDiagnosticsToAttributedString:(NSMutableAttributedString *)attributed source:(NSString *)source {
+    if (diagnostics.count == 0) return;
+    // Ranges were computed for a specific revision; skip until the fresh
+    // result arrives instead of painting stale positions.
+    if (diagnosticsSource && ![diagnosticsSource isEqualToString:source]) return;
+    NSArray<NSDictionary *> *annotations = [ZXPythonEditorSupport rangesForDiagnostics:diagnostics inSource:source];
+    for (NSDictionary *annotation in annotations) {
+        NSRange range = [annotation[@"range"] rangeValue];
+        if (range.length == 0 || NSMaxRange(range) > attributed.length) continue;
+        BOOL isError = ![annotation[@"severity"] isEqualToString:@"warning"];
+        UIColor *color = isError ? UIColor.systemRedColor : UIColor.systemOrangeColor;
+        [attributed addAttribute:NSUnderlineStyleAttributeName value:@(NSUnderlineStyleSingle) range:range];
+        [attributed addAttribute:NSUnderlineColorAttributeName value:color range:range];
+        [attributed addAttribute:NSBackgroundColorAttributeName value:[color colorWithAlphaComponent:0.12] range:range];
+    }
+}
+
+- (NSInteger)errorCount {
+    NSInteger count = 0;
+    for (NSDictionary *item in diagnostics) {
+        if ([item[@"severity"] isEqualToString:@"error"]) count += 1;
+    }
+    return count;
+}
+
+- (void)updateValidationStatus {
+    if (![self isPythonFile]) {
+        self.navigationItem.prompt = nil;
+        [self refreshBarButtons];
+        return;
+    }
+    if (diagnostics.count == 0) {
+        self.navigationItem.prompt = @"✓ Không phát hiện lỗi";
+        [self refreshBarButtons];
+        return;
+    }
+    NSInteger errors = 0, warnings = 0;
+    NSDictionary *first = diagnostics.firstObject;
+    BOOL foundError = NO;
+    for (NSDictionary *item in diagnostics) {
+        if ([item[@"severity"] isEqualToString:@"warning"]) { warnings += 1; continue; }
+        if ([item[@"severity"] isEqualToString:@"error"]) { errors += 1; }
+        if (!foundError) { first = item; foundError = YES; }
+    }
+    self.navigationItem.prompt = [NSString stringWithFormat:@"%ld lỗi, %ld cảnh báo — dòng %@",
+                                  (long)errors, (long)warnings, first[@"line"] ?: @0];
+    [self refreshBarButtons];
+}
+
+- (void)showProblems {
+    if (diagnostics.count == 0) return;
+    NSMutableString *message = [NSMutableString string];
+    for (NSDictionary *item in diagnostics) {
+        [message appendFormat:@"Dòng %@ — %@\n", item[@"line"] ?: @0, item[@"message"] ?: @""];
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Problems"
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)formatFile {
@@ -287,9 +452,27 @@
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
     [self hideCompletions];
+    [self scheduleValidation];
 }
 
 - (void)saveFile {
+    NSInteger errors = [self errorCount];
+    if (errors > 0) {
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Code còn lỗi"
+                                                                       message:[NSString stringWithFormat:@"Script còn %ld lỗi theo kiểm tra. Vẫn lưu?", (long)errors]
+                                                                preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"Huỷ" style:UIAlertActionStyleCancel handler:nil]];
+        __weak typeof(self) weakSelf = self;
+        [alert addAction:[UIAlertAction actionWithTitle:@"Vẫn lưu" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+            [weakSelf writeFile];
+        }]];
+        [self presentViewController:alert animated:YES completion:nil];
+        return;
+    }
+    [self writeFile];
+}
+
+- (void)writeFile {
     NSError *err = nil;
     [[_textInput text] writeToFile:currentFilePath atomically:YES encoding:NSUTF8StringEncoding error:&err];
     if (err) {
@@ -302,6 +485,11 @@
         return;
     }
     [self hideSaveButton];
+}
+
+- (void)dealloc {
+    [validationTimer invalidate];
+    validationTimer = nil;
 }
 
 @end

@@ -24,6 +24,7 @@
 15. [HTTP APIs (9)](#sec-rest)
 16. [Crane Containers (10)](#sec-crane)
 17. [Device Spoofing (10)](#sec-spoof)
+18. [Kiem tra script (Validation)](#sec-validate)
 
 ---
 
@@ -2934,4 +2935,53 @@ spoof.webgl(false)  -- Block WebGL fingerprint
 -- Done with spoofing, restore original\nspoof.reset()
 ```
 ---
+<a id="sec-validate"></a>
+## Kiem tra script (Script Validation)
+
+> Tinh nang cua ZXTouch (khong co trong IOSControl goc).
+
+Ca hai trinh soan thao — **Monaco** tren dashboard (`layout/Applications/zxtouch.app/index.html`)
+va **editor native** tren iPhone (`ScriptEditorViewController`) — deu chay kiem tra tinh (static
+check) dua tren **cau truc cua tung ham** trong catalog (`zxtouch.apispec`, introspect tu
+`zxtouch.prelude`). Ket qua hien ngay trong editor:
+
+- Monaco: gach chan + dau o le (markers) tai dong loi.
+- Native: gach chan do (loi) / cam (canh bao) va dong trang thai duoi tieu de.
+
+**Khi nao chay:** vua go vua kiem (debounce ~0.5s) va khi Run/Save. Neu con loi, editor hoi xac
+nhan truoc khi chay hoac luu.
+
+### Pham vi kiem tra
+
+| Nhom | Mo ta |
+| --- | --- |
+| Cu phap | Cau truc cau lenh Python: indent, ngoac, block. Lua duoc transpile truoc roi map nguoc so dong. |
+| API | Ten ham co ton tai, dung so tham so, du tham so bat buoc, dung ten keyword, khong truyen trung. |
+| Kieu du lieu | Literal truyen vao sai kieu so voi spec (`number` / `text` / `table` / `boolean`). |
+| Enum / range | Gia tri literal ngoai tap cho phep (vi du `direction` = up/down/left/right, `finger` 0-9, `threshold` 0-1). |
+| Goi y | Ten ham go sai duoc goi y ten gan dung nhat. |
+
+### Ma chan doan
+
+| Ma | Muc do | Y nghia |
+| --- | --- | --- |
+| `E100` | error | Loi cu phap / cau truc cau lenh |
+| `E200` | error | Ham khong ton tai |
+| `E201` | error | Thua tham so |
+| `E202` | error | Thieu tham so bat buoc |
+| `E203` | error | Ten keyword khong hop le |
+| `E204` | error | Tham so bi truyen hai lan |
+| `E301` | error | Gia tri ngoai enum |
+| `E302` | error | Gia tri ngoai range |
+| `W300` | warning | Sai kieu du lieu (literal) |
+
+### Chay truc tiep tren thiet bi
+
+```sh
+python3 -m zxtouch.checker /path/to/entry.py
+# Bao cao JSON duoc ghi vao /path/to/entry.py.diag.json
+```
+
+Dashboard goi qua `POST /api/editor/validate` voi body `{ "code": "<python source>" }`.
+
 

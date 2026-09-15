@@ -51,6 +51,14 @@
     return socketHandle != 0;
 }
 
+-(void) setReceiveTimeout: (int)seconds
+{
+    struct timeval tv;
+    tv.tv_sec = seconds;
+    tv.tv_usec = 0;
+    setsockopt(socketHandle, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+}
+
 -(void) send: (NSString*)msg
 {
     const char *buffer = [msg UTF8String];

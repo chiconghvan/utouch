@@ -21,27 +21,28 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const HTML = path.join(here, '..', '..', 'zxtouch', 'zxtouch', 'http', 'index.html');
 const STAGED = path.join(here, '..', '..', 'layout', 'Applications', 'zxtouch.app', 'index.html');
 
-/** Extract `function transpileLua(src) { ... }` by anchoring on the next
- *  top-level function (`editorLang`). A brace/string scanner would not be
- *  robust here: transpileLua contains regex literals whose quote characters
- *  defeat naive string-skipping. */
-function extractFn(source, name) {
-  assert.equal(name, 'transpileLua', 'anchor extraction is only wired for transpileLua');
-  const at = source.indexOf(`function ${name}(`);
-  assert.notEqual(at, -1, `function ${name}() not found in dashboard HTML`);
-  const next = source.indexOf('function editorLang()', at);
-  assert.notEqual(next, -1, 'anchor function editorLang() not found after transpileLua()');
+/** Extract the transpiler body. The shipped code defines `transpileLuaEx()`
+ *  (returns `{ code, lineMap }`) plus a thin `transpileLua()` wrapper, so the
+ *  body is sliced from `function transpileLuaEx(` to the wrapper's
+ *  `function transpileLua(` — a brace/string scanner would not be robust here:
+ *  the function contains regex literals whose quote characters defeat naive
+ *  string-skipping. */
+function extractTranspiler(source) {
+  const at = source.indexOf('function transpileLuaEx(');
+  assert.notEqual(at, -1, 'function transpileLuaEx() not found in dashboard HTML');
+  const next = source.indexOf('function transpileLua(', at);
+  assert.notEqual(next, -1, 'anchor function transpileLua() not found after transpileLuaEx()');
   const body = source.slice(at, next).trimEnd();
-  assert.ok(body.endsWith('}'), 'extracted transpileLua does not end with "}"');
+  assert.ok(body.endsWith('}'), 'extracted transpileLuaEx does not end with "}"');
   return body;
 }
 
 const src = readFileSync(HTML, 'utf8');
-const transpileLua = eval(`(${extractFn(src, 'transpileLua')})`);
+const transpileLuaEx = eval(`(${extractTranspiler(src)})`);
 
 // ---------------------------------------------------------------- helpers
 
-function py(src) { return transpileLua(src); }
+function py(src) { return transpileLuaEx(src).code; }
 
 /** Rough syntax guard for the emitted code: balanced parens, no Lua
  *  leftovers (`end`, `local`, `~=`, `..` outside strings), no leaked
@@ -281,7 +282,7 @@ test('every transpiled snippet parses as valid Python', (t) => {
   }
   if (!python) { t.skip('no python interpreter on PATH'); return; }
   for (const snippet of PY_SNIPPETS) {
-    const out = transpileLua(snippet);
+    const out = py(snippet);
     try {
       execFileSync(python, ['-c', 'import sys, ast; ast.parse(sys.stdin.read())'],
         { input: out, stdio: ['pipe', 'ignore', 'pipe'] });
@@ -298,6 +299,39 @@ test('staged app dashboard carries the identical transpiler', () => {
   let staged;
   try { staged = readFileSync(STAGED, 'utf8'); }
   catch { return; } // layout/ is not checked out on every working copy
-  assert.equal(extractFn(staged, 'transpileLua'), extractFn(src, 'transpileLua'),
-    'layout/Applications/zxtouch.app/index.html must carry the same transpileLua()');
+  assert.equal(extractTranspiler(staged), extractTranspiler(src),
+    'layout/Applications/zxtouch.app/index.html must carry the same transpileLuaEx()');
+});
+
+// ---------------------------------------------------------------- line map
+
+test('lineMap maps every emitted line back to its Lua source line', () => {
+  const result = transpileLuaEx('tap(200, 300)\n\nlog("done")');
+  assert.equal(result.lineMap.length, result.code.split('\n').length,
+    'lineMap must have one entry per emitted line');
+  assert.deepEqual(result.lineMap, [1, 2, 3]);
+});
+
+test('lineMap survives block openers, closers and blank lines', () => {
+  const lua = 'for i = 1, 3 do\n  log(i)\nend\n\nlog("after")';
+  const result = transpileLuaEx(lua);
+  const out = result.code.split('\n');
+  // "end" emits nothing, so the closing line is dropped from the map.
+  assert.equal(out.length, result.lineMap.length);
+  assert.equal(result.lineMap[0], 1);            // for header
+  assert.equal(result.lineMap[1], 2);            // body
+  assert.equal(result.lineMap[out.length - 1], 5); // trailing log()
+  assert.ok(!result.lineMap.includes(3), '"end" must not own an emitted line');
+});
+
+test('lineMap maps the head of a multi-line statement to its first line', () => {
+  const result = transpileLuaEx('httpGet(url, {\n  ["Authorization"] = "Bearer t"\n})');
+  assert.equal(result.lineMap[0], 1);
+  assert.equal(result.lineMap.length, result.code.split('\n').length);
+});
+
+test('one-line compound maps both emitted lines to the same source line', () => {
+  const result = transpileLuaEx('if x then log(1); log(2) end');
+  assert.equal(result.lineMap.length, result.code.split('\n').length);
+  assert.ok(result.lineMap.every(line => line === 1));
 });

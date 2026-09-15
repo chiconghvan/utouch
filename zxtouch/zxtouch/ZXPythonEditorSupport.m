@@ -471,4 +471,84 @@ static NSString *ZXTrimTrailingWhitespace(NSString *line)
     }];
 }
 
++ (NSArray<NSDictionary *> *)diagnosticsFromReportData:(NSData *)data
+{
+    if (data.length == 0) return @[];
+    id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+    if (![json isKindOfClass:[NSDictionary class]]) return @[];
+    id list = ((NSDictionary *)json)[@"diagnostics"];
+    if (![list isKindOfClass:[NSArray class]]) return @[];
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
+    for (id raw in (NSArray *)list) {
+        if (![raw isKindOfClass:[NSDictionary class]]) continue;
+        NSDictionary *entry = raw;
+        id line = [entry[@"line"] isKindOfClass:[NSNumber class]] ? entry[@"line"] : @1;
+        id endLine = [entry[@"endLine"] isKindOfClass:[NSNumber class]] ? entry[@"endLine"] : line;
+        id column = [entry[@"column"] isKindOfClass:[NSNumber class]] ? entry[@"column"] : @1;
+        id endColumn = [entry[@"endColumn"] isKindOfClass:[NSNumber class]] ? entry[@"endColumn"] : column;
+        [out addObject:@{
+            @"code": [entry[@"code"] isKindOfClass:[NSString class]] ? entry[@"code"] : @"",
+            @"severity": [entry[@"severity"] isKindOfClass:[NSString class]] ? entry[@"severity"] : @"error",
+            @"line": line,
+            @"column": column,
+            @"endLine": endLine,
+            @"endColumn": endColumn,
+            @"message": [entry[@"message"] isKindOfClass:[NSString class]] ? entry[@"message"] : @"",
+        }];
+    }
+    return out;
+}
+
++ (NSUInteger)offsetForLine:(NSInteger)line column:(id)rawColumn lineStarts:(NSArray<NSNumber *> *)lineStarts textLength:(NSUInteger)length
+{
+    if (line < 1 || (NSUInteger)line > lineStarts.count) return length;
+    NSUInteger lineStart = [lineStarts[(NSUInteger)line - 1] unsignedIntegerValue];
+    BOOL lastLine = (NSUInteger)line == lineStarts.count;
+    // lineStarts[line] is the offset just past the "\n", so a non-final line's
+    // content ends one unit earlier.
+    NSUInteger lineEnd = lastLine ? length : MAX(lineStart, [lineStarts[(NSUInteger)line] unsignedIntegerValue] - 1);
+    NSInteger column = [rawColumn respondsToSelector:@selector(integerValue)] ? [rawColumn integerValue] : 1;
+    if (column < 1) column = 1;
+    return lineStart + MIN((NSUInteger)(column - 1), lineEnd - lineStart);
+}
+
++ (NSArray<NSDictionary *> *)rangesForDiagnostics:(NSArray<NSDictionary *> *)diagnostics inSource:(NSString *)source
+{
+    NSString *text = source ?: @"";
+    NSUInteger length = text.length;
+
+    // Start offset of every line, in UTF-16 units (matches NSRange).
+    NSMutableArray<NSNumber *> *lineStarts = [NSMutableArray arrayWithObject:@(0)];
+    NSUInteger cursor = 0;
+    while (cursor < length) {
+        NSRange newline = [text rangeOfString:@"\n" options:0 range:NSMakeRange(cursor, length - cursor)];
+        if (newline.location == NSNotFound) break;
+        cursor = NSMaxRange(newline);
+        [lineStarts addObject:@(cursor)];
+    }
+
+    NSMutableArray<NSDictionary *> *out = [NSMutableArray array];
+    for (NSDictionary *diagnostic in diagnostics) {
+        if (![diagnostic isKindOfClass:[NSDictionary class]]) continue;
+        NSInteger line = [diagnostic[@"line"] integerValue];
+        if (line < 1 || (NSUInteger)line > lineStarts.count) continue;
+        NSInteger endLine = [diagnostic[@"endLine"] integerValue];
+        if (endLine < line) endLine = line;
+        if (endLine > (NSInteger)lineStarts.count) endLine = (NSInteger)lineStarts.count;
+
+        NSUInteger location = MIN([self offsetForLine:line column:diagnostic[@"column"] lineStarts:lineStarts textLength:length], length);
+        NSUInteger end = MIN([self offsetForLine:endLine column:diagnostic[@"endColumn"] lineStarts:lineStarts textLength:length], length);
+        if (end <= location) end = MIN(location + 1, length);
+        if (end <= location) end = location; // empty source at EOF
+        [out addObject:@{
+            @"range": [NSValue valueWithRange:NSMakeRange(location, end - location)],
+            @"severity": diagnostic[@"severity"] ?: @"error",
+            @"message": diagnostic[@"message"] ?: @"",
+            @"code": diagnostic[@"code"] ?: @"",
+            @"line": @(line),
+        }];
+    }
+    return out;
+}
+
 @end
