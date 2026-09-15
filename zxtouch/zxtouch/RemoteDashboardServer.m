@@ -158,6 +158,55 @@ static NSString *ZXDashboardIPAddress(void)
 @property(nonatomic, strong) NSDate *vncRecoveryAt;
 @end
 
+static NSString *ZXPreludePath(void)
+{
+    NSArray *paths = @[
+        @"/var/jb/usr/share/zxtouch/python/zxtouch/prelude.py",
+        @"/usr/share/zxtouch/python/zxtouch/prelude.py"
+    ];
+    for (NSString *path in paths) {
+        if ([[NSFileManager defaultManager] fileExistsAtPath:path]) return path;
+    }
+    return nil;
+}
+
+static NSArray *ZXEditorFunctionCatalog(void)
+{
+    NSString *path = ZXPreludePath();
+    NSString *source = path ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil] : nil;
+    if (source.length == 0) return @[];
+
+    // Only expose names injected by prelude.install(), not private helpers.
+    NSRange allStart = [source rangeOfString:@"__all__ = ["];
+    NSRange allEnd = allStart.location == NSNotFound ? NSMakeRange(NSNotFound, 0) :
+        [source rangeOfString:@"\n]" options:0 range:NSMakeRange(NSMaxRange(allStart), source.length - NSMaxRange(allStart))];
+    if (allStart.location == NSNotFound || allEnd.location == NSNotFound) return @[];
+    NSString *allSource = [source substringWithRange:NSMakeRange(NSMaxRange(allStart), allEnd.location - NSMaxRange(allStart))];
+    NSRegularExpression *quoted = [NSRegularExpression regularExpressionWithPattern:@"\\\"([A-Za-z_]\\w*)\\\"" options:0 error:nil];
+    NSMutableSet *exported = [NSMutableSet set];
+    [quoted enumerateMatchesInString:allSource options:0 range:NSMakeRange(0, allSource.length)
+                           usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop) {
+        [exported addObject:[allSource substringWithRange:[match rangeAtIndex:1]]];
+    }];
+
+    NSRegularExpression *defs = [NSRegularExpression regularExpressionWithPattern:@"^def\\s+([A-Za-z_]\\w*)\\s*\\((.*?)\\)\\s*:"
+                                                                               options:NSRegularExpressionDotMatchesLineSeparators | NSRegularExpressionAnchorsMatchLines
+                                                                                 error:nil];
+    NSMutableArray *functions = [NSMutableArray array];
+    [defs enumerateMatchesInString:source options:0 range:NSMakeRange(0, source.length)
+                         usingBlock:^(NSTextCheckingResult *match, NSMatchingFlags flags, BOOL *stop) {
+        NSString *name = [source substringWithRange:[match rangeAtIndex:1]];
+        if (![exported containsObject:name]) return;
+        NSString *args = [source substringWithRange:[match rangeAtIndex:2]];
+        args = [args stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+        args = [args stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        [functions addObject:@{ @"name": name,
+                                @"signature": [NSString stringWithFormat:@"%@(%@)", name, args],
+                                @"description": [NSString stringWithFormat:@"%@(%@)", name, args] }];
+    }];
+    return functions;
+}
+
 @implementation ZXRemoteDashboardServer
 
 - (instancetype)init
@@ -557,6 +606,12 @@ static NSString *ZXDashboardIPAddress(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"scripts": [strongSelf scripts] } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"GET" path:@"/api/editor/functions" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"functions": ZXEditorFunctionCatalog() } status:200];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/status" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {

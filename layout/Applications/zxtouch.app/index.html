@@ -234,9 +234,11 @@
     .func-group { padding: 2px 13px 0; }
     .func-group > h4 { margin: 10px 0 7px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
     .func-group > h4:first-child { margin-top: 4px; }
-    .func-list { display: flex; flex-wrap: wrap; gap: 5px; }
-    .func-item { min-height: 28px; padding: 3px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted-strong); background: var(--field); cursor: pointer; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
-    .func-item:hover { border-color: var(--blue); color: var(--text); }
+    .func-list { display: grid; gap: 4px; }
+    .func-item { position: relative; display: block; width: 100%; min-height: 28px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted-strong); background: var(--field); cursor: pointer; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .func-item:hover, .func-item:focus-visible { border-color: var(--blue); color: var(--text); }
+    .func-item[data-note]::after { content: attr(data-note); position: absolute; z-index: 5; left: calc(100% + 8px); top: -1px; display: none; width: 260px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; pointer-events: none; }
+    .func-item[data-note]:hover::after, .func-item[data-note]:focus-visible::after { display: block; }
     .runlog .panel-head { min-height: 56px; }
     .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .runlog-sep { color: var(--blue); }
@@ -539,13 +541,13 @@
     const editorState = { monaco: null, model: null, view: null, ready: false, useFallback: false, running: false, dirty: false, saving: false, autoSaveTimer: null };
     const LUA_SAMPLE = '-- Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     const PY_SAMPLE = '# Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
-    // Function palette: [name, luaTpl, pyTpl?]. Click inserts at cursor.
+    // Function palette: [name, luaTpl, pyTpl?, autocompleteTpl?].
     const FUNC_GROUPS = [
       { g: 'Control', items: [
-        ['if', 'if COND then\n  \nend', 'if COND:\n    '],
-        ['if/else', 'if COND then\n  \nelse\n  \nend', 'if COND:\n    \nelse:\n    '],
-        ['for', 'for i = 1, 5 do\n  \nend', 'for i in range(1, 6):\n    '],
-        ['while', 'while COND do\n  \nend', 'while COND:\n    '],
+        ['if', 'if COND then\n  \nend', 'if COND:\n    ', 'if'],
+        ['else', 'else', 'else:', 'else'],
+        ['for', 'for i = 1, 5 do\n  \nend', 'for i in range(1, 6):\n    ', 'for'],
+        ['while', 'while COND do\n  \nend', 'while COND:\n    ', 'while'],
       ]},
       { g: 'Touch', items: [
         ['tap(x, y)', 'tap(200, 300)'],
@@ -603,6 +605,9 @@
       ]},
       { g: 'Input', items: [
         ['inputText', 'inputText("hello")'],
+        ['showKeyboard', 'showKeyboard()', 'showKeyboard()'],
+        ['hideKeyboard', 'hideKeyboard()', 'hideKeyboard()'],
+        ['keyboardVisible', 'keyboardVisible()', 'keyboardVisible()'],
         ['keyDown', 'keyDown("home")'],
         ['keyUp', 'keyUp("home")'],
         ['getClipboard', 'getClipboard()'],
@@ -655,6 +660,60 @@
       ]},
     ];
 
+    // Runtime signatures are loaded from prelude.py so new APIs do not need
+    // a second manual registration in the editor.
+    const FUNCTION_DETAILS = new Map();
+    function functionKey(item) {
+      const name = Array.isArray(item) ? item[0] : item.name;
+      return String(name || '').split('(')[0].trim();
+    }
+    function functionLabel(item) { return String(Array.isArray(item) ? item[0] : item.name || ''); }
+    function functionSignature(item) {
+      const detail = FUNCTION_DETAILS.get(functionKey(item));
+      if (detail && detail.signature) return detail.signature;
+      const label = functionLabel(item);
+      if (['if', 'else', 'for', 'while'].includes(functionKey(item))) return label;
+      return label.includes('(') ? label : `${label}()`;
+    }
+    function functionTemplate(item, lang) {
+      if (Array.isArray(item)) return lang === 'python' ? (item[2] || item[1]) : item[1];
+      return item.signature || `${item.name}()`;
+    }
+    function functionAutocomplete(item, lang) {
+      if (Array.isArray(item)) return item[3] || functionTemplate(item, lang);
+      return `${functionKey(item)}()`;
+    }
+    function addFunctionCatalog(definitions) {
+      const dynamicGroup = FUNC_GROUPS.find(group => group.g === 'Device API') || (() => {
+        const group = { g: 'Device API', items: [] };
+        FUNC_GROUPS.push(group);
+        return group;
+      })();
+      const known = new Map();
+      FUNC_GROUPS.forEach(group => group.items.forEach(item => known.set(functionKey(item), item)));
+      (Array.isArray(definitions) ? definitions : []).forEach(definition => {
+        const name = String(definition?.name || '').trim();
+        if (!/^[A-Za-z_]\w*$/.test(name)) return;
+        FUNCTION_DETAILS.set(name, definition);
+        if (!known.has(name)) {
+          const item = [name, `${name}()`, `${name}()`, `${name}()`];
+          dynamicGroup.items.push(item);
+          known.set(name, item);
+        }
+        FUNC_HL.words.add(name);
+      });
+      renderFuncPane();
+      refreshFuncHighlights();
+    }
+    async function loadFunctionCatalog() {
+      try {
+        const payload = await api('/api/editor/functions');
+        addFunctionCatalog(payload.functions);
+      } catch (_) {
+        // Older daemons use the built-in fallback catalog.
+      }
+    }
+
     // Language keywords, shared by autocomplete filtering and highlighting.
     const RESERVED = {
       lua: new Set('and,break,do,else,elseif,end,false,for,function,if,in,local,nil,not,or,repeat,return,then,true,until,while'.split(',')),
@@ -669,8 +728,8 @@
     // and autocomplete — so the editor can never drift from what actually runs.
     const FUNC_HL = (() => {
       const words = new Set();
-      FUNC_GROUPS.forEach(group => group.items.forEach(([name]) => {
-        const base = String(name).split('(')[0].trim(); // "tap(x, y)" → "tap"
+      FUNC_GROUPS.forEach(group => group.items.forEach(item => {
+        const base = functionKey(item); // "tap(x, y)" -> "tap"
         if (!/^[A-Za-z_]\w*(\.\w+)*$/.test(base)) return; // skip "if/else", "keyDown/Up"
         if (RESERVED.lua.has(base) || RESERVED.python.has(base)) return; // let keyword colors stand
         words.add(base);
@@ -1219,8 +1278,6 @@
       const monaco = editorState.monaco;
       // --- Variable completion: identifiers already declared in the current
       // script (locals, loop vars, function names) complete like functions.
-      const FUNC_NAMES = new Set();
-      FUNC_GROUPS.forEach(g => g.items.forEach(([name]) => FUNC_NAMES.add(name)));
       let varCache = { version: -1, lang: '', items: [] };
       function collectVariables(model, lang) {
         if (varCache.version === model.getVersionId() && varCache.lang === lang) return varCache.items;
@@ -1230,7 +1287,8 @@
        const push = name => {
            name = String(name).trim();
            if (!name || seen.has(name)) return;
-          if (RESERVED[lang].has(name) || FUNC_NAMES.has(name)) return;
+           const isFunctionName = FUNC_GROUPS.some(group => group.items.some(item => functionKey(item) === name));
+           if (RESERVED[lang].has(name) || isFunctionName) return;
           if (!/^[A-Za-z_]\w*$/.test(name)) return;
           seen.add(name);
           if (out.length >= 150) return;
@@ -1246,18 +1304,21 @@
           });
         };
          const pushList = s => String(s).split(',').map(name => name.trim()).filter(Boolean).forEach(push);
-        let m;
+         const pushParameters = params => String(params).split(',').map(param => {
+           return param.trim().replace(/^\*{0,2}/, '').split(/[=:]/, 1)[0].trim();
+         }).filter(param => /^[A-Za-z_]\w*$/.test(param)).forEach(push);
+         let m;
         // local x / local x, y = ... (lua)
         if (lang === 'lua') {
           const reLocal = /\blocal\s+([A-Za-z_][\w\s,]*)/g;
           while ((m = reLocal.exec(text))) pushList(m[1].split('=')[0]);
           const reFor = /\bfor\s+([A-Za-z_]\w*)/g;
           while ((m = reFor.exec(text))) push(m[1]);
-          const reFn = /\bfunction\s+([A-Za-z_][\w.:]*)/g;
-          while ((m = reFn.exec(text))) push(m[1].split(/[.:]/).pop());
-        } else {
-          const reDef = /\bdef\s+([A-Za-z_]\w*)/g;
-          while ((m = reDef.exec(text))) push(m[1]);
+           const reFn = /\bfunction\s+([A-Za-z_][\w.:]*)\s*\(([^)]*)\)/g;
+           while ((m = reFn.exec(text))) { push(m[1].split(/[.:]/).pop()); pushParameters(m[2]); }
+         } else {
+           const reDef = /\bdef\s+([A-Za-z_]\w*)\s*\(([^)]*)\)/g;
+           while ((m = reDef.exec(text))) { push(m[1]); pushParameters(m[2]); }
           const reFor = /\bfor\s+([A-Za-z_]\w*)\s+in\b/g;
           while ((m = reFor.exec(text))) push(m[1]);
           const reImp = /^\s*import\s+([\w.,\s]+)/gm;
@@ -1280,14 +1341,15 @@
           // Item shape: [name, luaTpl, pyTpl?, acTpl?]. acTpl (when present)
           // is the short signature inserted by autocomplete, while the
           // palette button still inserts the full usage snippet.
-          group.items.forEach(([name, lua, py, ac]) => {
-            const tpl = lang === 'python' ? (py || lua) : lua;
-            items.push({
+             group.items.forEach(item => {
+             const name = functionLabel(item);
+             const tpl = functionTemplate(item, lang);
+             items.push({
               label: name,
               kind: monaco.languages.CompletionItemKind.Function,
               detail: group.g,
-              documentation: { value: '```' + (lang === 'python' ? 'python' : 'lua') + '\n' + tpl + '\n```' },
-              insertText: ac || tpl,
+              documentation: { value: '```' + (lang === 'python' ? 'python' : 'lua') + '\n' + functionSignature(item) + '\n```' },
+               insertText: functionAutocomplete(item, lang) || tpl,
               insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
               range: undefined, // filled by Monaco at request time
             });
@@ -1323,13 +1385,17 @@
         div.appendChild(h);
         const list = document.createElement('div');
         list.className = 'func-list';
-        group.items.forEach(([name, lua, py]) => {
-          const b = document.createElement('button');
+         group.items.forEach(item => {
+           const name = functionLabel(item);
+           const template = functionTemplate(item, lang);
+          const signature = functionSignature(item);
+           const b = document.createElement('button');
           b.className = 'func-item';
-          b.type = 'button';
-          b.textContent = name;
-          b.title = (lang === 'python' ? (py || lua) : lua);
-          b.addEventListener('click', () => editorInsert(lang === 'python' ? (py || lua) : lua));
+           b.type = 'button';
+           b.textContent = name;
+           b.title = signature;
+           b.dataset.note = signature;
+           b.addEventListener('click', () => editorInsert(template));
           list.appendChild(b);
         });
         div.appendChild(list);
@@ -1486,8 +1552,9 @@
       if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
       if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);
     }
-    function initEditor() {
-      renderFuncPane();
+     function initEditor() {
+       renderFuncPane();
+       loadFunctionCatalog();
       elements.runLogOut.dataset.empty = '1';
       elements.runLogClear.addEventListener('click', () => {
         runLogStop();
