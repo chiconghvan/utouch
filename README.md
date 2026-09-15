@@ -112,11 +112,9 @@ Double-click volume down to open or close the panel.
 - STOP ends whichever is running, a recording or a script
 - Settings, then Dark Mode, toggles the dark theme for both the app and the panel
 
-### Scripts and examples
+### Scripts
 
-Example scripts install with the `.deb` under `/var/mobile/Library/ZXTouch/scripts/examples/`.
-
-The app keeps a script registry at `/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist`, which it uses for script metadata, icons, README previews, and trigger script selection.
+Scripts keep their metadata, icons, and README previews inside each script bundle.
 
 ### Recording editor
 

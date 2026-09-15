@@ -149,8 +149,6 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     if ([title containsString:@"Volume"]) return @"speaker.wave.2";
     if ([title containsString:@"Default Trigger"]) return @"play.square.stack";
     if ([title containsString:@"Switch App"]) return @"arrow.triangle.2.circlepath";
-    if ([title containsString:@"Example"]) return @"folder";
-    if ([title containsString:@"Registry"]) return @"list.bullet.rectangle";
     if ([title containsString:@"Dark"]) return @"moon";
     if ([title containsString:@"ZXTouch"]) return @"info.circle";
     return @"gearshape";
@@ -223,9 +221,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Example Scripts", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Script Registry", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)}
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
@@ -284,9 +280,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Example Scripts", @"secondary_title": EXAMPLE_SCRIPTS_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleExamplesTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Script Registry", @"secondary_title": SCRIPT_REGISTRY_PATH, @"row_click_handler": NSStringFromSelector(@selector(handleRegistryTap:))}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)}
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
@@ -590,21 +584,6 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [Util showAlertBoxWithOneOption:self title:@"ZXTouch Rootless"
         message:@"iOS 16 Rootless (Dopamine) port by Epic0001\nhttps://github.com/Epic0001/zxtouchrootless"
         buttonString:@"OK"];
-}
-
-- (void)handleExamplesTap:(TableViewCellWithEntry*)cell {
-    NSArray *examples = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:EXAMPLE_SCRIPTS_PATH error:nil];
-    NSString *message = [NSString stringWithFormat:@"%lu bundled examples installed in:\n%@", (unsigned long)examples.count, EXAMPLE_SCRIPTS_PATH];
-    [Util showAlertBoxWithOneOption:self title:@"Example Scripts" message:message buttonString:@"OK"];
-}
-
-- (void)handleRegistryTap:(TableViewCellWithEntry*)cell {
-    NSDictionary *registry = [NSDictionary dictionaryWithContentsOfFile:SCRIPT_REGISTRY_PATH];
-    NSString *version = registry[@"version"] ?: @"missing";
-    NSString *examplesPath = registry[@"examplesPath"] ?: EXAMPLE_SCRIPTS_PATH;
-    NSArray *scripts = registry[@"scripts"] ?: @[];
-    NSString *message = [NSString stringWithFormat:@"Registry version: %@\nScripts: %lu\nExamples: %@", version, (unsigned long)scripts.count, examplesPath];
-    [Util showAlertBoxWithOneOption:self title:@"Script Registry" message:message buttonString:@"OK"];
 }
 
 - (void)handleTouchIndicatorWithEntryCellInstance:(TableViewCellWithEntry*)cell {

@@ -16,22 +16,14 @@ fi
 
 # Create required app directories
 mkdir -p /var/mobile/Library/ZXTouch/scripts/recording/
-mkdir -p /var/mobile/Library/ZXTouch/scripts/examples/
 mkdir -p /var/mobile/Library/ZXTouch/config/tweak/
 mkdir -p /var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/
 mkdir -p /var/jb/usr/bin /var/jb/bin
 
-# Copy bundled example scripts. These are maintained by the package, so refresh
-# them on upgrade while leaving unrelated user scripts alone.
-EXAMPLES=/var/jb/usr/share/zxtouch/examples
-if [ -d "$EXAMPLES" ]; then
-    cp -Rf "$EXAMPLES/"* /var/mobile/Library/ZXTouch/scripts/examples/ 2>/dev/null || true
-fi
-
 REGISTRY=/var/mobile/Library/ZXTouch/config/tweak/script_registry.plist
-if [ -f /var/jb/usr/share/zxtouch/script-registry.plist ]; then
-    cp -f /var/jb/usr/share/zxtouch/script-registry.plist "$REGISTRY"
-fi
+# Remove example scripts installed by older package versions.
+rm -rf /var/mobile/Library/ZXTouch/scripts/examples
+rm -f "$REGISTRY"
 
 ADD_DATETIME=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh
 cat > "$ADD_DATETIME" << 'EOF'
