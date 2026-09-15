@@ -252,7 +252,7 @@
       .editor-open-menu button:hover, .editor-open-menu button:focus-visible { color: var(--text); background: var(--panel-hover); outline: 0; }
       .editor-surface { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; }
       .editor-tabs { min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overscroll-behavior: contain; padding: 4px 4px 0; border-bottom: 1px solid #111315; background: #181a1d; scrollbar-width: thin; }
-      .editor-tab { position: relative; min-width: 126px; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 8px 6px 11px; border: 0; border-radius: 5px 5px 0 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; text-align: left; white-space: nowrap; }
+      .editor-tab { position: relative; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 8px 6px 11px; border: 0; border-radius: 5px 5px 0 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; text-align: left; white-space: nowrap; }
      .editor-tab:hover { color: var(--muted-strong); background: var(--panel-hover); }
      .editor-tab.active { color: var(--text); background: #1e232a; }
      .editor-tab.active::after { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--blue); content: ""; }
@@ -1598,12 +1598,20 @@
        const doc = activeEditorDocument();
        if (doc && editorState.useFallback) doc.code = elements.editorFallback.value;
      }
+     function saveEditorViewState() {
+       const doc = activeEditorDocument();
+       if (doc && editorState.view && editorState.monaco && doc.model === editorState.view.getModel()) {
+         doc.viewState = editorState.view.saveViewState();
+       }
+     }
      function setEditorModel(doc) {
        if (!doc) return;
+       saveEditorViewState();
        syncFallbackIntoActive();
        if (editorState.view && editorState.monaco) {
          ensureEditorModel(doc);
          editorState.view.setModel(doc.model);
+         if (doc.viewState) editorState.view.restoreViewState(doc.viewState);
          elements.monacoHost.hidden = false;
          elements.editorFallback.hidden = true;
        } else if (editorState.useFallback) {
@@ -1626,6 +1634,7 @@
          code: code ?? (language === 'python' ? PY_SAMPLE : LUA_SAMPLE),
          model: null,
          modelListener: null,
+         viewState: null,
          dirty: false,
          loading: false,
          saving: false,
@@ -1640,6 +1649,7 @@
      function activateEditorDocument(id) {
        const doc = editorState.docs.find(item => item.id === String(id));
        if (!doc) return;
+       saveEditorViewState();
        editorState.activeId = doc.id;
        setEditorModel(doc);
      }
