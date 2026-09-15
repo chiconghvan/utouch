@@ -240,10 +240,20 @@
     .func-tooltip { position: fixed; z-index: 1000; max-width: min(360px, calc(100vw - 24px)); padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; pointer-events: none; }
     .func-tooltip[hidden] { display: none; }
     .runlog .panel-head { min-height: 56px; }
-    .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
-    .runlog-sep { color: var(--blue); }
-    .editor-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-    .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
+     .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+     .runlog-sep { color: var(--blue); }
+     .editor-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+     .editor-tabs { min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overscroll-behavior: contain; padding: 4px 4px 0; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--bar); scrollbar-width: thin; }
+     .editor-tab { position: relative; min-width: 126px; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; padding: 8px 8px 9px 11px; border: 0; border-radius: 6px 6px 0 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; text-align: left; white-space: nowrap; }
+     .editor-tab:hover { color: var(--muted-strong); background: var(--panel-hover); }
+     .editor-tab.active { color: var(--text); background: #1e232a; }
+     .editor-tab.active::after { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--blue); content: ""; }
+     .editor-tab-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+     .editor-tab-dirty { flex: 0 0 auto; color: var(--amber); font-size: 15px; line-height: 1; }
+     .editor-tab-close { width: 20px; height: 20px; flex: 0 0 20px; display: inline-grid; place-items: center; padding: 0; border: 0; border-radius: 4px; color: var(--muted); background: transparent; cursor: pointer; font-size: 15px; line-height: 1; }
+     .editor-tab-close:hover { color: var(--text); background: #343b45; }
+     .editor-tab-new { min-width: 34px; justify-content: center; padding-right: 9px; padding-left: 9px; color: var(--muted-strong); font-size: 18px; }
+     .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-lang { min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-open { min-height: 34px; max-width: 260px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-box { overflow: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; max-height: calc(100vh - 280px); }
@@ -378,15 +388,17 @@
       <div class="editor-layout">
         <div class="editor-main">
           <div class="editor-left">
-            <div class="editor-toolbar">
-              <select class="editor-open" id="editorOpen" aria-label="Open script from library"><option value="">Open from library…</option></select>
-              <input class="editor-name" id="editorName" type="text" placeholder="Script name (for Save)" aria-label="Script name for save" maxlength="64">
-              <select class="editor-lang" id="editorLang" aria-label="Editor language"><option value="lua" selected>Lua</option><option value="python">Python</option></select>
-              <button class="button primary" id="editorRun"><span class="button-symbol">&#9654;</span>Run</button>
-              <button class="button danger" id="editorStop"><span class="button-symbol">&#9632;</span>Stop</button>
-              <button class="button" id="editorSave"><span class="button-symbol">&#8595;</span>Save</button>
-            </div>
-            <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
+             <div class="editor-toolbar">
+               <select class="editor-open" id="editorOpen" aria-label="Open script from library"><option value="">Open from library…</option></select>
+               <input class="editor-name" id="editorName" type="text" placeholder="Script name (for Save)" aria-label="Script name for save" maxlength="64">
+               <select class="editor-lang" id="editorLang" aria-label="Editor language"><option value="lua" selected>Lua</option><option value="python">Python</option></select>
+               <button class="button primary" id="editorRun"><span class="button-symbol">&#9654;</span>Run</button>
+               <button class="button danger" id="editorStop"><span class="button-symbol">&#9632;</span>Stop</button>
+               <button class="button" id="editorSave"><span class="button-symbol">&#8595;</span>Save</button>
+               <button class="button" id="editorSaveAll"><span class="button-symbol">&#8595;</span>Save all</button>
+             </div>
+             <div class="editor-tabs" id="editorTabs" role="tablist" aria-label="Open scripts"></div>
+             <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
             <details class="transpiled" id="transpiledWrap" hidden><summary>Transpiled Python preview (Lua runs via transpile → Python)</summary><pre id="transpiledView"></pre></details>
             <div class="editor-status"><span id="editorStatus">Ready — Monaco loads from CDN, offline falls back to plain text.</span><span class="editor-note">Lua subset: <code>--</code> comments, <code>local</code>, <code>if/elseif/else/end</code>, numeric <code>for</code>, <code>while/do</code>, <code>~=</code>, <code>..</code>, <code>#len</code>.</span></div>
             <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
@@ -398,7 +410,7 @@
   </main>
 
   <div class="toast" id="toast" role="status" hidden></div>
-  <div class="modal-backdrop" id="confirmModal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage"><div class="modal-body"><h3 id="confirmTitle">Confirm action</h3><p id="confirmMessage"></p></div><div class="modal-actions"><button class="button ghost" id="confirmCancel">Cancel</button><button class="button primary" id="confirmAccept">Continue</button></div></div></div>
+  <div class="modal-backdrop" id="confirmModal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage"><div class="modal-body"><h3 id="confirmTitle">Confirm action</h3><p id="confirmMessage"></p></div><div class="modal-actions"><button class="button ghost" id="confirmCancel">Cancel</button><button class="button danger" id="confirmSecondary" hidden>Discard</button><button class="button primary" id="confirmAccept">Continue</button></div></div></div>
 
   <script>
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
@@ -409,7 +421,7 @@
     function showToast(message, error = false) { elements.toast.textContent = message; elements.toast.className = `toast${error ? ' error' : ''}`; elements.toast.hidden = false; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => { elements.toast.hidden = true; }, 4200); }
     async function api(path, options = {}) { const response = await fetch(path, options); let payload; try { payload = await response.json(); } catch (_) { throw new Error(`Dashboard returned HTTP ${response.status}.`); } if (!response.ok || !payload.ok) throw new Error(payload.error || payload.result || 'Request failed.'); return payload; }
 
-    function ask(title, message, actionLabel = 'Continue', danger = false) { if (state.confirming) state.confirming(false); elements.confirmTitle.textContent = title; elements.confirmMessage.textContent = message; elements.confirmAccept.textContent = actionLabel; elements.confirmAccept.className = `button ${danger ? 'danger' : 'primary'}`; elements.confirmModal.hidden = false; return new Promise(resolve => { state.confirming = resolve; }); }
+    function ask(title, message, actionLabel = 'Continue', danger = false, secondaryLabel = '') { if (state.confirming) state.confirming(false); elements.confirmTitle.textContent = title; elements.confirmMessage.textContent = message; elements.confirmAccept.textContent = actionLabel; elements.confirmAccept.className = `button ${danger ? 'danger' : 'primary'}`; elements.confirmSecondary.textContent = secondaryLabel; elements.confirmSecondary.hidden = !secondaryLabel; elements.confirmModal.hidden = false; return new Promise(resolve => { state.confirming = resolve; }); }
     function closeConfirmation(result) { elements.confirmModal.hidden = true; const resolve = state.confirming; state.confirming = null; if (resolve) resolve(result); }
     function setButtonBusy(button, busy, busyText) { if (!button.dataset.label) button.dataset.label = button.innerHTML; button.dataset.busy = busy ? '1' : '0'; button.disabled = busy; button.innerHTML = busy ? busyText : button.dataset.label; }
     function scriptType(script) { return script.type === 'raw' ? 'raw' : 'py'; }
@@ -540,7 +552,7 @@
     async function clearLogs() { if (!await ask('Clear runtime logs?', 'This removes the current log output from the device.', 'Clear logs', true)) return; try { await api('/api/logs/clear', { method: 'POST' }); state.rawLogs = ''; renderLogs(); showToast('Runtime logs cleared.'); await loadStatus(); } catch (error) { showToast(error.message, true); } }
     async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs(), loadApps(true)]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
 
-    elements.confirmCancel.addEventListener('click', () => closeConfirmation(false)); elements.confirmAccept.addEventListener('click', () => closeConfirmation(true)); elements.confirmModal.addEventListener('click', event => { if (event.target === elements.confirmModal) closeConfirmation(false); }); document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.confirmModal.hidden) closeConfirmation(false); });
+    elements.confirmCancel.addEventListener('click', () => closeConfirmation(false)); elements.confirmSecondary.addEventListener('click', () => closeConfirmation('secondary')); elements.confirmAccept.addEventListener('click', () => closeConfirmation(true)); elements.confirmModal.addEventListener('click', event => { if (event.target === elements.confirmModal) closeConfirmation(false); }); document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.confirmModal.hidden) closeConfirmation(false); });
     elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || 'Choose an asset'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => selectView(tab.dataset.view)));
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));
@@ -548,7 +560,19 @@
     elements.downloadLogs.addEventListener('click', () => { const url = URL.createObjectURL(new Blob([state.rawLogs], { type: 'text/plain' })); const link = document.createElement('a'); link.href = url; link.download = `zxtouch-logs-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); }); elements.clearLogs.addEventListener('click', clearLogs);
 
     // ── Script Editor tab (Monaco + Lua→Python + instant run) ──────
-    const editorState = { monaco: null, model: null, view: null, ready: false, useFallback: false, running: false, dirty: false, saving: false, autoSaveTimer: null };
+     const editorState = {
+       monaco: null,
+       view: null,
+       ready: false,
+       useFallback: false,
+       saving: false,
+       savingAll: false,
+       autoSaveTimer: null,
+       docs: [],
+       activeId: null,
+       nextId: 1,
+       decorations: new Map(),
+     };
     const LUA_SAMPLE = '-- Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     const PY_SAMPLE = '# Quick demo: runs on device immediately, no boilerplate\ntap(200, 300)\nsleep(0.5)\nlog("done")\n';
     // Function palette: [name, luaTpl, pyTpl?, autocompleteTpl?].
@@ -805,11 +829,11 @@
       return out.join('');
     }
 
-    let funcDecoIds = [];
-    let funcHlTimer = 0;
-    function refreshFuncHighlights() {
-      const view = editorState.view, model = editorState.model, monaco = editorState.monaco;
-      if (!view || !model || !monaco) return;
+     let funcHlTimer = 0;
+     function refreshFuncHighlights() {
+       const doc = activeEditorDocument();
+       const view = editorState.view, model = doc && doc.model, monaco = editorState.monaco;
+       if (!view || !model || !monaco) return;
       // Read the language off the model, not the <select>: they can differ if
       // something calls setModelLanguage() directly, and comment syntax must
       // match what is actually being scanned.
@@ -828,7 +852,11 @@
       const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const sorted = [...words].sort((a, b) => b.length - a.length);
       const callRe = sorted.length ? new RegExp(sorted.map(esc).join('|'), 'g') : null;
-      if (!callRe) { funcDecoIds = view.deltaDecorations(funcDecoIds, []); return; }
+       const previousDecorations = editorState.decorations.get(doc.id) || [];
+       if (!callRe) {
+         editorState.decorations.set(doc.id, model.deltaDecorations(previousDecorations, []));
+         return;
+       }
       const deco = [];
       const lineCount = model.getLineCount();
       for (let ln = 1; ln <= lineCount; ln++) {
@@ -848,7 +876,7 @@
           callRe.lastIndex = end;
         }
       }
-      funcDecoIds = view.deltaDecorations(funcDecoIds, deco);
+       editorState.decorations.set(doc.id, model.deltaDecorations(previousDecorations, deco));
     }
     function scheduleFuncHighlights() {
       clearTimeout(funcHlTimer);
@@ -1289,27 +1317,43 @@
       return out.join('\n');
     }
 
-    function editorLang() { return elements.editorLang.value === 'python' ? 'python' : 'lua'; }
-    function editorGet() {
-      if (editorState.model) return editorState.model.getValue();
-      return elements.editorFallback.value;
-    }
-    function editorSet(text) {
-      if (editorState.model) editorState.model.setValue(text);
-      else elements.editorFallback.value = text;
-    }
-    function editorInsert(text) {
-      if (editorState.monaco && editorState.model) {
-        const sel = editorState.model && editorState.monaco.editor;
-        const pos = editorState.view ? editorState.view.getPosition() : null;
-        if (pos) editorState.view.executeEdits('snippet', [{ range: new editorState.monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column), text, forceMoveMarkers: true }]);
-        else editorSet(editorGet() + (editorGet().endsWith('\n') ? '' : '\n') + text);
-      } else {
-        const area = elements.editorFallback;
-        const s = area.selectionStart ?? area.value.length;
-        area.value = area.value.slice(0, s) + text + area.value.slice(area.selectionEnd ?? s);
-      }
-    }
+     function editorLang() {
+       const doc = activeEditorDocument();
+       return doc && doc.language === 'python' ? 'python' : 'lua';
+     }
+     function activeEditorDocument() { return editorState.docs.find(doc => doc.id === editorState.activeId) || null; }
+     function editorDisplayName(doc) {
+       if (doc.name) return doc.name;
+       return `Untitled-${doc.id}.lua`;
+     }
+     function editorGet() {
+       const doc = activeEditorDocument();
+       if (!doc) return '';
+       if (doc.model) return doc.model.getValue();
+       return elements.editorFallback.value;
+     }
+     function editorSet(text) {
+       const doc = activeEditorDocument();
+       if (!doc) return;
+       if (doc.model) doc.model.setValue(text);
+       else { doc.code = text; elements.editorFallback.value = text; }
+     }
+     function editorInsert(text) {
+       const doc = activeEditorDocument();
+       if (!doc) return;
+       if (editorState.monaco && doc.model) {
+         const pos = editorState.view ? editorState.view.getPosition() : null;
+         if (pos) editorState.view.executeEdits('snippet', [{ range: new editorState.monaco.Range(pos.lineNumber, pos.column, pos.lineNumber, pos.column), text, forceMoveMarkers: true }]);
+         else editorSet(editorGet() + (editorGet().endsWith('\n') ? '' : '\n') + text);
+       } else {
+         const area = elements.editorFallback;
+         const s = area.selectionStart ?? area.value.length;
+         const end = area.selectionEnd ?? s;
+         editorSet(area.value.slice(0, s) + text + area.value.slice(end));
+         area.selectionStart = area.selectionEnd = s + text.length;
+         markEditorDirty();
+       }
+     }
     // Autocomplete: same FUNC_GROUPS data drives Monaco suggestions.
     // Registered once after Monaco boots; per-language insert text.
     let autocompleteRegistered = false;
@@ -1319,9 +1363,9 @@
       const monaco = editorState.monaco;
       // --- Variable completion: identifiers already declared in the current
       // script (locals, loop vars, function names) complete like functions.
-      let varCache = { version: -1, lang: '', items: [] };
-      function collectVariables(model, lang) {
-        if (varCache.version === model.getVersionId() && varCache.lang === lang) return varCache.items;
+       let varCache = { model: null, version: -1, lang: '', items: [] };
+       function collectVariables(model, lang) {
+         if (varCache.model === model && varCache.version === model.getVersionId() && varCache.lang === lang) return varCache.items;
         const text = model.getValue();
         const seen = new Set();
         const out = [];
@@ -1373,7 +1417,7 @@
          while ((m = reAssign.exec(text))) {
            pushList(m[2]);
          }
-        varCache = { version: model.getVersionId(), lang, items: out };
+         varCache = { model, version: model.getVersionId(), lang, items: out };
         return out;
       };
       const toSuggestions = lang => {
@@ -1426,20 +1470,20 @@
         div.appendChild(h);
         const list = document.createElement('div');
         list.className = 'func-list';
-         group.items.forEach(item => {
-           const name = functionLabel(item);
-           const template = functionTemplate(item, lang);
-           const signature = functionNote(item);
-           const b = document.createElement('button');
+        group.items.forEach(item => {
+          const name = functionLabel(item);
+          const template = functionTemplate(item, lang);
+          const signature = functionNote(item);
+          const b = document.createElement('button');
           b.className = 'func-item';
-           b.type = 'button';
-           b.textContent = name;
-           b.dataset.note = signature;
-            b.addEventListener('pointerenter', () => showFunctionTooltip(b));
-            b.addEventListener('pointerleave', hideFunctionTooltip);
-            b.addEventListener('focus', () => showFunctionTooltip(b));
-            b.addEventListener('blur', hideFunctionTooltip);
-           b.addEventListener('click', () => editorInsert(template));
+          b.type = 'button';
+          b.textContent = name;
+          b.dataset.note = signature;
+          b.addEventListener('pointerenter', () => showFunctionTooltip(b));
+          b.addEventListener('pointerleave', hideFunctionTooltip);
+          b.addEventListener('focus', () => showFunctionTooltip(b));
+          b.addEventListener('blur', hideFunctionTooltip);
+          b.addEventListener('click', () => editorInsert(template));
           list.appendChild(b);
         });
         div.appendChild(list);
@@ -1457,10 +1501,10 @@
       elements.runLogSummary.textContent = `${total} lines — ${runLog.runs} run${runLog.runs === 1 ? '' : 's'}`;
       if (elements.runLogFollow.checked) elements.runLogOut.scrollTop = elements.runLogOut.scrollHeight;
     }
-    function runLogSeparator() {
-      runLog.runs++;
-      const stamp = new Date().toLocaleTimeString();
-      runLogAppend(`\n──── Run #${runLog.runs} · ${stamp} ────\n`);
+     function runLogSeparator(scriptName = '') {
+       runLog.runs++;
+       const stamp = new Date().toLocaleTimeString();
+       runLogAppend(`\n──── Run #${runLog.runs} · ${stamp}${scriptName ? ` · ${scriptName}` : ''} ────\n`);
     }
     async function runLogTick() {
       try {
@@ -1473,23 +1517,173 @@
         if (!playing && runLog.emptyStreak >= 2) runLogStop();
       } catch (_) { runLog.emptyStreak++; }
     }
-    function runLogStart(offset) {
+     function runLogStart(offset, scriptName = '') {
       runLogStop();
       runLog.offset = Number(offset || 0);
       runLog.emptyStreak = 0;
       runLog.started = true;
-      runLogSeparator();
+       runLogSeparator(scriptName);
       runLog.timer = setInterval(runLogTick, 1000);
       runLogTick();
     }
-    function runLogStop() {
-      runLog.started = false;
-      if (runLog.timer) { clearInterval(runLog.timer); runLog.timer = null; }
-    }
-    function setEditorStatus(text) { elements.editorStatus.textContent = text; }
-    function currentPayload() {
-      const lang = editorLang();
-      const src = editorGet();
+     function runLogStop() {
+       runLog.started = false;
+       if (runLog.timer) { clearInterval(runLog.timer); runLog.timer = null; }
+     }
+     function setEditorStatus(text) { elements.editorStatus.textContent = text; }
+     function ensureEditorModel(doc) {
+       if (!doc || !editorState.monaco || doc.model) return doc && doc.model;
+       const monaco = editorState.monaco;
+       doc.model = monaco.editor.createModel(doc.code || '', doc.language, monaco.Uri.parse(`zxtouch://editor/${doc.id}`));
+       doc.modelListener = doc.model.onDidChangeContent(() => {
+         doc.code = doc.model.getValue();
+         if (!doc.suppressDirty) markEditorDirty(doc);
+         if (doc.id === editorState.activeId) scheduleFuncHighlights();
+       });
+       return doc.model;
+     }
+     function renderEditorTabs() {
+       if (!elements.editorTabs) return;
+       elements.editorTabs.innerHTML = '';
+       editorState.docs.forEach(doc => {
+         const tab = document.createElement('button');
+         tab.className = `editor-tab${doc.id === editorState.activeId ? ' active' : ''}`;
+         tab.type = 'button';
+         tab.role = 'tab';
+         tab.dataset.id = doc.id;
+         tab.setAttribute('aria-selected', String(doc.id === editorState.activeId));
+         tab.setAttribute('aria-label', `${editorDisplayName(doc)}${doc.dirty ? ', unsaved' : ''}`);
+         const label = document.createElement('span');
+         label.className = 'editor-tab-label';
+         label.textContent = editorDisplayName(doc);
+         tab.appendChild(label);
+         if (doc.dirty) {
+           const dirty = document.createElement('span');
+           dirty.className = 'editor-tab-dirty';
+           dirty.textContent = '●';
+           dirty.setAttribute('aria-hidden', 'true');
+           tab.appendChild(dirty);
+         }
+         const close = document.createElement('span');
+         close.className = 'editor-tab-close';
+         close.role = 'button';
+         close.tabIndex = 0;
+         close.textContent = '×';
+         close.title = `Close ${editorDisplayName(doc)}`;
+         close.setAttribute('aria-label', `Close ${editorDisplayName(doc)}`);
+         tab.appendChild(close);
+         elements.editorTabs.appendChild(tab);
+       });
+       const newTab = document.createElement('button');
+       newTab.className = 'editor-tab editor-tab-new';
+       newTab.type = 'button';
+       newTab.id = 'editorNew';
+       newTab.title = 'New script';
+       newTab.setAttribute('aria-label', 'New script');
+       newTab.textContent = '+';
+       elements.editorTabs.appendChild(newTab);
+     }
+     function syncEditorControls() {
+       const doc = activeEditorDocument();
+       if (!doc) return;
+       elements.editorName.value = doc.name || '';
+       elements.editorLang.value = doc.language;
+       elements.editorOpen.value = doc.path || '';
+     }
+     function syncFallbackIntoActive() {
+       const doc = activeEditorDocument();
+       if (doc && editorState.useFallback) doc.code = elements.editorFallback.value;
+     }
+     function setEditorModel(doc) {
+       if (!doc) return;
+       syncFallbackIntoActive();
+       if (editorState.view && editorState.monaco) {
+         ensureEditorModel(doc);
+         editorState.view.setModel(doc.model);
+         elements.monacoHost.hidden = false;
+         elements.editorFallback.hidden = true;
+       } else if (editorState.useFallback) {
+         elements.monacoHost.hidden = true;
+         elements.editorFallback.hidden = false;
+         elements.editorFallback.value = doc.code || '';
+       }
+       syncEditorControls();
+       renderEditorTabs();
+       renderFuncPane();
+       refreshFuncHighlights();
+       setEditorStatus(doc.dirty ? 'Unsaved changes' : `Ready — ${editorDisplayName(doc)}`);
+     }
+     function createEditorDocument({ name = '', path = null, language = 'lua', code } = {}) {
+       const doc = {
+         id: String(editorState.nextId++),
+         name: String(name || ''),
+         path: path || null,
+         language: language === 'python' ? 'python' : 'lua',
+         code: code ?? (language === 'python' ? PY_SAMPLE : LUA_SAMPLE),
+         model: null,
+         modelListener: null,
+         dirty: false,
+         loading: false,
+         saving: false,
+         suppressDirty: false,
+       };
+       editorState.docs.push(doc);
+       if (!editorState.activeId) editorState.activeId = doc.id;
+       ensureEditorModel(doc);
+       renderEditorTabs();
+       return doc;
+     }
+     function activateEditorDocument(id) {
+       const doc = editorState.docs.find(item => item.id === String(id));
+       if (!doc) return;
+       editorState.activeId = doc.id;
+       setEditorModel(doc);
+     }
+     function removeEditorDocument(doc) {
+       if (!doc) return;
+       if (doc.modelListener) doc.modelListener.dispose();
+       if (doc.model) doc.model.dispose();
+       editorState.decorations.delete(doc.id);
+       editorState.docs = editorState.docs.filter(item => item !== doc);
+       if (editorState.activeId === doc.id) editorState.activeId = null;
+     }
+     async function closeEditorDocument(id) {
+       const doc = editorState.docs.find(item => item.id === String(id));
+       if (!doc) return;
+       if (doc.dirty) {
+         const choice = await ask('Save changes before closing?', `${editorDisplayName(doc)} has unsaved changes.`, 'Save', false, 'Discard');
+         if (choice === true) {
+           activateEditorDocument(doc.id);
+           if (!await editorSave()) return;
+         } else if (choice !== 'secondary') return;
+       }
+       const wasActive = doc.id === editorState.activeId;
+       const index = editorState.docs.indexOf(doc);
+       removeEditorDocument(doc);
+       if (!editorState.docs.length) createEditorDocument();
+       if (wasActive) {
+         const next = editorState.docs[Math.min(index, editorState.docs.length - 1)];
+         activateEditorDocument(next.id);
+       } else {
+         renderEditorTabs();
+       }
+     }
+     function handleEditorTabClick(event) {
+       const tab = event.target.closest('.editor-tab[data-id]');
+       if (!tab) {
+         if (event.target.closest('#editorNew')) {
+           const doc = createEditorDocument();
+           activateEditorDocument(doc.id);
+         }
+         return;
+       }
+       const close = event.target.closest('.editor-tab-close');
+       if (close) { event.stopPropagation(); closeEditorDocument(tab.dataset.id); return; }
+       activateEditorDocument(tab.dataset.id);
+     }
+     function currentPayload() {
+       const lang = editorLang();
+       const src = editorGet();
       if (!src.trim()) throw new Error('Editor is empty.');
       if (lang === 'lua') {
         try {
@@ -1506,17 +1700,19 @@
       elements.transpiledWrap.hidden = true;
       return src;
     }
-    async function editorRun() {
-      let code;
-      try { code = currentPayload(); } catch (e) { showToast(e.message, true); setEditorStatus('Transpile failed — ' + e.message); return; }
+     async function editorRun() {
+       const doc = activeEditorDocument();
+       if (!doc) return;
+       let code;
+       try { code = currentPayload(); } catch (e) { showToast(e.message, true); setEditorStatus('Transpile failed — ' + e.message); return; }
       setButtonBusy(elements.editorRun, true, 'Running…');
       setEditorStatus('Running on device… output appears below.');
-      try {
-        const payload = await api('/api/editor/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
-        if (payload.result && !String(payload.result).startsWith('0')) throw new Error(String(payload.result).replace(/^(-1;;|\r\n)/g, ''));
-        showToast('Editor script started.');
-        setEditorStatus('Running — run log accumulates below.');
-        runLogStart(payload.logOffset || 0);
+       try {
+         const payload = await api('/api/editor/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+         if (payload.result && !String(payload.result).startsWith('0')) throw new Error(String(payload.result).replace(/^(-1;;|\r\n)/g, ''));
+         showToast(`${editorDisplayName(doc)} started.`);
+         setEditorStatus('Running — run log accumulates below.');
+         runLogStart(payload.logOffset || 0, editorDisplayName(doc));
         await loadStatus();
       } catch (error) { showToast(error.message, true); setEditorStatus('Run failed — ' + error.message); }
       finally { setButtonBusy(elements.editorRun, false); }
@@ -1527,151 +1723,219 @@
       catch (error) { showToast(error.message, true); }
       finally { setButtonBusy(elements.editorStop, false); }
     }
-    async function editorSave(options = {}) {
-      if (editorState.saving) return false;
-      let code;
-      try { code = currentPayload(); } catch (e) { if (!options.silent) showToast(e.message, true); return false; }
-      const openPath = elements.editorOpen.value;
-      const body = openPath ? { path: openPath, code } : { name: elements.editorName.value.trim(), code };
-      if (!openPath && !body.name) {
-        if (!options.silent) { showToast('Type a script name, or pick a library script to overwrite.', true); elements.editorName.focus(); }
-        return false;
-      }
-      editorState.saving = true;
-      setButtonBusy(elements.editorSave, true, 'Saving…');
-      try {
-        const payload = await api('/api/editor/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        editorState.dirty = false;
-        if (!options.silent) showToast(`Saved as ${decodeURIComponent(payload.path)}`);
-        setEditorStatus('Saved — ' + decodeURIComponent(payload.path));
-        await loadScripts();
-        syncEditorOpen();
-        return true;
-      } catch (error) { if (!options.silent) showToast(error.message, true); return false; }
-      finally { editorState.saving = false; setButtonBusy(elements.editorSave, false); }
-    }
-    function markEditorDirty() { editorState.dirty = true; setEditorStatus('Unsaved changes'); }
-    function startEditorAutoSave() {
-      clearInterval(editorState.autoSaveTimer);
-      editorState.autoSaveTimer = setInterval(() => {
-        if (editorState.dirty && !editorState.saving) editorSave({ silent: true });
-      }, 5000);
-    }
-    async function editorLoadSelected() {
-      const path = elements.editorOpen.value;
-      if (!path) return;
-      try {
-        const payload = await api(`/api/editor/load?path=${encodeURIComponent(path)}`);
-        elements.editorName.value = payload.name || '';
-        // Stored entries are Python (runner prelude). Show as-is; switch view to Python for fidelity.
-        elements.editorLang.value = 'python';
-        applyEditorLanguage();
-        editorSet(payload.code || '');
-        editorState.dirty = false;
-        setEditorStatus('Loaded — ' + payload.name);
-        showToast(`Loaded ${payload.name}.`);
-      } catch (error) { showToast(error.message, true); }
-    }
-    function syncEditorOpen() {
-      const keep = elements.editorOpen.value;
-      elements.editorOpen.innerHTML = '<option value="">Open from library…</option>';
+     async function editorSave(options = {}) {
+       const doc = activeEditorDocument();
+       if (!doc || editorState.saving) return false;
+       syncFallbackIntoActive();
+       let code;
+       try { code = currentPayload(); } catch (e) { if (!options.silent) showToast(e.message, true); return false; }
+       const openPath = doc.path;
+       const name = doc.name.trim();
+       const body = openPath ? { path: openPath, code } : { name, code };
+       if (!openPath && !body.name) {
+         if (!options.silent) { showToast('Type a script name, or pick a library script to overwrite.', true); elements.editorName.focus(); }
+         return false;
+       }
+       editorState.saving = true;
+       setButtonBusy(elements.editorSave, true, 'Saving…');
+       try {
+         const payload = await api('/api/editor/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+         doc.path = decodeURIComponent(payload.path);
+         doc.dirty = false;
+         if (!options.silent) showToast(`Saved as ${decodeURIComponent(payload.path)}`);
+         setEditorStatus('Saved — ' + decodeURIComponent(payload.path));
+         renderEditorTabs();
+         await loadScripts();
+         syncEditorControls();
+         return true;
+       } catch (error) { if (!options.silent) showToast(error.message, true); return false; }
+       finally { editorState.saving = false; setButtonBusy(elements.editorSave, false); }
+     }
+     async function editorSaveAll() {
+       if (editorState.savingAll) return;
+       const dirtyDocs = editorState.docs.filter(doc => doc.dirty);
+       if (!dirtyDocs.length) { showToast('All scripts are already saved.'); return; }
+       editorState.savingAll = true;
+       const originalId = editorState.activeId;
+       try {
+         for (const doc of dirtyDocs) {
+           activateEditorDocument(doc.id);
+           if (!await editorSave({ silent: true })) {
+             showToast(`Unable to save ${editorDisplayName(doc)}.`, true);
+             break;
+           }
+         }
+         if (originalId) activateEditorDocument(originalId);
+         showToast('Dirty scripts saved.');
+       } finally { editorState.savingAll = false; }
+     }
+     function markEditorDirty(doc = activeEditorDocument()) {
+       if (!doc) return;
+       doc.dirty = true;
+       renderEditorTabs();
+       if (doc.id === editorState.activeId) setEditorStatus('Unsaved changes');
+     }
+     function startEditorAutoSave() {
+       clearInterval(editorState.autoSaveTimer);
+       editorState.autoSaveTimer = setInterval(() => {
+         const doc = activeEditorDocument();
+         if (doc && doc.dirty && !editorState.saving) editorSave({ silent: true });
+       }, 5000);
+     }
+     async function editorLoadSelected() {
+       const path = elements.editorOpen.value;
+       if (!path) return;
+       const existing = editorState.docs.find(doc => doc.path === path);
+       if (existing) { activateEditorDocument(existing.id); return; }
+       const option = elements.editorOpen.options[elements.editorOpen.selectedIndex];
+       const doc = createEditorDocument({ path, name: option?.textContent || '', language: 'python', code: '' });
+       doc.loading = true;
+       activateEditorDocument(doc.id);
+       try {
+         const payload = await api(`/api/editor/load?path=${encodeURIComponent(path)}`);
+         doc.name = payload.name || doc.name;
+         doc.language = 'python';
+         doc.suppressDirty = true;
+         doc.code = payload.code || '';
+         if (doc.model) doc.model.setValue(doc.code);
+         else if (doc.id === editorState.activeId) elements.editorFallback.value = doc.code;
+         doc.suppressDirty = false;
+         doc.dirty = false;
+         doc.loading = false;
+         activateEditorDocument(doc.id);
+         setEditorStatus('Loaded — ' + payload.name);
+         showToast(`Loaded ${payload.name}.`);
+       } catch (error) {
+         removeEditorDocument(doc);
+         if (!editorState.docs.length) createEditorDocument();
+         else if (!editorState.activeId) editorState.activeId = editorState.docs[0].id;
+         activateEditorDocument(editorState.activeId);
+         showToast(error.message, true);
+       }
+     }
+     function syncEditorOpen() {
+       const keep = activeEditorDocument()?.path || '';
+       elements.editorOpen.innerHTML = '<option value="">Open from library…</option>';
       state.scripts.forEach(script => {
         if (scriptType(script) !== 'py') return;
         const option = document.createElement('option');
         option.value = script.path;
         option.textContent = script.name;
         elements.editorOpen.appendChild(option);
-      });
-      if (keep) elements.editorOpen.value = keep;
-    }
-    function applyEditorLanguage() {
-      const lang = editorLang();
-      renderFuncPane();
-      if (editorState.monaco && editorState.model) {
-        editorState.monaco.editor.setModelLanguage(editorState.model, lang === 'python' ? 'python' : 'lua');
-        // A language swap changes comment syntax but not content, so it does
-        // not fire onDidChangeContent — repaint or the masks go stale.
-        refreshFuncHighlights();
-      }
-      if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
-      if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);
-    }
-     function initEditor() {
+       });
+       if (keep) elements.editorOpen.value = keep;
+     }
+     function applyEditorLanguage() {
+       const doc = activeEditorDocument();
+       if (!doc) return;
+       const lang = elements.editorLang.value === 'python' ? 'python' : 'lua';
+       doc.language = lang;
        renderFuncPane();
-       loadFunctionCatalog();
-      elements.runLogOut.dataset.empty = '1';
-      elements.runLogClear.addEventListener('click', () => {
-        runLogStop();
-        elements.runLogOut.textContent = 'Run log cleared.';
+       if (editorState.monaco && doc.model) {
+         editorState.monaco.editor.setModelLanguage(doc.model, lang === 'python' ? 'python' : 'lua');
+         // A language swap changes comment syntax but not content, so it does
+         // not fire onDidChangeContent — repaint or the masks go stale.
+         refreshFuncHighlights();
+       }
+       if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
+       if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);
+       markEditorDirty(doc);
+       renderEditorTabs();
+      }
+      function initEditor() {
+        createEditorDocument();
+        renderFuncPane();
+        loadFunctionCatalog();
         elements.runLogOut.dataset.empty = '1';
-        elements.runLogSummary.textContent = 'Script output only — accumulates across runs';
-      });
-      elements.editorRun.addEventListener('click', editorRun);
-      elements.editorStop.addEventListener('click', editorStop);
-      elements.editorSave.addEventListener('click', () => editorSave());
-      elements.editorOpen.addEventListener('change', editorLoadSelected);
-      elements.editorLang.addEventListener('change', applyEditorLanguage);
-      elements.editorFallback.addEventListener('input', markEditorDirty);
-      document.addEventListener('keydown', event => {
-        if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
-        const target = event.target;
-        if (target === elements.editorFallback || target === elements.monacoHost || elements.monacoHost.contains(target) || target === elements.editorName) {
-          event.preventDefault();
-          editorSave();
-        }
-      });
-      startEditorAutoSave();
-      const bootFallback = msg => {
-        editorState.useFallback = true;
-        elements.editorFallback.hidden = false;
-        elements.monacoHost.hidden = true;
-        if (!editorGet().trim()) editorSet(LUA_SAMPLE);
-        setEditorStatus(msg);
-      };
-      const bootMonaco = () => new Promise((resolve, reject) => {
-        const loader = document.createElement('script');
-        loader.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js';
-        loader.onload = () => {
-          try {
-            window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
-            window.require(['vs/editor/editor.main'], () => {
-              try {
-                const ed = window.monaco.editor.create(elements.monacoHost, {
-                  value: LUA_SAMPLE, language: 'lua', theme: 'vs-dark',
-                  automaticLayout: true, minimap: { enabled: false },
-                  fontSize: 13, scrollBeyondLastLine: false, padding: { top: 10 },
-                  insertSpaces: true, tabSize: 4, detectIndentation: false,
-                  autoIndent: 'full', formatOnType: true, formatOnPaste: true,
-                  trimAutoWhitespace: true,
-                  // Render the suggest widget (and hover) outside the editor's
-                  // overflow container, so when the caret is near the bottom
-                  // of the pane Monaco flips the dropdown above the cursor
-                  // instead of letting it get clipped by the pane bounds.
-                  fixedOverflowWidgets: true,
-                });
-                editorState.monaco = window.monaco;
-                editorState.model = ed.getModel();
-                editorState.view = ed;
-                editorState.ready = true;
-                registerEditorAutocomplete();
-                // Paint API names as soon as the first tokens are drawn, then
-                // keep them in sync with edits (debounced; O(lines) per burst).
-                editorState.model.onDidChangeContent(() => { markEditorDirty(); scheduleFuncHighlights(); });
-                refreshFuncHighlights();
-                editorState.dirty = false;
-                resolve();
-              } catch (e) { reject(e); }
-            }, reject);
-          } catch (e) { reject(e); }
+        elements.runLogClear.addEventListener('click', () => {
+          runLogStop();
+          elements.runLogOut.textContent = 'Run log cleared.';
+          elements.runLogOut.dataset.empty = '1';
+          elements.runLogSummary.textContent = 'Script output only — accumulates across runs';
+        });
+        elements.editorRun.addEventListener('click', editorRun);
+        elements.editorStop.addEventListener('click', editorStop);
+        elements.editorSave.addEventListener('click', () => editorSave());
+        elements.editorSaveAll.addEventListener('click', editorSaveAll);
+        elements.editorOpen.addEventListener('change', editorLoadSelected);
+        elements.editorLang.addEventListener('change', applyEditorLanguage);
+        elements.editorTabs.addEventListener('click', handleEditorTabClick);
+        elements.editorTabs.addEventListener('keydown', event => {
+          if ((event.key === 'Enter' || event.key === ' ') && event.target.closest('.editor-tab-close')) {
+            event.preventDefault();
+            const tab = event.target.closest('.editor-tab[data-id]');
+            if (tab) closeEditorDocument(tab.dataset.id);
+          }
+        });
+        elements.editorName.addEventListener('input', () => {
+          const doc = activeEditorDocument();
+          if (!doc) return;
+          doc.name = elements.editorName.value;
+          markEditorDirty(doc);
+          renderEditorTabs();
+        });
+        elements.editorFallback.addEventListener('input', () => {
+          syncFallbackIntoActive();
+          markEditorDirty();
+        });
+        document.addEventListener('keydown', event => {
+          if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return;
+          const target = event.target;
+          if (target === elements.editorFallback || target === elements.monacoHost || elements.monacoHost.contains(target) || target === elements.editorName) {
+            event.preventDefault();
+            editorSave();
+          }
+        });
+        startEditorAutoSave();
+        const bootFallback = msg => {
+          editorState.useFallback = true;
+          elements.editorFallback.hidden = false;
+          elements.monacoHost.hidden = true;
+          elements.editorFallback.value = activeEditorDocument()?.code || '';
+          activateEditorDocument(editorState.activeId);
+          setEditorStatus(msg);
         };
-        loader.onerror = () => reject(new Error('CDN unreachable'));
-        document.head.appendChild(loader);
-        setTimeout(() => { if (!editorState.ready && !editorState.useFallback) reject(new Error('Monaco timed out')); }, 15000);
-      });
-      bootMonaco()
-        .then(() => setEditorStatus('Ready — Monaco editor loaded.'))
-        .catch(() => bootFallback('Ready — Monaco CDN unreachable, using plain-text fallback (same Run/Save).'));
-    }
+        const bootMonaco = () => new Promise((resolve, reject) => {
+          const loader = document.createElement('script');
+          loader.src = 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js';
+          loader.onload = () => {
+            try {
+              window.require.config({ paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs' } });
+              window.require(['vs/editor/editor.main'], () => {
+                try {
+                  const ed = window.monaco.editor.create(elements.monacoHost, {
+                    model: null, theme: 'vs-dark',
+                    automaticLayout: true, minimap: { enabled: false },
+                    fontSize: 13, scrollBeyondLastLine: false, padding: { top: 10 },
+                    insertSpaces: true, tabSize: 4, detectIndentation: false,
+                    autoIndent: 'full', formatOnType: true, formatOnPaste: true,
+                    trimAutoWhitespace: true,
+                    // Render the suggest widget (and hover) outside the editor's
+                    // overflow container, so when the caret is near the bottom
+                    // of the pane Monaco flips the dropdown above the cursor
+                    // instead of letting it get clipped by the pane bounds.
+                    fixedOverflowWidgets: true,
+                  });
+                  editorState.monaco = window.monaco;
+                  editorState.view = ed;
+                  editorState.ready = true;
+                  editorState.docs.forEach(ensureEditorModel);
+                  setEditorModel(activeEditorDocument());
+                  registerEditorAutocomplete();
+                  refreshFuncHighlights();
+                  resolve();
+                } catch (e) { reject(e); }
+              }, reject);
+            } catch (e) { reject(e); }
+          };
+          loader.onerror = () => reject(new Error('CDN unreachable'));
+          document.head.appendChild(loader);
+          setTimeout(() => { if (!editorState.ready && !editorState.useFallback) reject(new Error('Monaco timed out')); }, 15000);
+        });
+        bootMonaco()
+          .then(() => setEditorStatus('Ready — Monaco editor loaded.'))
+          .catch(() => bootFallback('Ready — Monaco CDN unreachable, using plain-text fallback (same Run/Save).'));
+      }
 
     // ── TrollVNC leftside dock (Pure-VNC plan, single .deb) ──────────────
     // Stream + control go through the VNC protocol only. Mapping (TrollVNC):
