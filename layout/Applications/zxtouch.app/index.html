@@ -467,12 +467,17 @@
       if (status.vnc && status.vnc.enabled === false) {
         state.vnc.disabled = true;
         vncDisconnect(true);
-        vncSetOverlay('VNC Server is disabled in Settings.');
+        vncSetOverlay('VNC Server is disabled in Settings.<br>Turn it back on in Settings to reconnect.');
         setVncStatus('Disabled', false);
-      } else if (state.vnc.disabled) {
+        if (elements.vncConnect) elements.vncConnect.disabled = true;
+        if (status.vnc.vncPortOpen) vncLog('health', 'VNC disabled but port 5901 still open — server kill pending');
+      } else if (status.vnc && status.vnc.enabled === true && state.vnc.disabled) {
+        // Only an explicit enabled=true clears the lock. A missing/undefined
+        // flag (stale cache) must NOT re-arm auto-connect.
         state.vnc.disabled = false;
         state.vnc.manualOffline = false;
         state.vnc.bootKicked = false;
+        if (elements.vncConnect) elements.vncConnect.disabled = false;
       }
       if (status.vnc && status.vnc.vncPortOpen === false && !state.vnc.connected && !state.vnc.connecting) {
         vncLog('health', 'TrollVNC port 5901 is closed');
@@ -2092,11 +2097,18 @@
     function vncClearWatchdog() { if (vncRetry.watchdog) { clearTimeout(vncRetry.watchdog); vncRetry.watchdog = null; } }
     function vncSetOverlay(html) { elements.vncOverlay.hidden = false; elements.vncOverlay.innerHTML = html; }
     function vncScheduleRetry(why) {
+      // OFF is final: never queue a retry and never call /api/vnc/recover.
       // First caller wins: a retry already queued keeps its (shorter) delay,
       // so a watchdog teardown + the disconnect event it provokes cannot
       // double-count an attempt.
        if (vncRetry.timer || state.vnc.disabled || state.vnc.manualOffline || !vncAutoOn() || state.vnc.connected) return;
+      if (state.status && state.status.vnc && state.status.vnc.enabled === false) return;
       if (vncRetry.attempt >= VNC_RETRY_STEPS.length) {
+        if (state.vnc.disabled || (state.status && state.status.vnc && state.status.vnc.enabled === false)) {
+          setVncStatus('Disabled', false);
+          vncSetOverlay('VNC Server is disabled in Settings.<br>Turn it back on in Settings to reconnect.');
+          return;
+        }
         setVncStatus('Recovering VNC…', false);
         vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(why || 'connection failed'))}<br>Restarting VNC server…`);
         vncLog('recover', 'requesting backend VNC recovery');
@@ -2104,10 +2116,25 @@
           .then(async response => { const payload = await response.json(); if (!response.ok || !payload.ok) throw new Error(payload.message || 'VNC server recovery failed.'); return payload; })
           .then(() => { vncRetry.attempt = 0; vncLog('recover', 'backend recovery succeeded'); vncConnect('recover'); })
           .catch(error => {
+            // A disabled-VNC message from the backend must latch the OFF state
+            // so the overlay does not keep offering reconnects.
+            if (String(error.message || '').toLowerCase().includes('disabled')) {
+              state.vnc.disabled = true;
+              if (elements.vncConnect) elements.vncConnect.disabled = true;
+              setVncStatus('Disabled', false);
+              vncSetOverlay('VNC Server is disabled in Settings.<br>Turn it back on in Settings to reconnect.');
+              return;
+            }
             setVncStatus('Offline', false);
             vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(error.message || 'VNC server recovery failed.'))}<br>Auto-retry stopped after ${VNC_RETRY_STEPS.length} attempts.<br><button class="button primary" id="vncRetryNow" type="button">Retry now</button>`);
             const b = document.getElementById('vncRetryNow');
-            if (b) b.addEventListener('click', () => { vncRetry.attempt = 0; vncConnect(); });
+            if (b) b.addEventListener('click', () => {
+              if (state.vnc.disabled || (state.status && state.status.vnc && state.status.vnc.enabled === false)) {
+                showToast('VNC Server is disabled in Settings.', true);
+                return;
+              }
+              vncRetry.attempt = 0; vncConnect();
+            });
           });
         vncLog('retry', `gave up after ${VNC_RETRY_STEPS.length} attempts`);
         return;
@@ -2121,6 +2148,11 @@
     }
     async function vncConnect(reason) {
       if (state.vnc.disabled || state.vnc.connecting || state.vnc.connected) return;
+      if (state.status && state.status.vnc && state.status.vnc.enabled === false) {
+        setVncStatus('Disabled', false);
+        vncSetOverlay('VNC Server is disabled in Settings.<br>Turn it back on in Settings to reconnect.');
+        return;
+      }
       // A manual Connect re-enables the auto policy; the flag only stops retries.
       if (reason !== 'retry') { state.vnc.manualOffline = false; vncRetry.attempt = 0; vncClearRetry(); }
       state.vnc.connecting = true;
@@ -2183,13 +2215,20 @@
       }
     }
      function vncDisconnect(disabled = false) { vncLog('button', disabled ? 'VNC Server disabled' : 'Disconnect (auto-retry paused)'); state.vnc.manualOffline = !disabled; vncClearRetry(); vncClearWatchdog(); const rfb = state.vnc.rfb; const s = rfb && rfb._rfb_connection_state; if (rfb && s && s !== 'disconnected' && s !== 'disconnecting') { try { rfb.disconnect(); } catch (_) {} } state.vnc.rfb = null; state.vnc.connected = false; state.vnc.connecting = false; setVncStatus(disabled ? 'Disabled' : 'Disconnected', false); elements.vncOverlay.hidden = false; }
-    elements.vncConnect.addEventListener('click', () => vncConnect());
-    elements.vncDisconnect.addEventListener('click', vncDisconnect);
+    elements.vncConnect.addEventListener('click', () => {
+      if (state.vnc.disabled || (state.status && state.status.vnc && state.status.vnc.enabled === false)) {
+        showToast('VNC Server is disabled in Settings.', true);
+        return;
+      }
+      vncConnect();
+    });
+    elements.vncDisconnect.addEventListener('click', () => vncDisconnect(false));
     if (elements.vncAuto) {
       try { elements.vncAuto.checked = localStorage.getItem('zxtouch.vnc.auto') !== '0'; } catch (_) {}
       elements.vncAuto.addEventListener('change', () => {
         try { localStorage.setItem('zxtouch.vnc.auto', elements.vncAuto.checked ? '1' : '0'); } catch (_) {}
         vncLog('auto', elements.vncAuto.checked ? 'enabled' : 'disabled');
+        if (state.vnc.disabled || (state.status && state.status.vnc && state.status.vnc.enabled === false)) { vncClearRetry(); return; }
         if (elements.vncAuto.checked && !state.vnc.connected && !state.vnc.connecting) { state.vnc.manualOffline = false; vncRetry.attempt = 0; vncConnect('auto'); }
         else if (!elements.vncAuto.checked) vncClearRetry();
       });
@@ -2205,6 +2244,11 @@
     if (elements.vncQuality) {
       vncLoadScale();
       elements.vncQuality.addEventListener('change', async () => {
+        if (state.vnc.disabled || (state.status && state.status.vnc && state.status.vnc.enabled === false)) {
+          showToast('VNC Server is disabled in Settings.', true);
+          vncLoadScale();
+          return;
+        }
         const scale = Number(elements.vncQuality.value);
         if (!Number.isFinite(scale)) return;
         vncLog('scale', `setting VNC scale ${scale} — restarting server`);
@@ -2226,7 +2270,9 @@
     }
     // Return to a backgrounded tab, or the tweak coming back online, should
     // restart the stream right away instead of waiting out the backoff.
+    // Never when VNC is disabled — OFF must not reconnect from background.
     document.addEventListener('visibilitychange', () => {
+      if (state.vnc.disabled || (state.status && state.status.vnc && state.status.vnc.enabled === false)) return;
       if (document.visibilityState === 'visible' && vncAutoOn() && !state.vnc.manualOffline && !state.vnc.connected && !state.vnc.connecting) {
         vncRetry.attempt = 0; vncClearRetry(); vncConnect('foreground');
       }

@@ -38,6 +38,7 @@ static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 static void ZXVNCkillServer(void);
+static BOOL ZXVNCProbePort(uint16_t port);
 
 static BOOL ZXVNCIsEnabled(void)
 {
@@ -54,16 +55,95 @@ static NSString *ZXVNCLaunchDaemonPath(void)
     return @"/Library/LaunchDaemons/com.zjx.trollvnc.plist";
 }
 
-static void ZXVNCApplyEnabledState(BOOL enabled)
+static void ZXVNCSystem(NSString *command)
 {
-    if (!enabled) ZXVNCkillServer();
-    NSString *daemonPath = ZXVNCLaunchDaemonPath();
-    NSString *verb = enabled ? @"load" : @"unload";
-    NSString *disabledValue = enabled ? @"NO" : @"YES";
-    NSString *command = [NSString stringWithFormat:@"(/usr/bin/plutil -replace Disabled -bool %@ %@ || /usr/bin/plutil -insert Disabled -bool %@ %@) >/dev/null 2>&1; launchctl %@ %@ >/dev/null 2>&1",
-                         disabledValue, daemonPath, disabledValue, daemonPath, verb, daemonPath];
+    if (!command.length) return;
     int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
     if (systemFunction) systemFunction(command.UTF8String);
+}
+
+static BOOL ZXVNCServerProcessRunning(void)
+{
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0 || size == 0) return NO;
+    struct kinfo_proc *procs = malloc(size);
+    if (!procs) return NO;
+    BOOL running = NO;
+    if (sysctl(mib, 4, procs, &size, NULL, 0) == 0) {
+        size_t count = size / sizeof(struct kinfo_proc);
+        for (size_t i = 0; i < count; i++) {
+            const char *name = procs[i].kp_proc.p_comm;
+            if (name && strcmp(name, "trollvncserver") == 0) { running = YES; break; }
+        }
+    }
+    free(procs);
+    return running;
+}
+
+static void ZXVNCkillServerSignal(int sig)
+{
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0 || size == 0) return;
+    struct kinfo_proc *procs = malloc(size);
+    if (!procs) return;
+    if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) { free(procs); return; }
+    size_t count = size / sizeof(struct kinfo_proc);
+    for (size_t i = 0; i < count; i++) {
+        const char *name = procs[i].kp_proc.p_comm;
+        if (name && strcmp(name, "trollvncserver") == 0) {
+            kill(procs[i].kp_proc.p_pid, sig);
+        }
+    }
+    free(procs);
+}
+
+static void ZXVNCSetDaemonDisabled(BOOL disabled)
+{
+    NSString *daemonPath = ZXVNCLaunchDaemonPath();
+    NSString *value = disabled ? @"YES" : @"NO";
+    // Try every known plutil/launchctl location: SpringBoard, dashboardd and
+    // postinst may each see a different PATH/bootstrap namespace.
+    NSString *command = [NSString stringWithFormat:
+        @"(test -x /var/jb/usr/bin/plutil && /var/jb/usr/bin/plutil -replace Disabled -bool %@ \"%@\") >/dev/null 2>&1 || "
+         @"(/usr/bin/plutil -replace Disabled -bool %@ \"%@\" || /usr/bin/plutil -insert Disabled -bool %@ \"%@\") >/dev/null 2>&1; "
+         @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl %@ -w \"%@\" >/dev/null 2>&1); "
+         @"(launchctl %@ -w \"%@\" >/dev/null 2>&1); "
+         @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl %@ \"%@\" >/dev/null 2>&1); "
+         @"(launchctl %@ \"%@\" >/dev/null 2>&1)",
+        value, daemonPath, value, daemonPath, value, daemonPath,
+        disabled ? @"unload" : @"load", daemonPath,
+        disabled ? @"unload" : @"load", daemonPath,
+        disabled ? @"unload" : @"load", daemonPath,
+        disabled ? @"unload" : @"load", daemonPath];
+    ZXVNCSystem(command);
+}
+
+static void ZXVNCApplyEnabledState(BOOL enabled)
+{
+    if (enabled) {
+        // Enable path: make sure launchd owns the server again. Never spawn a
+        // manual nohup copy here — on-demand start belongs to recoverVNC so a
+        // stale call cannot resurrect a server the user just turned off.
+        ZXVNCSetDaemonDisabled(NO);
+        return;
+    }
+    // Disable path must be total: unload first (so KeepAlive cannot respawn),
+    // then TERM, unload again, then KILL, then verify ports are really closed.
+    ZXVNCSetDaemonDisabled(YES);
+    ZXVNCkillServerSignal(SIGTERM);
+    [NSThread sleepForTimeInterval:0.5];
+    ZXVNCSetDaemonDisabled(YES);
+    if (ZXVNCServerProcessRunning() || ZXVNCProbePort(5901) || ZXVNCProbePort(5801)) {
+        ZXVNCkillServerSignal(SIGKILL);
+        [NSThread sleepForTimeInterval:0.5];
+    }
+    // Final sweep: a launchd respawn between the two kills would otherwise live on.
+    if (ZXVNCServerProcessRunning() || ZXVNCProbePort(5901) || ZXVNCProbePort(5801)) {
+        ZXVNCSetDaemonDisabled(YES);
+        ZXVNCkillServerSignal(SIGKILL);
+    }
 }
 
 static NSString *const ZXVNCScaleKey = @"vnc_scale";
@@ -100,20 +180,16 @@ static void ZXVNCSetScale(double scale)
 
 static void ZXVNCkillServer(void)
 {
-    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
-    size_t size = 0;
-    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0 || size == 0) return;
-    struct kinfo_proc *procs = malloc(size);
-    if (!procs) return;
-    if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) { free(procs); return; }
-    size_t count = size / sizeof(struct kinfo_proc);
-    for (size_t i = 0; i < count; i++) {
-        const char *name = procs[i].kp_proc.p_comm;
-        if (name && strcmp(name, "trollvncserver") == 0) {
-            kill(procs[i].kp_proc.p_pid, SIGTERM);
-        }
+    // Compatibility wrapper: full disable-path sweep (unload + TERM + KILL).
+    // Callers that only want to restart (scale change) clear the cooldown and
+    // call recoverVNC afterwards; callers that disable must use
+    // ZXVNCApplyEnabledState(NO) so the daemon stays unloaded.
+    ZXVNCSetDaemonDisabled(YES);
+    ZXVNCkillServerSignal(SIGTERM);
+    [NSThread sleepForTimeInterval:0.5];
+    if (ZXVNCServerProcessRunning() || ZXVNCProbePort(5901) || ZXVNCProbePort(5801)) {
+        ZXVNCkillServerSignal(SIGKILL);
     }
-    free(procs);
 }
 
 static BOOL ZXVNCProbePort(uint16_t port)
@@ -454,10 +530,13 @@ static NSArray *ZXEditorFunctionCatalog(void)
 - (NSDictionary *)vncHealth
 {
     BOOL enabled = ZXVNCIsEnabled();
+    // Report REAL port state even when disabled so the dashboard can detect a
+    // failed kill (disabled=true but port still open) instead of masking it.
+    // The frontend gates on `enabled`, not on the port flags.
     return @{ @"enabled": @(enabled), @"port": @5901, @"httpPort": @5801,
               @"scale": @(ZXVNCScale()),
-              @"vncPortOpen": @(enabled && ZXVNCProbePort(5901)),
-              @"httpPortOpen": @(enabled && ZXVNCProbePort(5801)) };
+              @"vncPortOpen": @(ZXVNCProbePort(5901)),
+              @"httpPortOpen": @(ZXVNCProbePort(5801)) };
 }
 
 - (NSDictionary *)status
@@ -534,7 +613,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
 - (NSDictionary *)recoverVNC
 {
     if (!ZXVNCIsEnabled()) {
-        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @NO, @"httpPortOpen": @NO,
+        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)),
                   @"message": @"VNC Server is disabled in Settings." };
     }
     BOOL vncOpen = ZXVNCProbePort(5901);
@@ -545,20 +624,51 @@ static NSArray *ZXEditorFunctionCatalog(void)
         return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @NO, @"httpPortOpen": @(httpOpen), @"message": @"VNC recovery is cooling down." };
     }
     self.vncRecoveryAt = now;
+    // Re-check after claiming the cooldown slot: a disable that landed in
+    // between must win over this in-flight recovery.
+    if (!ZXVNCIsEnabled()) {
+        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)),
+                  @"message": @"VNC Server is disabled in Settings." };
+    }
+    // Re-enable the daemon entry (it may carry Disabled=YES from a previous
+    // OFF) before asking launchd to load it.
+    ZXVNCSetDaemonDisabled(NO);
+    if (!ZXVNCIsEnabled()) {
+        ZXVNCApplyEnabledState(NO);
+        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @NO, @"httpPortOpen": @NO,
+                  @"message": @"VNC Server is disabled in Settings." };
+    }
     NSString *plist = ZXVNCLaunchDaemonPath();
     NSString *binary = @"/var/jb/usr/bin/trollvncserver";
     NSString *log = @"/var/mobile/Library/ZXTouch/trollvnc.log";
     NSString *scale = [NSString stringWithFormat:@"%g", ZXVNCScale()];
     NSString *command = [NSString stringWithFormat:
-        @"(/var/jb/bin/launchctl load %@ >/dev/null 2>&1 || launchctl load %@ >/dev/null 2>&1); "
+        @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
+         @"(launchctl load -w %@ >/dev/null 2>&1); "
          @"if ! ps -ax 2>/dev/null | grep -q '[t]rollvncserver'; then "
          @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %@ -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null & fi",
         plist, plist, binary, scale, log];
-    int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
-    if (systemFunction) systemFunction(command.UTF8String);
+    ZXVNCSystem(command);
     for (int i = 0; i < 16 && !vncOpen; i++) {
+        // Abort the wait as soon as the user disables VNC mid-start, and tear
+        // down the half-started server so OFF is always final.
+        if (!ZXVNCIsEnabled()) {
+            ZXVNCApplyEnabledState(NO);
+            self.statusCache = nil;
+            self.statusCacheAt = nil;
+            return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)),
+                      @"message": @"VNC Server is disabled in Settings." };
+        }
         [NSThread sleepForTimeInterval:0.5];
         vncOpen = ZXVNCProbePort(5901);
+    }
+    // Final gate: never report success for a server the user just disabled.
+    if (!ZXVNCIsEnabled()) {
+        ZXVNCApplyEnabledState(NO);
+        self.statusCache = nil;
+        self.statusCacheAt = nil;
+        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @(ZXVNCProbePort(5901)), @"httpPortOpen": @(ZXVNCProbePort(5801)),
+                  @"message": @"VNC Server is disabled in Settings." };
     }
     httpOpen = ZXVNCProbePort(5801);
     self.statusCache = nil;
@@ -758,7 +868,17 @@ static NSArray *ZXEditorFunctionCatalog(void)
                 @"scale": @(ZXVNCScale()), @"options": @[@0.3, @0.5, @0.6, @0.7, @1.0] } status:400];
         }
         ZXVNCSetScale(scale);
-        ZXVNCkillServer();
+        // Restart-only path: kill the process but immediately re-arm the
+        // daemon entry — ZXVNCkillServer() leaves Disabled=YES by design so a
+        // plain kill here would look like a user OFF to the next recover.
+        ZXVNCkillServerSignal(SIGTERM);
+        [NSThread sleepForTimeInterval:0.5];
+        if (ZXVNCServerProcessRunning()) ZXVNCkillServerSignal(SIGKILL);
+        ZXVNCSetDaemonDisabled(NO);
+        if (!ZXVNCIsEnabled()) {
+            ZXVNCApplyEnabledState(NO);
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"VNC Server is disabled in Settings." } status:403];
+        }
         strongSelf.vncRecoveryAt = nil;
         NSMutableDictionary *result = [[strongSelf recoverVNC] mutableCopy];
         result[@"scale"] = @(ZXVNCScale());
@@ -1017,11 +1137,13 @@ static NSArray *ZXEditorFunctionCatalog(void)
         // LaunchDaemons can be absent after a jailbreak re-enable or can stop
         // without launchd recovering them. Give the dashboard one guarded
         // chance to restore VNC without waiting for a browser retry cycle.
-        if (ZXVNCIsEnabled()) {
-            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        // Re-check inside the block: the user may have turned VNC OFF between
+        // start and this async hop — that OFF must win, never resurrect.
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            if (ZXVNCIsEnabled() && ZXDashboardDaemonEnabled()) {
                 [self recoverVNC];
-            });
-        }
+            }
+        });
     }
     return started;
 }
@@ -1036,6 +1158,19 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
 static ZXRemoteDashboardServer *ZXDashboardServer;
 
+// Tắt server zxtouch kéo theo tắt VNC: persist vnc_server_enabled=NO vào cùng
+// plist để Settings UI, dashboardd và SpringBoard thấy một trạng thái duy nhất.
+static void ZXDashboardForceVNCDisabledInConfig(void)
+{
+    NSMutableDictionary *configuration = [[NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath] mutableCopy];
+    if (!configuration) configuration = [NSMutableDictionary dictionary];
+    if ([configuration[ZXVNCEnabledKey] boolValue] == NO && configuration[ZXVNCEnabledKey] != nil) return;
+    configuration[ZXVNCEnabledKey] = @NO;
+    [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent]
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
+}
+
 void ZXDashboardReloadConfiguration(void)
 {
     NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
@@ -1047,13 +1182,19 @@ void ZXDashboardReloadConfiguration(void)
         if (migrated.count) [migrated writeToFile:ZXDashboardConfigPath atomically:YES];
         configuration = migrated;
     }
-    ZXVNCApplyEnabledState(configuration[ZXVNCEnabledKey] == nil ? YES : [configuration[ZXVNCEnabledKey] boolValue]);
-    BOOL enabled = [configuration[ZXDashboardEnabledKey] boolValue];
-    if (!enabled) {
+    BOOL dashboardEnabled = [configuration[ZXDashboardEnabledKey] boolValue];
+    if (!dashboardEnabled) {
+        // Order matters: kill VNC FIRST while :8080 still answers (so the open
+        // web page receives enabled=false), then stop the dashboard. Stopping
+        // :8080 alone would orphan :5901 with the browser still connected.
+        ZXDashboardForceVNCDisabledInConfig();
+        ZXVNCApplyEnabledState(NO);
         [ZXDashboardServer stop];
         ZXDashboardServer = nil;
         return;
     }
+    ZXVNCApplyEnabledState(configuration[ZXVNCEnabledKey] == nil ? YES : [configuration[ZXVNCEnabledKey] boolValue]);
+    BOOL enabled = dashboardEnabled;
     // The standalone dashboard daemon (com.zjx.dashboard) owns :8080 once it has
     // bound after install/respring. The embedded SpringBoard server must not
     // fight it for the port — a crash here would take SpringBoard down.
@@ -1084,28 +1225,44 @@ int ZXDashboardDaemonMain(void)
         // The Settings app writes the shared plist and posts this notification.
         // Apply the VNC switch here as well as in the SpringBoard path so a
         // running standalone dashboard cannot leave the old server alive.
+        // Dashboard OFF forces VNC OFF (persisted) and kills VNC BEFORE
+        // stopping :8080 so the browser learns enabled=false first.
+        if (!ZXDashboardDaemonEnabled()) {
+            ZXDashboardForceVNCDisabledInConfig();
+            ZXVNCApplyEnabledState(NO);
+            lastVNCEnabled = NO;
+            vncStateKnown = YES;
+            [server stop];
+            return;
+        }
         BOOL enabled = ZXVNCIsEnabled();
         ZXVNCApplyEnabledState(enabled);
         lastVNCEnabled = enabled;
         vncStateKnown = YES;
-        if (!ZXDashboardDaemonEnabled()) [server stop];
     });
     for (;;) {
         @autoreleasepool {
+            if (!ZXDashboardDaemonEnabled()) {
+                // Poll fallback if the notify was missed: same OFF-means-OFF.
+                if (!vncStateKnown || lastVNCEnabled != NO) {
+                    ZXDashboardForceVNCDisabledInConfig();
+                    ZXVNCApplyEnabledState(NO);
+                    lastVNCEnabled = NO;
+                    vncStateKnown = YES;
+                }
+                if (server.server.running) [server stop];
+            } else {
             BOOL enabled = ZXVNCIsEnabled();
             if (!vncStateKnown || enabled != lastVNCEnabled) {
                 ZXVNCApplyEnabledState(enabled);
                 lastVNCEnabled = enabled;
                 vncStateKnown = YES;
             }
-            if (ZXDashboardDaemonEnabled()) {
-                if (!server.server.running && ![server start]) {
-                    // Port busy (embedded SpringBoard server until the next
-                    // respring) or transient failure — wait, never crash-loop.
-                    NSLog(@"[dashboardd] :8080 unavailable (%@), retrying", server.lastError);
-                }
-            } else if (server.server.running) {
-                [server stop];
+            if (!server.server.running && ![server start]) {
+                // Port busy (embedded SpringBoard server until the next
+                // respring) or transient failure — wait, never crash-loop.
+                NSLog(@"[dashboardd] :8080 unavailable (%@), retrying", server.lastError);
+            }
             }
         }
         sleep(30);
@@ -1130,14 +1287,29 @@ static NSMutableDictionary *ZXDashboardConfiguration(void)
     return configuration;
 }
 
+// Best-effort: Settings process tự kill VNC ngay khi user OFF để không phải chờ
+// dashboardd/SpringBoard nhận notify (đóng cửa sổ 0-30s). Thất bại cũng không sao
+// vì daemon + SpringBoard sẽ kill lại khi nhận notify.
+static void ZXSettingsKillVNCBestEffort(void)
+{
+    int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
+    if (systemFunction) systemFunction("killall -9 trollvncserver >/dev/null 2>&1");
+}
+
 BOOL ZXRemoteDashboardSetEnabled(BOOL enabled)
 {
     NSMutableDictionary *configuration = ZXDashboardConfiguration();
     configuration[ZXDashboardEnabledKey] = @(enabled);
+    if (!enabled) {
+        // Tắt server kéo theo tắt VNC trong cùng một lần ghi plist: một notify
+        // duy nhất, không có cửa sổ VNC còn ON trong lúc dashboard đã OFF.
+        configuration[ZXVNCEnabledKey] = @NO;
+    }
     NSError *directoryError = nil;
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:&directoryError];
     BOOL saved = directoryError == nil && [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
     ZXDashboardSettingsLastError = saved ? @"" : (directoryError.localizedDescription ?: @"Unable to save Remote Dashboard settings.");
+    if (saved && !enabled) ZXSettingsKillVNCBestEffort();
     if (saved) notify_post(ZXDashboardConfigurationNotification);
     return saved;
 }
@@ -1171,6 +1343,7 @@ BOOL ZXVNCServerSetEnabled(BOOL enabled)
         ZXVNCSettingsLastError = directoryError.localizedDescription ?: @"Unable to save VNC server settings.";
         return NO;
     }
+    if (!enabled) ZXSettingsKillVNCBestEffort();
     if (saved) notify_post(ZXDashboardConfigurationNotification);
     return saved;
 }
