@@ -27,6 +27,7 @@ static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboa
 @interface UIKeyboardImpl : UIView
 	+ (id)sharedInstance;
 	+ (id)activeInstance;
+	- (void)zx_registerKeyboardStateObservers;
 	- (void)insertText:(id)arg1;
 	- (void)hideKeyboard;
     - (void)showKeyboard;

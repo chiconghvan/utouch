@@ -7,6 +7,11 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.22] — 2026-09-15
+
+### Đã sửa
+- Khai báo phương thức đăng ký observer trạng thái bàn phím để tweak appdelegate biên dịch được trên workflow package.
+
 ## [0.3.21] — 2026-09-15
 
 ### Đã thêm
@@ -265,6 +270,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.22]: https://github.com/chiconghvan/utouch/compare/v0.3.21...v0.3.22
 [0.3.21]: https://github.com/chiconghvan/utouch/compare/v0.3.20...v0.3.21
 [0.3.20]: https://github.com/chiconghvan/utouch/compare/v0.3.19...v0.3.20
 [0.3.19]: https://github.com/chiconghvan/utouch/compare/v0.3.18...v0.3.19
