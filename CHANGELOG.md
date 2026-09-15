@@ -7,6 +7,11 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.23] — 2026-09-15
+
+### Đã sửa
+- Sửa cú pháp phân loại task truy vấn trạng thái bàn phím để package `pccontrol` biên dịch được.
+
 ## [0.3.22] — 2026-09-15
 
 ### Đã sửa
@@ -270,6 +275,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.23]: https://github.com/chiconghvan/utouch/compare/v0.3.22...v0.3.23
 [0.3.22]: https://github.com/chiconghvan/utouch/compare/v0.3.21...v0.3.22
 [0.3.21]: https://github.com/chiconghvan/utouch/compare/v0.3.20...v0.3.21
 [0.3.20]: https://github.com/chiconghvan/utouch/compare/v0.3.19...v0.3.20
