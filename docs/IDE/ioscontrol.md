@@ -1253,6 +1253,31 @@ tap(200, 500)  # Tap login button
 ```
 ---
 
+### `typeText(text)`
+
+- Type: `func`
+- EN: Type text one character at a time with human-like randomized keyboard delays
+- VI: Nhập từng ký tự với độ trễ bàn phím ngẫu nhiên giống người dùng
+- Return: `void`
+
+`typeText` uses a base delay of 100-240 ms between characters. It adds a
+shorter random pause after whitespace and a longer pause after punctuation.
+Use `inputText` when a fast full-string insertion is preferred.
+
+**Params:**
+
+| Name | Type | Required | EN | VI |
+|---|---|---|---|---|
+| `text` | `string` | yes | Text to type | Văn bản cần nhập |
+
+**Example (Python):**
+
+```python
+tap(200, 300)
+type_text("hello, this is typed naturally")
+```
+---
+
 ### `keyDown(keyType)`
 
 - Type: `func`

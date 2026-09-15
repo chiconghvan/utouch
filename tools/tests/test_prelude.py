@@ -351,6 +351,26 @@ def test_native_wiring():
     assert ("vibrate",) in d.calls
 
 
+def test_type_text_sends_each_character_with_human_delay(monkeypatch):
+    d = use_fake()
+    delays = []
+    monkeypatch.setattr(prelude.time, "sleep", delays.append)
+    monkeypatch.setattr(prelude.random, "uniform", lambda low, high: (low + high) / 2)
+
+    assert prelude.typeText("a b!") is True
+    assert [c[1] for c in d.calls if c[0] == "insert"] == ["a", " ", "b", "!"]
+    assert len(delays) == 3
+    assert all(0.10 <= delay <= 0.52 for delay in delays)
+    assert delays[1] > delays[0]  # whitespace adds a short thinking pause
+    assert prelude.type_text is prelude.typeText
+
+
+def test_type_text_rejects_non_string():
+    use_fake()
+    with pytest.raises(TypeError):
+        prelude.typeText(123)
+
+
 def test_fallbacks_against_old_daemon():
     d = use_fake()  # FakeDevice raises for multi/region/record-device paths
     assert prelude.findColor(0xFF0000) == [(10, 20)]  # legacy single-point

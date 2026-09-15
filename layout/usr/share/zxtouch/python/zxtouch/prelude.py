@@ -925,6 +925,35 @@ def inputText(text):
     return True
 
 
+def typeText(text):
+    """Type text one character at a time with human-like keyboard pauses.
+
+    The base pause is randomized between 100 and 240 ms. Whitespace and
+    punctuation get an additional randomized pause to resemble the small
+    breaks people make while typing. Unlike ``inputText``, this intentionally
+    does not send the whole string as one burst.
+    """
+    if not isinstance(text, str):
+        raise TypeError("typeText expects a string")
+
+    device = get_device()
+    for index, character in enumerate(text):
+        ok, res = device.insert_text(character)
+        if not ok:
+            raise RuntimeError("typeText failed: %s" % (res,))
+
+        if index == len(text) - 1:
+            continue
+
+        delay = random.uniform(0.10, 0.24)
+        if character.isspace():
+            delay += random.uniform(0.04, 0.12)
+        elif character in ".,!?;:":
+            delay += random.uniform(0.06, 0.16)
+        time.sleep(delay)
+    return True
+
+
 def showKeyboard():
     """Request that the frontmost app show its virtual keyboard."""
     ok, res = get_device().show_keyboard()
@@ -1725,6 +1754,7 @@ app_clear = appClear
 app_state = appState
 open_url = openURL
 input_text = inputText
+type_text = typeText
 show_keyboard = showKeyboard
 hide_keyboard = hideKeyboard
 keyboard_visible = keyboardVisible
@@ -1788,7 +1818,7 @@ __all__ = [
     "dialogInput", "dialogChoice", "timestamp", "md5",
     "showOverlay", "updateOverlay", "hideOverlay",
     "appRun", "appKill", "appClear", "appState", "openURL",
-    "inputText", "showKeyboard", "hideKeyboard", "keyboardVisible",
+    "inputText", "typeText", "showKeyboard", "hideKeyboard", "keyboardVisible",
     "keyDown", "keyUp", "getClipboard", "setClipboard",
     "toast", "alert", "vibrate", "log",
     "sleep", "usleep", "randomSleep", "screenSize", "deviceInfo",
@@ -1807,7 +1837,7 @@ __all__ = [
     "tap_image", "tap_text", "swipe_until_image", "swipe_until_text",
     "dialog_input", "dialog_choice", "show_overlay", "update_overlay",
     "hide_overlay", "app_run", "app_kill", "app_clear", "app_state",
-    "open_url", "input_text", "show_keyboard", "hide_keyboard",
+    "open_url", "input_text", "type_text", "show_keyboard", "hide_keyboard",
     "keyboard_visible", "key_down", "key_up",
     "get_clipboard", "set_clipboard",
     "random_sleep", "screen_size", "device_info",
