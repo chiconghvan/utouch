@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.29] — 2026-09-16
+
 ### Đã thêm
 - Editor script trên iPhone hiển thị số dòng ở mép trái, kèm vạch phân cách; số dòng bám theo layout nên dòng bị xuống hàng không bị đánh số hai lần.
 - Setting `Editor Font Size` (slider 10–28) trong `Settings → Script`; cỡ chữ mới áp dụng ngay cho editor đang mở.
@@ -336,6 +338,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.29]: https://github.com/chiconghvan/utouch/compare/v0.3.28...v0.3.29
 [0.3.28]: https://github.com/chiconghvan/utouch/compare/v0.3.27...v0.3.28
 [0.3.27]: https://github.com/chiconghvan/utouch/compare/v0.3.26...v0.3.27
 [0.3.26]: https://github.com/chiconghvan/utouch/compare/v0.3.25...v0.3.26
