@@ -272,6 +272,7 @@ static UIFont *ZXEditorFont(void)
 
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
+    [self updateLineNumbers];
     if (!completionTableView.hidden) [self positionCompletionTable];
 }
 
@@ -559,7 +560,7 @@ static UIFont *ZXEditorFont(void)
     };
 
     NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-    UIViewAnimationCurve curve = [note.userInfo[UIKeyboardAnimationCurveUserInfoKey] integerValue];
+    UIViewAnimationCurve curve = (UIViewAnimationCurve)[note.userInfo[UIKeyboardAnimationCurveUserInfoKey] integerValue];
     if (duration > 0) {
         [UIView animateWithDuration:duration
                               delay:0
@@ -579,11 +580,6 @@ static UIFont *ZXEditorFont(void)
 }
 
 #pragma mark - Line numbers
-
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
-    [self updateLineNumbers];
-}
 
 - (void)applyEditorFontSize {
     _textInput.font = ZXEditorFont();
