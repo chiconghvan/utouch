@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A0B1C2D3E4F5060708090A10 /* ZXPythonEditorSupport.m in Sources */ = {isa = PBXBuildFile; fileRef = A0B1C2D3E4F5060708090A0E /* ZXPythonEditorSupport.m */; };
+		A0B1C2D3E4F5060708090A11 /* ZXPythonEditorSupportTests.m in Sources */ = {isa = PBXBuildFile; fileRef = A0B1C2D3E4F5060708090A0F /* ZXPythonEditorSupportTests.m */; };
 		961098F5259E1DE500919CA1 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = 961098F7259E1DE500919CA1 /* Localizable.strings */; };
 		9619F9CF25831EE4001D7EA9 /* Socket.m in Sources */ = {isa = PBXBuildFile; fileRef = 9619F9CE25831EE4001D7EA9 /* Socket.m */; };
 		961B79AA25C1ACC20083DC41 /* PlaySettingsNavigationController.m in Sources */ = {isa = PBXBuildFile; fileRef = 961B79A925C1ACC20083DC41 /* PlaySettingsNavigationController.m */; };
@@ -311,6 +313,9 @@
 		96EE99C825D3C67D006B1243 /* Intents.intentdefinition */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.intentdefinition; path = Intents.intentdefinition; sourceTree = "<group>"; };
 		96F4696A258B24DA0052D78D /* ScriptEditorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ScriptEditorViewController.h; sourceTree = "<group>"; };
 		96F4696B258B24DA0052D78D /* ScriptEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ScriptEditorViewController.m; sourceTree = "<group>"; };
+		A0B1C2D3E4F5060708090A0D /* ZXPythonEditorSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZXPythonEditorSupport.h; sourceTree = "<group>"; };
+		A0B1C2D3E4F5060708090A0E /* ZXPythonEditorSupport.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXPythonEditorSupport.m; sourceTree = "<group>"; };
+		A0B1C2D3E4F5060708090A0F /* ZXPythonEditorSupportTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXPythonEditorSupportTests.m; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A01 /* RemoteDashboardServer.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RemoteDashboardServer.h; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A02 /* RemoteDashboardServer.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = RemoteDashboardServer.m; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A04 /* RecordingEditorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = RecordingEditorViewController.h; sourceTree = "<group>"; };
@@ -567,6 +572,8 @@
 				96A2BC372587C20A008DE91F /* ScriptListTableCell.m */,
 				96F4696A258B24DA0052D78D /* ScriptEditorViewController.h */,
 				96F4696B258B24DA0052D78D /* ScriptEditorViewController.m */,
+				A0B1C2D3E4F5060708090A0D /* ZXPythonEditorSupport.h */,
+				A0B1C2D3E4F5060708090A0E /* ZXPythonEditorSupport.m */,
 				A0B1C2D3E4F5060708090A04 /* RecordingEditorViewController.h */,
 				A0B1C2D3E4F5060708090A05 /* RecordingEditorViewController.m */,
 				96EE2C1225C93850005FC8C3 /* ImageViewerViewController.h */,
@@ -583,6 +590,7 @@
 			isa = PBXGroup;
 			children = (
 				96D7E5BD2581F99C00B39A81 /* zxtouchTests.m */,
+				A0B1C2D3E4F5060708090A0F /* ZXPythonEditorSupportTests.m */,
 				96D7E5BF2581F99C00B39A81 /* Info.plist */,
 			);
 			path = zxtouchTests;
@@ -866,6 +874,7 @@
 				965E8CC225B3682C00FDD35C /* LogViewController.m in Sources */,
 				964DF10C25B9D87E006061B4 /* GCDWebServerConnection.m in Sources */,
 				96F4696C258B24DA0052D78D /* ScriptEditorViewController.m in Sources */,
+				A0B1C2D3E4F5060708090A10 /* ZXPythonEditorSupport.m in Sources */,
 				A0B1C2D3E4F5060708090A03 /* RemoteDashboardServer.m in Sources */,
 				A0B1C2D3E4F5060708090A06 /* RecordingEditorViewController.m in Sources */,
 				964DF10825B9D87E006061B4 /* GCDWebServerResponse.m in Sources */,
@@ -907,6 +916,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				96D7E5BE2581F99C00B39A81 /* zxtouchTests.m in Sources */,
+				A0B1C2D3E4F5060708090A11 /* ZXPythonEditorSupportTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
