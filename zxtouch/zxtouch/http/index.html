@@ -701,6 +701,23 @@
     // Runtime signatures are loaded from prelude.py so new APIs do not need
     // a second manual registration in the editor.
     const FUNCTION_DETAILS = new Map();
+    const FUNCTION_OUTPUT_TYPES = {
+      if: 'syntax construct', else: 'syntax construct', for: 'syntax construct', while: 'syntax construct',
+      tap: 'void', touchDown: 'void', touchMove: 'void', touchUp: 'void', swipe: 'void', longPress: 'void', pinch: 'void', rotate: 'void',
+      getColor: 'number', getColors: 'number[]', findColor: '[number, number][]', findColors: '[number, number][]', waitForColor: 'boolean',
+      findImage: 'object | null', waitForImage: 'object | null', deleteScreenshot: 'boolean', convertBase64: 'string', tapImage: 'object | null', screenshot: 'string',
+      ocrText: 'string', findText: 'object[]', ocrFind: '[number, number, string]', waitForText: 'boolean', tapText: 'object | null', swipeUntilImage: 'object | null', swipeUntilText: 'boolean',
+      dialogInput: 'string', dialogChoice: 'number', toast: 'boolean', alert: 'boolean', vibrate: 'void', showOverlay: 'boolean', updateOverlay: 'boolean', hideOverlay: 'boolean',
+      setDebugVisual: 'boolean', clearDebugVisual: 'boolean', log: 'boolean', timestamp: 'number', md5: 'string',
+      appRun: 'boolean', appKill: 'boolean', appState: 'number', appClear: 'number', openURL: 'boolean',
+      inputText: 'boolean', typeText: 'boolean', showKeyboard: 'boolean', hideKeyboard: 'boolean', keyboardVisible: 'boolean', keyDown: 'void', keyUp: 'void', getClipboard: 'string', setClipboard: 'boolean',
+      sleep: 'void', usleep: 'void', randomSleep: 'void', screenSize: 'object', deviceInfo: 'object', randomInt: 'number', randomFloat: 'number',
+      readFile: 'string', writeFile: 'boolean', jsonEncode: 'string', jsonDecode: 'object', httpGet: 'HttpResponse', httpPost: 'HttpResponse', appendFile: 'boolean',
+      wifiInfo: 'object', getIP: 'string', setAirplaneMode: 'boolean', setCellularData: 'boolean', setProxySystem: 'boolean', clearProxySystem: 'boolean', setDebugTouchLog: 'boolean',
+      recordStart: 'boolean', recordStop: 'boolean', recordPlay: 'unknown', recordSave: 'boolean', recordLoad: 'object[]',
+      'crane.list': 'object[]', 'crane.switch': 'object', 'crane.create': 'object', 'crane.rename': 'object', 'crane.delete': 'object', 'crane.wipe': 'object',
+      'crane.restore': 'object', 'crane.clearData': 'object', 'crane.backup': 'object', 'crane.size': 'object',
+    };
     function functionKey(item) {
       const name = Array.isArray(item) ? item[0] : item.name;
       return String(name || '').split('(')[0].trim();
@@ -713,12 +730,15 @@
       if (['if', 'else', 'for', 'while'].includes(functionKey(item))) return label;
       return label.includes('(') ? label : `${label}()`;
     }
+    function functionOutputType(item) {
+      const detail = FUNCTION_DETAILS.get(functionKey(item));
+      return detail?.outputType || detail?.returnType || detail?.returns || FUNCTION_OUTPUT_TYPES[functionKey(item)] || 'unknown';
+    }
     function functionNote(item) {
       const detail = FUNCTION_DETAILS.get(functionKey(item));
       const signature = functionSignature(item);
-      return detail?.description && detail.description !== signature
-        ? `${signature}\n${detail.description}`
-        : signature;
+      const description = detail?.description && detail.description !== signature ? `\n${detail.description}` : '';
+      return `${signature}\nOutput type: ${functionOutputType(item)}${description}`;
     }
     const functionTooltip = document.createElement('div');
     functionTooltip.className = 'func-tooltip';
