@@ -39,6 +39,7 @@ static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 static void ZXVNCkillServer(void);
 static BOOL ZXVNCProbePort(uint16_t port);
+static BOOL ZXDashboardDaemonEnabled(void);
 
 static BOOL ZXVNCIsEnabled(void)
 {
