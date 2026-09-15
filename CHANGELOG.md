@@ -7,6 +7,20 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.25] — 2026-09-15
+
+### Đã thêm
+- Editor Monaco đa tab: mở nhiều script cùng lúc, chuyển tab nhanh, báo chấm chưa lưu, nút `+` tạo script mới.
+- Nút tải ảnh chụp màn hình độ phân giải đầy đủ trên dashboard (`GET /api/capture-screen` trả về PNG).
+
+### Đã thay đổi
+- Gọn header editor và bề mặt tab; tiêu đề editor bám theo chiều rộng vùng soạn thảo, bỏ pane trạng thái và pane transpiled.
+
+### Đã sửa
+- Tắt VNC là tắt hẳn: unload daemon trước để KeepAlive không hồi sinh, rồi TERM → KILL kèm kiểm tra process và cổng `5901`/`5801`; dashboard dừng auto-reconnect và báo trạng thái cổng thực tế kể cả khi đã tắt.
+- Tắt dashboard kéo theo tắt VNC trong cùng một lần ghi cấu hình; recovery và đổi scale có chốt chặn chống hồi sinh server khi người dùng vừa tắt.
+- Ảnh chụp từ raw data giữ đúng định dạng PNG khi tên file có đuôi `.png`.
+
 ## [0.3.24] — 2026-09-15
 
 ### Đã thêm
@@ -286,6 +300,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.25]: https://github.com/chiconghvan/utouch/compare/v0.3.24...v0.3.25
 [0.3.24]: https://github.com/chiconghvan/utouch/compare/v0.3.23...v0.3.24
 [0.3.23]: https://github.com/chiconghvan/utouch/compare/v0.3.22...v0.3.23
 [0.3.22]: https://github.com/chiconghvan/utouch/compare/v0.3.21...v0.3.22
