@@ -237,8 +237,8 @@
     .func-list { display: grid; gap: 4px; }
     .func-item { position: relative; display: block; width: 100%; min-height: 28px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted-strong); background: var(--field); cursor: pointer; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .func-item:hover, .func-item:focus-visible { border-color: var(--blue); color: var(--text); }
-    .func-item[data-note]::after { content: attr(data-note); position: absolute; z-index: 5; left: calc(100% + 8px); top: -1px; display: none; width: 260px; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; pointer-events: none; }
-    .func-item[data-note]:hover::after, .func-item[data-note]:focus-visible::after { display: block; }
+    .func-tooltip { position: fixed; z-index: 1000; max-width: min(360px, calc(100vw - 24px)); padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; pointer-events: none; }
+    .func-tooltip[hidden] { display: none; }
     .runlog .panel-head { min-height: 56px; }
     .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
     .runlog-sep { color: var(--blue); }
@@ -691,6 +691,30 @@
       return detail?.description && detail.description !== signature
         ? `${signature}\n${detail.description}`
         : signature;
+    }
+    const functionTooltip = document.createElement('div');
+    functionTooltip.className = 'func-tooltip';
+    functionTooltip.setAttribute('role', 'tooltip');
+    functionTooltip.hidden = true;
+    document.body.appendChild(functionTooltip);
+    function hideFunctionTooltip() { functionTooltip.hidden = true; }
+    function showFunctionTooltip(button) {
+      const note = button.dataset.note;
+      if (!note) return;
+      functionTooltip.textContent = note;
+      functionTooltip.hidden = false;
+      const buttonRect = button.getBoundingClientRect();
+      const tooltipRect = functionTooltip.getBoundingClientRect();
+      const gap = 8;
+      const left = buttonRect.right + gap + tooltipRect.width <= innerWidth - gap
+        ? buttonRect.right + gap
+        : Math.max(gap, buttonRect.left - tooltipRect.width - gap);
+      const top = Math.min(
+        Math.max(gap, buttonRect.top),
+        Math.max(gap, innerHeight - tooltipRect.height - gap),
+      );
+      functionTooltip.style.left = `${left}px`;
+      functionTooltip.style.top = `${top}px`;
     }
     function functionTemplate(item, lang) {
       if (Array.isArray(item)) return lang === 'python' ? (item[2] || item[1]) : item[1];
@@ -1412,6 +1436,10 @@
            b.textContent = name;
            b.title = signature;
            b.dataset.note = signature;
+            b.addEventListener('pointerenter', () => showFunctionTooltip(b));
+            b.addEventListener('pointerleave', hideFunctionTooltip);
+            b.addEventListener('focus', () => showFunctionTooltip(b));
+            b.addEventListener('blur', hideFunctionTooltip);
            b.addEventListener('click', () => editorInsert(template));
           list.appendChild(b);
         });
