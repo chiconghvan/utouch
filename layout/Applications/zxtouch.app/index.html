@@ -402,7 +402,7 @@
 
   <script>
     const elements = Object.fromEntries(Array.from(document.querySelectorAll('[id]')).map(element => [element.id, element]));
-    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, apps: [], appsLoading: false, appsError: '', vnc: { rfb: null, connected: false, connecting: false, model: '', homeType: 'gesture', manualOffline: false, bootKicked: false } };
+    const state = { scripts: [], scriptFilter: 'all', status: null, rawLogs: '', confirming: null, apps: [], appsLoading: false, appsError: '', vnc: { rfb: null, connected: false, connecting: false, model: '', homeType: 'gesture', manualOffline: false, bootKicked: false, disabled: false } };
     const orientationNames = { '1': 'Portrait', '2': 'Portrait upside down', '3': 'Landscape right', '4': 'Landscape left' };
 
     function escapeHTML(value) { const span = document.createElement('span'); span.textContent = String(value || ''); return span.innerHTML; }
@@ -453,13 +453,23 @@
       elements.stop.disabled = !online || !status.scriptPlaying; elements.recordStart.disabled = !online || status.recording; elements.recordStop.disabled = !online || !status.recording;
       elements.scripts.querySelectorAll('.run-script').forEach(button => { if (button.dataset.busy !== '1') button.disabled = !online; });
       if (typeof updateVncDevice === 'function') updateVncDevice(status);
+      if (status.vnc && status.vnc.enabled === false) {
+        state.vnc.disabled = true;
+        vncDisconnect(true);
+        vncSetOverlay('VNC Server is disabled in Settings.');
+        setVncStatus('Disabled', false);
+      } else if (state.vnc.disabled) {
+        state.vnc.disabled = false;
+        state.vnc.manualOffline = false;
+        state.vnc.bootKicked = false;
+      }
       if (status.vnc && status.vnc.vncPortOpen === false && !state.vnc.connected && !state.vnc.connecting) {
         vncLog('health', 'TrollVNC port 5901 is closed');
       }
       // First visit: start the stream as soon as the service is known online,
       // so the Live Screen fills without a manual Connect. One shot — after
       // this the retry chain owns the lifecycle.
-      if (online && !state.vnc.bootKicked && typeof vncAutoOn === 'function' && vncAutoOn() && !state.vnc.manualOffline && !state.vnc.connected && !state.vnc.connecting) {
+      if (online && status.vnc?.enabled !== false && !state.vnc.disabled && !state.vnc.bootKicked && typeof vncAutoOn === 'function' && vncAutoOn() && !state.vnc.manualOffline && !state.vnc.connected && !state.vnc.connecting) {
         state.vnc.bootKicked = true;
         vncConnect('boot');
       }
@@ -674,6 +684,13 @@
       const label = functionLabel(item);
       if (['if', 'else', 'for', 'while'].includes(functionKey(item))) return label;
       return label.includes('(') ? label : `${label}()`;
+    }
+    function functionNote(item) {
+      const detail = FUNCTION_DETAILS.get(functionKey(item));
+      const signature = functionSignature(item);
+      return detail?.description && detail.description !== signature
+        ? `${signature}\n${detail.description}`
+        : signature;
     }
     function functionTemplate(item, lang) {
       if (Array.isArray(item)) return lang === 'python' ? (item[2] || item[1]) : item[1];
@@ -1388,7 +1405,7 @@
          group.items.forEach(item => {
            const name = functionLabel(item);
            const template = functionTemplate(item, lang);
-          const signature = functionSignature(item);
+           const signature = functionNote(item);
            const b = document.createElement('button');
           b.className = 'func-item';
            b.type = 'button';
@@ -1728,7 +1745,7 @@
       // First caller wins: a retry already queued keeps its (shorter) delay,
       // so a watchdog teardown + the disconnect event it provokes cannot
       // double-count an attempt.
-      if (vncRetry.timer || state.vnc.manualOffline || !vncAutoOn() || state.vnc.connected) return;
+       if (vncRetry.timer || state.vnc.disabled || state.vnc.manualOffline || !vncAutoOn() || state.vnc.connected) return;
       if (vncRetry.attempt >= VNC_RETRY_STEPS.length) {
         setVncStatus('Recovering VNC…', false);
         vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(why || 'connection failed'))}<br>Restarting VNC server…`);
@@ -1753,7 +1770,7 @@
       vncRetry.timer = setTimeout(() => { vncRetry.timer = null; vncConnect('retry'); }, delay);
     }
     async function vncConnect(reason) {
-      if (state.vnc.connecting || state.vnc.connected) return;
+      if (state.vnc.disabled || state.vnc.connecting || state.vnc.connected) return;
       // A manual Connect re-enables the auto policy; the flag only stops retries.
       if (reason !== 'retry') { state.vnc.manualOffline = false; vncRetry.attempt = 0; vncClearRetry(); }
       state.vnc.connecting = true;
@@ -1792,7 +1809,7 @@
             vncScheduleRetry('no VNC handshake');
           }
         }, VNC_CONNECT_TIMEOUT);
-        rfb.addEventListener('connect', e => { state.vnc.connected = true; state.vnc.connecting = false; vncClearWatchdog(); vncClearRetry(); vncRetry.attempt = 0; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); vncLog('step 3/3 ok', `connected, desktop="${(e && e.detail && e.detail.name) || ''}"`); showToast('VNC connected — tap the screen to control iOS.'); });
+         rfb.addEventListener('connect', e => { if (state.vnc.disabled) { try { rfb.disconnect(); } catch (_) {} return; } state.vnc.connected = true; state.vnc.connecting = false; vncClearWatchdog(); vncClearRetry(); vncRetry.attempt = 0; elements.vncOverlay.hidden = true; setVncStatus('Connected', true); vncLog('step 3/3 ok', `connected, desktop="${(e && e.detail && e.detail.name) || ''}"`); showToast('VNC connected — tap the screen to control iOS.'); });
         rfb.addEventListener('disconnect', e => {
           const d = (e && e.detail) || {};
           const clean = Boolean(d.clean);
@@ -1815,7 +1832,7 @@
         vncScheduleRetry(error.message);
       }
     }
-    function vncDisconnect() { vncLog('button', 'Disconnect (auto-retry paused)'); state.vnc.manualOffline = true; vncClearRetry(); vncClearWatchdog(); const rfb = state.vnc.rfb; const s = rfb && rfb._rfb_connection_state; if (rfb && s && s !== 'disconnected' && s !== 'disconnecting') { try { rfb.disconnect(); } catch (_) {} } state.vnc.rfb = null; state.vnc.connected = false; state.vnc.connecting = false; setVncStatus('Disconnected', false); elements.vncOverlay.hidden = false; }
+     function vncDisconnect(disabled = false) { vncLog('button', disabled ? 'VNC Server disabled' : 'Disconnect (auto-retry paused)'); state.vnc.manualOffline = !disabled; vncClearRetry(); vncClearWatchdog(); const rfb = state.vnc.rfb; const s = rfb && rfb._rfb_connection_state; if (rfb && s && s !== 'disconnected' && s !== 'disconnecting') { try { rfb.disconnect(); } catch (_) {} } state.vnc.rfb = null; state.vnc.connected = false; state.vnc.connecting = false; setVncStatus(disabled ? 'Disabled' : 'Disconnected', false); elements.vncOverlay.hidden = false; }
     elements.vncConnect.addEventListener('click', () => vncConnect());
     elements.vncDisconnect.addEventListener('click', vncDisconnect);
     if (elements.vncAuto) {

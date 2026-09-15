@@ -37,6 +37,15 @@ static const NSTimeInterval ZXDashboardStatusCacheTTL = 2.0;
 static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
+static void ZXVNCkillServer(void);
+
+static BOOL ZXVNCIsEnabled(void)
+{
+    NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
+    id value = configuration[ZXVNCEnabledKey];
+    return value == nil ? YES : [value boolValue];
+}
+
 static NSString *ZXVNCLaunchDaemonPath(void)
 {
     NSString *rootlessPath = @"/var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist";
@@ -47,6 +56,7 @@ static NSString *ZXVNCLaunchDaemonPath(void)
 
 static void ZXVNCApplyEnabledState(BOOL enabled)
 {
+    if (!enabled) ZXVNCkillServer();
     NSString *daemonPath = ZXVNCLaunchDaemonPath();
     NSString *verb = enabled ? @"load" : @"unload";
     NSString *disabledValue = enabled ? @"NO" : @"YES";
@@ -170,6 +180,64 @@ static NSString *ZXPreludePath(void)
     return nil;
 }
 
+static NSString *ZXEditorParameterType(NSString *parameter, NSString *defaultValue)
+{
+    NSString *raw = [parameter stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *name = [[raw componentsSeparatedByString:@":"].firstObject
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+    NSString *lower = name.lowercaseString;
+    NSString *annotation = raw.length > name.length ? [[raw substringFromIndex:name.length + 1]
+        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] : @"";
+    if ([annotation isEqualToString:@"str"]) return @"text";
+    if ([annotation isEqualToString:@"int"] || [annotation isEqualToString:@"float"]) return @"number";
+    if ([annotation isEqualToString:@"bool"]) return @"boolean";
+    if ([annotation isEqualToString:@"dict"] || [annotation isEqualToString:@"list"] || [annotation isEqualToString:@"tuple"]) return @"table";
+    if ([raw hasPrefix:@"*"]) return @"any";
+    if ([defaultValue isEqualToString:@"True"] || [defaultValue isEqualToString:@"False"]) return @"boolean";
+    if ([defaultValue hasPrefix:@"\""] || [defaultValue hasPrefix:@"'"]) return @"text";
+    if ([defaultValue rangeOfString:@"^[+-]?[0-9]+(\\.[0-9]+)?$" options:NSRegularExpressionSearch].location != NSNotFound) return @"number";
+    if ([lower containsString:@"region"] || [lower containsString:@"pattern"] || [lower containsString:@"location"] ||
+        [lower containsString:@"header"] || [lower containsString:@"body"] || [lower containsString:@"option"] ||
+        [lower isEqualToString:@"data"] || [lower isEqualToString:@"obj"]) return @"table";
+    if ([lower isEqualToString:@"enabled"] || [lower isEqualToString:@"case_sensitive"] || [lower isEqualToString:@"debug"]) return @"boolean";
+    if ([lower isEqualToString:@"x"] || [lower isEqualToString:@"y"] || [lower isEqualToString:@"w"] ||
+        [lower isEqualToString:@"h"] || [lower isEqualToString:@"fid"] || [lower containsString:@"count"] ||
+        [lower containsString:@"timeout"] || [lower containsString:@"interval"] || [lower containsString:@"duration"] ||
+        [lower containsString:@"delay"] || [lower containsString:@"speed"] || [lower containsString:@"threshold"] ||
+        [lower containsString:@"tolerance"] || [lower containsString:@"scale"] || [lower containsString:@"angle"] ||
+        [lower containsString:@"seconds"] || [lower containsString:@"microseconds"] || [lower containsString:@"mins"] ||
+        [lower containsString:@"maxs"] || [lower containsString:@"index"]) return @"number";
+    if ([lower containsString:@"path"] || [lower containsString:@"url"] || [lower containsString:@"text"] ||
+        [lower containsString:@"message"] || [lower containsString:@"title"] || [lower containsString:@"name"] ||
+        [lower containsString:@"key"] || [lower containsString:@"direction"] || [lower isEqualToString:@"s"] ||
+        [lower isEqualToString:@"lang"] || [lower isEqualToString:@"content"] || [lower isEqualToString:@"bundleid"]) return @"text";
+    return @"any";
+}
+
+static NSString *ZXEditorTypedSignature(NSString *name, NSString *args)
+{
+    if (args.length == 0) return [NSString stringWithFormat:@"%@()", name];
+    NSMutableArray *typed = [NSMutableArray array];
+    for (NSString *part in [args componentsSeparatedByString:@","]) {
+        NSString *parameter = [part stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (parameter.length == 0 || [parameter isEqualToString:@"/"] || [parameter isEqualToString:@"*"]) continue;
+        NSArray *assignment = [parameter componentsSeparatedByString:@"="];
+        NSString *declaration = [assignment.firstObject stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *defaultValue = @"";
+        if (assignment.count > 1) {
+            defaultValue = [[assignment subarrayWithRange:NSMakeRange(1, assignment.count - 1)] componentsJoinedByString:@"="];
+            defaultValue = [defaultValue stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        }
+        NSString *namePart = [[declaration componentsSeparatedByString:@":"].firstObject
+            stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *type = ZXEditorParameterType(declaration, defaultValue);
+        NSString *formatted = [NSString stringWithFormat:@"%@: %@%@", namePart, type,
+                               defaultValue.length ? [NSString stringWithFormat:@" = %@", defaultValue] : @""];
+        [typed addObject:formatted];
+    }
+    return [NSString stringWithFormat:@"%@(%@)", name, [typed componentsJoinedByString:@", "]];
+}
+
 static NSArray *ZXEditorFunctionCatalog(void)
 {
     NSString *path = ZXPreludePath();
@@ -200,9 +268,10 @@ static NSArray *ZXEditorFunctionCatalog(void)
         NSString *args = [source substringWithRange:[match rangeAtIndex:2]];
         args = [args stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
         args = [args stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        NSString *signature = ZXEditorTypedSignature(name, args);
         [functions addObject:@{ @"name": name,
-                                @"signature": [NSString stringWithFormat:@"%@(%@)", name, args],
-                                @"description": [NSString stringWithFormat:@"%@(%@)", name, args] }];
+                                @"signature": signature,
+                                @"description": signature }];
     }];
     return functions;
 }
@@ -384,10 +453,11 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
 - (NSDictionary *)vncHealth
 {
-    return @{ @"port": @5901, @"httpPort": @5801,
+    BOOL enabled = ZXVNCIsEnabled();
+    return @{ @"enabled": @(enabled), @"port": @5901, @"httpPort": @5801,
               @"scale": @(ZXVNCScale()),
-              @"vncPortOpen": @(ZXVNCProbePort(5901)),
-              @"httpPortOpen": @(ZXVNCProbePort(5801)) };
+              @"vncPortOpen": @(enabled && ZXVNCProbePort(5901)),
+              @"httpPortOpen": @(enabled && ZXVNCProbePort(5801)) };
 }
 
 - (NSDictionary *)status
@@ -463,6 +533,10 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
 - (NSDictionary *)recoverVNC
 {
+    if (!ZXVNCIsEnabled()) {
+        return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @NO, @"httpPortOpen": @NO,
+                  @"message": @"VNC Server is disabled in Settings." };
+    }
     BOOL vncOpen = ZXVNCProbePort(5901);
     BOOL httpOpen = ZXVNCProbePort(5801);
     if (vncOpen) return @{ @"ok": @YES, @"started": @NO, @"vncPortOpen": @YES, @"httpPortOpen": @(httpOpen), @"message": @"VNC server is already running." };
@@ -597,6 +671,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
     [self.server addHandlerForMethod:@"GET" pathRegex:@"^/novnc/.*" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        if (!ZXVNCIsEnabled()) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"VNC Server is disabled in Settings." } status:403];
         GCDWebServerResponse *file = [strongSelf novncFileResponseForRequest:request];
         if (!file) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"noVNC asset not found. Reinstall the package." } status:404];
         return file;
@@ -636,6 +711,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
     [self.server addHandlerForMethod:@"GET" path:@"/api/vnc/scale" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        if (!ZXVNCIsEnabled()) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"VNC Server is disabled in Settings." } status:403];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"scale": @(ZXVNCScale()),
             @"options": @[@0.3, @0.5, @0.6, @0.7, @1.0] } status:200];
     }];
@@ -646,6 +722,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
     [self.server addHandlerForMethod:@"POST" path:@"/api/vnc/scale" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        if (!ZXVNCIsEnabled()) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"VNC Server is disabled in Settings." } status:403];
         NSDictionary *body = [((GCDWebServerDataRequest *)request).jsonObject isKindOfClass:[NSDictionary class]] ? ((GCDWebServerDataRequest *)request).jsonObject : @{};
         double scale = [body[@"scale"] doubleValue];
         if (!ZXVNCScaleIsAllowed(scale)) {
@@ -912,9 +989,11 @@ static NSArray *ZXEditorFunctionCatalog(void)
         // LaunchDaemons can be absent after a jailbreak re-enable or can stop
         // without launchd recovering them. Give the dashboard one guarded
         // chance to restore VNC without waiting for a browser retry cycle.
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-            [self recoverVNC];
-        });
+        if (ZXVNCIsEnabled()) {
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+                [self recoverVNC];
+            });
+        }
     }
     return started;
 }
@@ -968,14 +1047,29 @@ static BOOL ZXDashboardDaemonEnabled(void)
 int ZXDashboardDaemonMain(void)
 {
     __block ZXRemoteDashboardServer *server = [[ZXRemoteDashboardServer alloc] init];
+    __block BOOL vncStateKnown = NO;
+    __block BOOL lastVNCEnabled = YES;
     static int notifyToken = 0;
     notify_register_dispatch(ZXDashboardConfigurationNotification, &notifyToken,
         dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^(int token) {
         (void)token;
+        // The Settings app writes the shared plist and posts this notification.
+        // Apply the VNC switch here as well as in the SpringBoard path so a
+        // running standalone dashboard cannot leave the old server alive.
+        BOOL enabled = ZXVNCIsEnabled();
+        ZXVNCApplyEnabledState(enabled);
+        lastVNCEnabled = enabled;
+        vncStateKnown = YES;
         if (!ZXDashboardDaemonEnabled()) [server stop];
     });
     for (;;) {
         @autoreleasepool {
+            BOOL enabled = ZXVNCIsEnabled();
+            if (!vncStateKnown || enabled != lastVNCEnabled) {
+                ZXVNCApplyEnabledState(enabled);
+                lastVNCEnabled = enabled;
+                vncStateKnown = YES;
+            }
             if (ZXDashboardDaemonEnabled()) {
                 if (!server.server.running && ![server start]) {
                     // Port busy (embedded SpringBoard server until the next
