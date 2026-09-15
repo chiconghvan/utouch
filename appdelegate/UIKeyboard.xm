@@ -22,6 +22,8 @@
 static volatile BOOL zxKeyboardVisible = NO;
 static NSString *const ZXKeyboardQueryNotification = @"com.zjx.zxtouch.keyboard.query";
 static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboard.response";
+static NSString *const ZXKeyboardControlResponseNotification = @"com.zjx.zxtouch.keyboardcontrol.response";
+static __weak UIResponder *zxLastInputResponder = nil;
 
 
 @interface UIKeyboardImpl : UIView
@@ -31,6 +33,7 @@ static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboa
 	- (void)insertText:(id)arg1;
 	- (void)hideKeyboard;
     - (void)showKeyboard;
+	- (void)zx_handleKeyboardVisibilityRequest:(NSString *)requestID visible:(BOOL)visible;
 	- (void)clearDelegate;
 	- (void)clearInput;
 	- (void)moveSelectionToEndOfWord;
@@ -47,6 +50,42 @@ static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboa
 
  	@property (readonly, assign, nonatomic) UIResponder <UITextInput> *inputDelegate;
 @end
+
+static BOOL zxIsActiveApplication(void)
+{
+    UIApplication *application = [UIApplication sharedApplication];
+    return application && application.applicationState == UIApplicationStateActive;
+}
+
+static UIResponder *zxFindFirstResponder(void)
+{
+    for (UIScene *scene in [UIApplication sharedApplication].connectedScenes) {
+        if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) {
+            UIResponder *responder = [window performSelector:@selector(firstResponder)];
+            if (responder) return responder;
+        }
+    }
+    return nil;
+}
+
+static void zxPostKeyboardControlResponse(NSString *requestID, BOOL success, BOOL visible, NSString *error)
+{
+    if (!requestID) return;
+
+    NSMutableDictionary *userInfo = [@{
+        @"request_id": requestID,
+        @"success": @(success),
+        @"visible": @(visible)
+    } mutableCopy];
+    if (error) userInfo[@"error"] = error;
+
+    [[NSDistributedNotificationCenter defaultCenter]
+        postNotificationName:ZXKeyboardControlResponseNotification
+                      object:nil
+                    userInfo:userInfo
+           deliverImmediately:NO];
+}
 
 
 %hook UIKeyboardImpl
@@ -70,7 +109,8 @@ static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboa
             [[NSDistributedNotificationCenter defaultCenter]
                 addObserverForName:ZXKeyboardQueryNotification object:nil
                              queue:nil
-                        usingBlock:^(NSNotification *notification) {
+                         usingBlock:^(NSNotification *notification) {
+                if (!zxIsActiveApplication()) return;
                 NSString *requestID = notification.userInfo[@"request_id"];
                 if (!requestID) return;
                 [[NSDistributedNotificationCenter defaultCenter]
@@ -108,15 +148,102 @@ static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboa
         return result;
 	}
 
-	- (void)dealloc {
-        [[NSDistributedNotificationCenter defaultCenter] removeObserver:self name:@"com.zjx.zxtouch.textinput" object:nil];
+    - (void)dealloc {
+
+        [[NSDistributedNotificationCenter defaultCenter] removeObserver:self name:@"com.zjx.zxtouch.keyboardcontrol" object:nil];
 		//NSLog(@"com.zjx.appdelegate: UIKeyboardImpl instance deallocated");
 		return %orig;
-	}
+    }
+
+    %new
+    - (void)zx_handleKeyboardVisibilityRequest:(NSString *)requestID visible:(BOOL)visible
+    {
+        UIKeyboardImpl *keyboard = self;
+        if ([UIKeyboardImpl respondsToSelector:@selector(activeInstance)]) {
+            UIKeyboardImpl *active = [UIKeyboardImpl activeInstance];
+            if (active) keyboard = active;
+        }
+
+        NSString *transitionNotification = visible
+            ? UIKeyboardDidShowNotification
+            : UIKeyboardDidHideNotification;
+        NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+        __block BOOL completed = NO;
+        __block id observer = nil;
+
+        void (^complete)(BOOL, BOOL, NSString *) = ^(BOOL success, BOOL currentVisible, NSString *error) {
+            if (completed) return;
+            completed = YES;
+            if (observer) {
+                [center removeObserver:observer];
+                observer = nil;
+            }
+            zxKeyboardVisible = currentVisible;
+            zxPostKeyboardControlResponse(requestID, success, currentVisible, error);
+        };
+
+        observer = [center addObserverForName:transitionNotification object:nil
+                                        queue:[NSOperationQueue mainQueue]
+                                   usingBlock:^(__unused NSNotification *notification) {
+            complete(YES, visible, nil);
+        }];
+
+        if (visible && zxKeyboardVisible) {
+            complete(YES, YES, nil);
+            return;
+        }
+
+        if (!visible && !zxKeyboardVisible) {
+            UIResponder *current = [keyboard inputDelegate];
+            if (!current) current = zxFindFirstResponder();
+            if (!current || ![current isFirstResponder]) {
+                complete(YES, NO, nil);
+                return;
+            }
+        }
+
+        if (visible) {
+            UIResponder *input = [keyboard inputDelegate];
+            if (!input) input = zxFindFirstResponder();
+            if (!input) input = zxLastInputResponder;
+
+            BOOL becameFirstResponder = NO;
+            if (input && [input respondsToSelector:@selector(becomeFirstResponder)]) {
+                becameFirstResponder = [input becomeFirstResponder];
+            }
+            if (!becameFirstResponder && [keyboard respondsToSelector:@selector(showKeyboard)]) {
+                [keyboard showKeyboard];
+            }
+        }
+        else {
+            UIResponder *input = [keyboard inputDelegate];
+            if (!input) input = zxFindFirstResponder();
+            if (input && [input isFirstResponder]) {
+                zxLastInputResponder = input;
+                if (![input resignFirstResponder] && [keyboard respondsToSelector:@selector(hideKeyboard)]) {
+                    [keyboard hideKeyboard];
+                }
+            }
+            else if ([keyboard respondsToSelector:@selector(hideKeyboard)]) {
+                [keyboard hideKeyboard];
+            }
+        }
+
+        // A keyboard transition is asynchronous. Do not leave the socket caller blocked forever
+        // if the target app rejects the responder change or does not emit UIKit's notification.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.0 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{
+            if (!completed) {
+                complete(NO, visible ? zxKeyboardVisible : NO,
+                         @"Keyboard visibility transition timed out.");
+            }
+        });
+    }
 
     %new
 	- (void)handleKeyboardNotification:(NSNotification *)notification {
 		//NSLog(@"com.zjx.appdelegate: keyboard related notification received. %@", notification);
+		if (!zxIsActiveApplication()) return;
 		NSDictionary *data = (NSDictionary*)notification.userInfo;
 
         int taskId = [data[@"task_id"] intValue];
@@ -145,12 +272,18 @@ static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboa
 		}
         else if (taskId == VIRTUAL_KEYBOARD)
         {
+            UIKeyboardImpl *active = nil;
+            if ([UIKeyboardImpl respondsToSelector:@selector(activeInstance)])
+                active = [UIKeyboardImpl activeInstance];
+            if (active && active != self) return;
+
             int status = [data[@"task_content"] intValue];
+            NSString *requestID = data[@"request_id"];
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (status == VIRTUAL_KEYBOARD_HIDE && [self respondsToSelector:@selector(hideKeyboard)])
-                    [self hideKeyboard];
-                else if (status == VIRTUAL_KEYBOARD_SHOW && [self respondsToSelector:@selector(showKeyboard)])
-                    [self showKeyboard];
+                if (status == VIRTUAL_KEYBOARD_HIDE)
+                    [self zx_handleKeyboardVisibilityRequest:requestID visible:NO];
+                else if (status == VIRTUAL_KEYBOARD_SHOW)
+                    [self zx_handleKeyboardVisibilityRequest:requestID visible:YES];
             });
         }
         else if (taskId == MOVE_CURSOR)
