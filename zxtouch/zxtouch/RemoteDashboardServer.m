@@ -623,6 +623,27 @@ static NSArray *ZXEditorFunctionCatalog(void)
     return frontmost.length ? frontmost : nil;
 }
 
+- (GCDWebServerResponse *)captureScreenResponse
+{
+    NSString *name = [NSString stringWithFormat:@"dashboard-capture-%@.png", [NSUUID UUID].UUIDString];
+    NSString *result = [self sendSocketCommand:[@"30" stringByAppendingString:name] expectsReply:YES];
+    if (![result hasPrefix:@"0"]) {
+        return [self jsonResponse:@{ @"ok": @NO, @"error": result.length ? result : @"Unable to capture the device screen." } status:503];
+    }
+
+    NSString *path = [self payloadFromSocketReply:result];
+    NSData *imageData = path.length ? [NSData dataWithContentsOfFile:path] : nil;
+    if (path.length) [[NSFileManager defaultManager] removeItemAtPath:path error:nil];
+    if (!imageData.length) {
+        return [self jsonResponse:@{ @"ok": @NO, @"error": @"The device returned an empty screen capture." } status:500];
+    }
+
+    GCDWebServerDataResponse *response = [GCDWebServerDataResponse responseWithData:imageData contentType:@"image/png"];
+    [response setValue:@"attachment; filename=\"zxtouch-screen.png\"" forAdditionalHeader:@"Content-Disposition"];
+    [response setValue:@"no-store" forAdditionalHeader:@"Cache-Control"];
+    return response;
+}
+
 - (NSString *)writeEditorBundleWithCode:(NSString *)code error:(NSError **)error
 {
     // Hidden staging bundle next to the runtime log dir (NOT in the library).
@@ -693,6 +714,13 @@ static NSArray *ZXEditorFunctionCatalog(void)
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"status": [strongSelf status] } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"GET" path:@"/api/capture-screen" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        strongSelf.lastAction = @"Capture full-resolution screen";
+        return [strongSelf captureScreenResponse];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/health" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {

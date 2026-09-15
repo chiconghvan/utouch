@@ -89,8 +89,11 @@ NSString *screenshotFromRawData(UInt8 *eventData, NSError **error) {
             CGImageRelease(cropped);
         }
     }
-    NSData *jpg = UIImageJPEGRepresentation(img, 0.9);
-    if (![jpg writeToFile:path atomically:YES]) {
+    NSString *extension = name.pathExtension.lowercaseString;
+    NSData *imageData = [extension isEqualToString:@"png"]
+        ? UIImagePNGRepresentation(img)
+        : UIImageJPEGRepresentation(img, 0.9);
+    if (!imageData || ![imageData writeToFile:path atomically:YES]) {
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Cannot write screenshot file.")}];
         return nil;
