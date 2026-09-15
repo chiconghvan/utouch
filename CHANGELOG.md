@@ -7,6 +7,12 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.27] — 2026-09-15
+
+### Đã thay đổi
+- Tooltip function trong editor hiển thị thêm output/return type tương ứng cho từng function.
+- Nút nổi dùng spring animation mượt hơn khi kéo dính vào mép, đồng thời hủy animation cũ an toàn khi kéo lại hoặc xoay màn hình.
+
 ## [0.3.26] — 2026-09-15
 
 ### Đã thay đổi
@@ -306,6 +312,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.27]: https://github.com/chiconghvan/utouch/compare/v0.3.26...v0.3.27
 [0.3.26]: https://github.com/chiconghvan/utouch/compare/v0.3.25...v0.3.26
 [0.3.25]: https://github.com/chiconghvan/utouch/compare/v0.3.24...v0.3.25
 [0.3.24]: https://github.com/chiconghvan/utouch/compare/v0.3.23...v0.3.24
