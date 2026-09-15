@@ -26,6 +26,7 @@
 
 #define SETTING_CELL_SWITCH 0
 #define SETTING_CELL_ENTRY 1
+#define SETTING_CELL_SLIDER 2
 
 #define ZX_ACTION_SMART_TOGGLE @"smart_toggle"
 #define ZX_ACTION_TOGGLE_PANEL @"toggle_panel"
@@ -183,64 +184,24 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [super viewDidLoad];
     // Do any additional setup after loading the view.
     self.title = @"Settings";
-    
-    sections = @[NSLocalizedString(@"remoteManagement", nil), NSLocalizedString(@"control", nil), @"Automation", NSLocalizedString(@"script", nil), @"Appearance", @"About"];
-    configManager = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
-    BOOL doubleClickPopup = YES;
-    if ([configManager getValueFromKey:@"double_click_volume_show_popup"])
-    {
-        doubleClickPopup = [[configManager getValueFromKey:@"double_click_volume_show_popup"] boolValue];
-    }
-    
-    BOOL switchAppBeforeRunScript = YES;
-    if ([configManager getValueFromKey:@"switch_app_before_run_script"])
-    {
-        switchAppBeforeRunScript = [[configManager getValueFromKey:@"switch_app_before_run_script"] boolValue];
-    }
 
-    BOOL showFinishedPopup = YES;
-    if ([configManager getValueFromKey:@"show_script_finished_popup"])
-    {
-        showFinishedPopup = [[configManager getValueFromKey:@"show_script_finished_popup"] boolValue];
-    }
-
-    BOOL darkMode = [self darkModeEnabled];
-
-    // [@{"type": ?, @"title": ?, @"content": ?, ... more depends on the cell type}]
-    //
-    cellsForEachSection = @[
-        [self remoteManagementCells],
-        @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": NSLocalizedString(@"touchIndicator", nil), @"secondary_title": @"", @"row_click_handler": NSStringFromSelector(@selector(handleTouchIndicatorWithEntryCellInstance:))},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"doubleClickShowPopup", nil), @"switch_click_handler": NSStringFromSelector(@selector(handlePopupWindowDoubleClick:)), @"switch_init_status": @(doubleClickPopup)}
-        ],
-        @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Volume Up", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_UP], @"trigger_key": ZX_TRIGGER_VOLUME_UP, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Volume Down", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_VOLUME_DOWN], @"trigger_key": ZX_TRIGGER_VOLUME_DOWN, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))},
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Home Button", @"secondary_title": [self triggerSummaryForKey:ZX_TRIGGER_HOME], @"trigger_key": ZX_TRIGGER_HOME, @"row_click_handler": NSStringFromSelector(@selector(handleTriggerTap:))}
-        ],
-        @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)}
-        ],
-        @[
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
-        ],
-        @[
-            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"ZXTouch Rootless 0.3.28", @"secondary_title": @"iOS 15-17 port by Epic0001", @"row_click_handler": NSStringFromSelector(@selector(handleCreditsTap:))}
-        ]
-    ];
-     
     UINib *SwitchCellNib = [UINib nibWithNibName:@"TableViewCellWithSwitch" bundle:nil];
     [_tableView registerNib:SwitchCellNib forCellReuseIdentifier:@"SwitchCell"];
 
     UINib *entryCellNib = [UINib nibWithNibName:@"TableViewCellWithEntry" bundle:nil];
     [_tableView registerNib:entryCellNib forCellReuseIdentifier:@"EntryCell"];
-    
+
+    UINib *sliderCellNib = [UINib nibWithNibName:@"TableViewCellWithSlider" bundle:nil];
+    [_tableView registerNib:sliderCellNib forCellReuseIdentifier:@"SliderCell"];
+
     _tableView.backgroundColor = [UIColor systemGroupedBackgroundColor];
     _tableView.tableFooterView = [[UIView alloc] init];
     _tableView.rowHeight = 54;
     _tableView.separatorInset = UIEdgeInsetsMake(0, 52, 0, 0);
+
+    // The section/cell model lives in reloadSettingsModel only, so the first
+    // build and every viewWillAppear reload cannot drift apart.
+    [self reloadSettingsModel];
 }
 
 - (void)viewWillAppear:(BOOL)animated {
@@ -280,7 +241,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
-            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)}
+            @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
+            @{@"type": @(SETTING_CELL_SLIDER), @"title": @"Editor Font Size", @"slider_min": @(ZX_EDITOR_FONT_SIZE_MIN), @"slider_max": @(ZX_EDITOR_FONT_SIZE_MAX), @"slider_value": @([self editorFontSize]), @"slider_click_handler": NSStringFromSelector(@selector(handleEditorFontSizeChanged:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
@@ -290,6 +252,30 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         ]
     ];
     [_tableView reloadData];
+}
+
+- (double)editorFontSize {
+    id value = [configManager getValueFromKey:ZX_EDITOR_FONT_SIZE_KEY];
+    double size = value ? [value doubleValue] : ZX_EDITOR_FONT_SIZE_DEFAULT;
+    if (size < ZX_EDITOR_FONT_SIZE_MIN || size > ZX_EDITOR_FONT_SIZE_MAX) size = ZX_EDITOR_FONT_SIZE_DEFAULT;
+    return size;
+}
+
+- (void)handleEditorFontSizeChanged:(UISlider *)slider {
+    double size = round(slider.value);
+    slider.value = (float)size;
+    [configManager updateKey:ZX_EDITOR_FONT_SIZE_KEY forValue:@(size)];
+    [configManager save];
+
+    // Any editor already on screen picks this up live.
+    [[NSNotificationCenter defaultCenter] postNotificationName:ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION object:nil];
+
+    for (UITableViewCell *cell in _tableView.visibleCells) {
+        if ([cell isKindOfClass:[TableViewCellWithSlider class]] && ((TableViewCellWithSlider *)cell).slideBar == slider) {
+            ((TableViewCellWithSlider *)cell).value.text = [NSString stringWithFormat:@"%.0f", size];
+            break;
+        }
+    }
 }
 
 - (void)handleSwitchAppBeforePlaying:(UISwitch*)s {
@@ -669,6 +655,32 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
         cell.clickHandler = cellInfo[@"row_click_handler"];
         
+        result = cell;
+    }
+    else if ([cellInfo[@"type"] intValue] == SETTING_CELL_SLIDER)
+    {
+        static NSString *cellID = @"SliderCell";
+
+        TableViewCellWithSlider *cell = [tableView dequeueReusableCellWithIdentifier:cellID];
+        if (cell == nil) {
+            cell = [[TableViewCellWithSlider alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cellID];
+        }
+
+        cell.title.text = cellInfo[@"title"];
+        cell.title.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
+        cell.slideBar.minimumValue = [cellInfo[@"slider_min"] floatValue];
+        cell.slideBar.maximumValue = [cellInfo[@"slider_max"] floatValue];
+        cell.slideBar.continuous = YES;
+        cell.slideBar.value = [cellInfo[@"slider_value"] floatValue];
+        // The xib's own action prints one decimal; the row handler overrides it.
+        cell.value.text = [NSString stringWithFormat:@"%.0f", cell.slideBar.value];
+        cell.backgroundColor = [UIColor secondarySystemGroupedBackgroundColor];
+        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+        [cell.slideBar removeTarget:nil action:NULL forControlEvents:UIControlEventValueChanged];
+        [cell.slideBar addTarget:self
+                          action:NSSelectorFromString(cellInfo[@"slider_click_handler"])
+                forControlEvents:UIControlEventValueChanged];
+
         result = cell;
     }
     

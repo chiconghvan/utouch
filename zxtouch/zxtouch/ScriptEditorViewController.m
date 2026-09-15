@@ -1,6 +1,118 @@
 #import "ScriptEditorViewController.h"
 #import "ZXPythonEditorSupport.h"
 #import "Socket.h"
+#import "Config.h"
+#import "ConfigManager.h"
+
+static const CGFloat ZXLineNumberHorizontalPadding = 6.0;
+static const CGFloat ZXLineNumberTextGap = 6.0;
+
+/// Editor font size chosen in Settings, clamped to the range the slider offers.
+static CGFloat ZXEditorFontSize(void)
+{
+    ConfigManager *config = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
+    id value = [config getValueFromKey:ZX_EDITOR_FONT_SIZE_KEY];
+    CGFloat size = value ? [value doubleValue] : ZX_EDITOR_FONT_SIZE_DEFAULT;
+    if (size < ZX_EDITOR_FONT_SIZE_MIN || size > ZX_EDITOR_FONT_SIZE_MAX) size = ZX_EDITOR_FONT_SIZE_DEFAULT;
+    return size;
+}
+
+static UIFont *ZXEditorFont(void)
+{
+    return [UIFont monospacedSystemFontOfSize:ZXEditorFontSize() weight:UIFontWeightRegular];
+}
+
+/// Gutter drawn inside the text view, so it scrolls with the content.
+/// Numbers come from the layout manager's line fragments: a wrapped
+/// continuation belongs to the same logical line and is not numbered twice.
+@interface ZXLineNumberView : UIView
+@property (nonatomic, weak) UITextView *textView;
+@property (nonatomic, strong) UIFont *numberFont;
+@end
+
+@implementation ZXLineNumberView
+
++ (NSUInteger)newlineCount:(NSString *)text from:(NSUInteger)location to:(NSUInteger)end
+{
+    NSUInteger count = 0;
+    NSUInteger limit = MIN(end, text.length);
+    for (NSUInteger index = MIN(location, limit); index < limit; index++) {
+        if ([text characterAtIndex:index] == '\n') count++;
+    }
+    return count;
+}
+
+- (void)drawNumber:(NSUInteger)number atY:(CGFloat)y attributes:(NSDictionary *)attributes rightEdge:(CGFloat)rightEdge
+{
+    NSString *label = [NSString stringWithFormat:@"%lu", (unsigned long)number];
+    CGSize size = [label sizeWithAttributes:attributes];
+    [label drawAtPoint:CGPointMake(rightEdge - size.width, y) withAttributes:attributes];
+}
+
+- (void)drawRect:(CGRect)rect
+{
+    UITextView *textView = self.textView;
+    if (!textView) return;
+
+    CGFloat width = CGRectGetWidth(self.bounds);
+    CGFloat height = CGRectGetHeight(self.bounds);
+    [[UIColor secondarySystemBackgroundColor] setFill];
+    UIRectFill(rect);
+    CGFloat hairline = 1.0 / MAX(UIScreen.mainScreen.scale, 1.0);
+    [[UIColor separatorColor] setFill];
+    UIRectFill(CGRectMake(width - hairline, 0, hairline, height));
+
+    UIFont *font = self.numberFont ?: textView.font;
+    NSDictionary *attributes = @{
+        NSFontAttributeName: font,
+        NSForegroundColorAttributeName: [UIColor secondaryLabelColor],
+    };
+    CGFloat rightEdge = width - ZXLineNumberHorizontalPadding;
+    UIEdgeInsets inset = textView.textContainerInset;
+    NSString *text = textView.text ?: @"";
+
+    if (text.length == 0) {
+        [self drawNumber:1 atY:inset.top attributes:attributes rightEdge:rightEdge];
+        return;
+    }
+
+    NSLayoutManager *layoutManager = textView.layoutManager;
+    NSUInteger glyphCount = layoutManager.numberOfGlyphs;
+    __block NSUInteger drawnLine = 0;
+    __block NSUInteger logicalLine = 1;
+    __block NSUInteger scanned = 0;
+    __block CGFloat lastY = inset.top;
+    __block CGFloat lastHeight = font.lineHeight;
+
+    if (glyphCount > 0) {
+        [layoutManager enumerateLineFragmentsForGlyphRange:NSMakeRange(0, glyphCount)
+            usingBlock:^(CGRect fragmentRect, CGRect usedRect, NSTextContainer *textContainer, NSRange glyphRange, BOOL *stop) {
+                NSUInteger charIndex = [layoutManager characterIndexForGlyphAtIndex:glyphRange.location];
+                if (charIndex > scanned) {
+                    logicalLine += [ZXLineNumberView newlineCount:text from:scanned to:charIndex];
+                    scanned = charIndex;
+                }
+                lastY = CGRectGetMinY(fragmentRect) + inset.top;
+                lastHeight = CGRectGetHeight(fragmentRect);
+                if (logicalLine == drawnLine) return; // wrapped continuation
+                drawnLine = logicalLine;
+                // Only visible rows are painted; a long script must not redraw
+                // every number for each scroll tile.
+                if (!CGRectIntersectsRect(CGRectMake(0, lastY, width, MAX(lastHeight, 1.0)), rect)) return;
+                [self drawNumber:logicalLine atY:lastY attributes:attributes rightEdge:rightEdge];
+            }];
+    }
+
+    // A trailing newline opens one more line, which has no glyph of its own.
+    if ([text characterAtIndex:text.length - 1] == '\n') {
+        CGFloat trailingY = lastY + lastHeight;
+        if (CGRectIntersectsRect(CGRectMake(0, trailingY, width, MAX(lastHeight, 1.0)), rect)) {
+            [self drawNumber:logicalLine + 1 atY:trailingY attributes:attributes rightEdge:rightEdge];
+        }
+    }
+}
+
+@end
 
 @interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate>
 - (void)refreshBarButtons;
@@ -13,6 +125,8 @@
 - (void)updateValidationStatus;
 - (void)showProblems;
 - (void)writeFile;
+- (void)updateLineNumbers;
+- (void)applyEditorFontSize;
 @end
 
 @implementation ScriptEditorViewController
@@ -31,6 +145,7 @@
     NSArray<NSDictionary *> *diagnostics;
     NSString *diagnosticsSource;
     NSUInteger validationGeneration;
+    ZXLineNumberView *lineNumberView;
 }
 
 - (void)viewDidLoad {
@@ -40,13 +155,23 @@
                                                    encoding:NSUTF8StringEncoding
                                                       error:NULL] ?: @"";
     _textInput.text = content;
-    _textInput.font = [UIFont monospacedSystemFontOfSize:14 weight:UIFontWeightRegular];
+    _textInput.font = ZXEditorFont();
     _textInput.autocorrectionType = UITextAutocorrectionTypeNo;
     _textInput.autocapitalizationType = UITextAutocapitalizationTypeNone;
     _textInput.smartDashesType = UITextSmartDashesTypeNo;
     _textInput.smartQuotesType = UITextSmartQuotesTypeNo;
     _textInput.delegate = self;
     _textInput.textContainerInset = UIEdgeInsetsMake(10, 8, 10, 8);
+    // Gutter lives inside the text view so it scrolls with the content.
+    lineNumberView = [[ZXLineNumberView alloc] initWithFrame:CGRectZero];
+    lineNumberView.textView = _textInput;
+    lineNumberView.numberFont = _textInput.font;
+    lineNumberView.userInteractionEnabled = NO;
+    [_textInput addSubview:lineNumberView];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(applyEditorFontSize)
+                                                 name:ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION
+                                               object:nil];
     [self configureCompletionTable];
     if ([self isPythonFile]) {
         formatButton = [[UIBarButtonItem alloc] initWithTitle:@"Format"
@@ -57,6 +182,7 @@
     }
     [self applySyntaxHighlightingPreservingSelection:NO];
     isSaveButtonShown = NO;
+    [self updateLineNumbers];
     [self scheduleValidation];
 }
 
@@ -227,6 +353,7 @@
     _textInput.attributedText = highlighted;
     if (preserveSelection && NSMaxRange(selectedRange) <= _textInput.text.length) _textInput.selectedRange = selectedRange;
     isApplyingHighlight = NO;
+    [self updateLineNumbers];
 }
 
 - (void)updateCompletions {
@@ -309,6 +436,44 @@
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
     [self scheduleValidation];
+}
+
+#pragma mark - Line numbers
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    [self updateLineNumbers];
+}
+
+- (void)applyEditorFontSize {
+    _textInput.font = ZXEditorFont();
+    [self applySyntaxHighlightingPreservingSelection:YES];
+    [self updateLineNumbers];
+}
+
+- (void)updateLineNumbers {
+    if (!lineNumberView) return;
+    [_textInput layoutIfNeeded];
+    UIFont *font = _textInput.font ?: [UIFont monospacedSystemFontOfSize:ZX_EDITOR_FONT_SIZE_DEFAULT weight:UIFontWeightRegular];
+    NSUInteger lineCount = [ZXPythonEditorSupport lineCountForSource:_textInput.text ?: @""];
+    NSUInteger digits = 0;
+    for (NSUInteger value = MAX(lineCount, 1); value > 0; value /= 10) digits++;
+    CGFloat digitWidth = [@"0" sizeWithAttributes:@{ NSFontAttributeName: font }].width;
+    CGFloat gutterWidth = ceil(digitWidth * MAX(digits, 2)) + 2 * ZXLineNumberHorizontalPadding;
+    UIEdgeInsets inset = _textInput.textContainerInset;
+    CGFloat wantedLeft = gutterWidth + ZXLineNumberTextGap;
+    if (fabs(inset.left - wantedLeft) > 0.5) {
+        _textInput.textContainerInset = UIEdgeInsetsMake(inset.top, wantedLeft, inset.bottom, inset.right);
+        [_textInput layoutIfNeeded];
+    }
+    lineNumberView.numberFont = font;
+    lineNumberView.frame = CGRectMake(0, 0, gutterWidth,
+                                      MAX(_textInput.contentSize.height, CGRectGetHeight(_textInput.bounds)));
+    // Keep the gutter above the text view's own internal container view.
+    [_textInput bringSubviewToFront:lineNumberView];
+    // The gutter shares the text view's content coordinates, so the text
+    // view's bounds are exactly the band that is on screen.
+    [lineNumberView setNeedsDisplayInRect:_textInput.bounds];
 }
 
 #pragma mark - Validation
@@ -488,6 +653,7 @@
 }
 
 - (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
     [validationTimer invalidate];
     validationTimer = nil;
 }

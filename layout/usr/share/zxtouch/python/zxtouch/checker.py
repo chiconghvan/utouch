@@ -328,12 +328,11 @@ class _Checker(ast.NodeVisitor):
                 self._check_value(name, param, arg_node)
 
     def _check_value(self, name: str, param: apispec.ParamSpec, node: ast.AST) -> None:
-        if param.type in (apispec.ANY, apispec.FUNCTION, "unknown"):
-            return
         if isinstance(node, ast.Starred):
             return
         literal = _literal_type(node)
-        if literal is not None and literal != param.type:
+        declared = param.type not in (apispec.ANY, apispec.FUNCTION, "unknown")
+        if declared and literal is not None and literal != param.type:
             self._report(
                 "W300", SEVERITY_WARNING, node,
                 "Tham số '%s' của '%s' cần %s nhưng nhận %s." % (
@@ -343,6 +342,8 @@ class _Checker(ast.NodeVisitor):
             )
             return
 
+        # Enum/range checks run even for `any` parameters: direction/keyType
+        # style arguments are strings whose accepted values are still known.
         ok, value = _literal_value(node)
         if not ok or value is None or isinstance(value, bool):
             return

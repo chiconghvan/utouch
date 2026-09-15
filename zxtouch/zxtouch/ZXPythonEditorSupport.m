@@ -471,6 +471,16 @@ static NSString *ZXTrimTrailingWhitespace(NSString *line)
     }];
 }
 
++ (NSUInteger)lineCountForSource:(NSString *)source
+{
+    NSString *text = source ?: @"";
+    NSUInteger lines = 1;
+    for (NSUInteger index = 0; index < text.length; index++) {
+        if ([text characterAtIndex:index] == '\n') lines++;
+    }
+    return lines;
+}
+
 + (NSArray<NSDictionary *> *)diagnosticsFromReportData:(NSData *)data
 {
     if (data.length == 0) return @[];

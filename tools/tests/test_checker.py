@@ -95,6 +95,38 @@ def test_valid_enum_and_range_values_pass():
     assert checker.analyze("findImage('a.png', threshold=0.9)\n")["diagnostics"] == []
 
 
+def test_tap_text_positional_arguments_are_clean():
+    # Regression: tapText(text, timeout, index) must not be flagged.
+    assert checker.analyze('tapText("ig", 10, 1)\n')["diagnostics"] == []
+    assert checker.analyze('tapText("ig", 10, 2)\n')["diagnostics"] == []
+    assert checker.analyze('tapText("ig")\n')["diagnostics"] == []
+
+
+def test_values_the_implementation_clamps_are_not_flagged():
+    # tapText: `if idx <= 0: idx = 1` — 0 is the documented "first match".
+    assert checker.analyze('tapText("ig", 10, 0)\n')["diagnostics"] == []
+    # findColor/findImage: `want = max(1, int(count))`.
+    assert checker.analyze("findColor(0xFFFFFF, 0)\n")["diagnostics"] == []
+    assert checker.analyze('findImage("a.png", 0)\n')["diagnostics"] == []
+    # findColors accepts count and ignores it.
+    assert checker.analyze("findColors([[0xFF0000, 0, 0]], 0)\n")["diagnostics"] == []
+    # setDebugVisual clamps duration into 0.3..5 instead of failing.
+    assert checker.analyze("setDebugVisual(True, 10)\n")["diagnostics"] == []
+
+
+def test_negative_random_bounds_are_valid():
+    # randomInt/randomFloat map straight onto randint/uniform, which take
+    # negative bounds.
+    assert checker.analyze("randomInt(-5, 5)\n")["diagnostics"] == []
+    assert checker.analyze("randomFloat(-1.5, 1.5)\n")["diagnostics"] == []
+
+
+def test_direction_typo_still_flagged():
+    # Unknown directions silently fall back to "up", so a typo must be caught.
+    assert first(checker.analyze("swipeUntilImage('a.png', 'Down')\n"), "E301") is not None
+    assert first(checker.analyze("keyDown('hom')\n"), "E301") is not None
+
+
 def test_syntax_error_reports_e100():
     result = checker.analyze("def f(:\n    pass\n")
     diagnostic = first(result, "E100")

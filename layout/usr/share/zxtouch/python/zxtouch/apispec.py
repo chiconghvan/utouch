@@ -208,6 +208,8 @@ PARAM_TYPE_OVERRIDES: Dict[Tuple[str, str], str] = {
     ("setCellularData", "delay"): NUMBER,
     ("setDebugVisual", "enabled"): BOOLEAN,
     ("setDebugVisual", "duration"): NUMBER,
+    ("keyDown", "keyType"): TEXT,
+    ("keyUp", "keyType"): TEXT,
     ("randomInt", "mins"): NUMBER,
     ("randomInt", "maxs"): NUMBER,
     ("randomFloat", "mins"): NUMBER,
@@ -276,24 +278,30 @@ CONSTRAINTS: Dict[Tuple[str, str], Dict[str, Any]] = {
     ("waitForImage", "threshold"): {"min": 0, "max": 1},
     ("tapImage", "threshold"): {"min": 0, "max": 1},
     ("swipeUntilImage", "threshold"): {"min": 0, "max": 1},
-    ("findColor", "count"): {"min": 1},
-    ("findColors", "count"): {"min": 1},
-    ("findImage", "count"): {"min": 1},
     ("findColor", "tolerance"): {"min": 0},
     ("findColors", "tolerance"): {"min": 0},
-    ("tapText", "index"): {"min": 1},
-    ("setDebugVisual", "duration"): {"min": 0.3, "max": 5},
     ("setProxySystem", "port"): {"min": 1, "max": 65535},
 }
+
+# Constraints intentionally NOT applied, because the implementation accepts the
+# value instead of failing. Flagging them would be a false positive:
+#   tapText.index        -> `if idx <= 0: idx = 1` (0 = first match, documented)
+#   findColor.count      -> `want = max(1, int(count))`
+#   findColors.count     -> accepted, unused by the implementation
+#   findImage.count      -> `want = max(1, int(count))`
+#   setDebugVisual.duration -> clamped to 0.3..5 (documented range)
+#   randomInt/randomFloat mins/maxs -> `random.randint/uniform` accept negatives
+#   count / mins / maxs / index are therefore absent from _NON_NEGATIVE_PARAMS.
 
 # Parameter names that are finger ids on touch primitives (0-9).
 _FINGER_PARAMS = ("finger", "fid")
 
-# Parameter names that must be non-negative.
+# Parameter names that must be non-negative. Kept to values where a negative
+# number is meaningless and is NOT clamped by the implementation.
 _NON_NEGATIVE_PARAMS = (
-    "x", "y", "w", "h", "x1", "y1", "x2", "y2", "count", "timeout", "interval",
+    "x", "y", "w", "h", "x1", "y1", "x2", "y2", "timeout", "interval",
     "duration", "delay", "speed", "scale", "seconds", "microseconds",
-    "mins", "maxs", "radius", "maxSwipes", "threshold", "tolerance",
+    "radius", "maxSwipes", "threshold", "tolerance",
 )
 
 # ------------------------------------------------------------- name heuristic

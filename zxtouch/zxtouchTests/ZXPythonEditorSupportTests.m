@@ -140,4 +140,13 @@
     XCTAssertEqual([ZXPythonEditorSupport rangesForDiagnostics:@[ @"nope" ] inSource:@"tap(1)"].count, 0U);
 }
 
+- (void)testLineCountForSource {
+    XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@""], 1U);
+    XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"tap(1, 2)"], 1U);
+    XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"a\n"], 2U);
+    XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"a\nb"], 2U);
+    XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"a\n\n"], 3U);
+    XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"\n"], 2U);
+}
+
 @end

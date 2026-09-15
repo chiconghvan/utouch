@@ -9,6 +9,14 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thêm
+- Editor script trên iPhone hiển thị số dòng ở mép trái, kèm vạch phân cách; số dòng bám theo layout nên dòng bị xuống hàng không bị đánh số hai lần.
+- Setting `Editor Font Size` (slider 10–28) trong `Settings → Script`; cỡ chữ mới áp dụng ngay cho editor đang mở.
+
+### Đã sửa
+- Checker không còn báo lỗi sai với những giá trị mà prelude chấp nhận: `tapText(..., index=0)` (0 = match đầu tiên, có ghi rõ trong prelude), `count` của `findColor`/`findColors`/`findImage` (bị clamp `max(1, count)`), `mins`/`maxs` âm của `randomInt`/`randomFloat`, và `duration` ngoài 0.3–5 của `setDebugVisual` (bị clamp).
+- Enum của tham số kiểu `any` không còn bị bỏ qua: `keyDown`/`keyUp` với `keyType` sai giờ được báo đúng.
+
 ## [0.3.28] — 2026-09-16
 
 ### Đã thêm

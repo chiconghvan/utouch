@@ -2984,4 +2984,9 @@ python3 -m zxtouch.checker /path/to/entry.py
 
 Dashboard goi qua `POST /api/editor/validate` voi body `{ "code": "<python source>" }`.
 
+### Editor tren iPhone
+
+- **So dong:** mep trai hien so dong kem vach phan cach, cap nhat theo layout nen dong bi xuong hang khong bi danh so lan hai.
+- **Co chu:** `Settings -> Script -> Editor Font Size` (slider 10-28). Gia tri luu trong config `editor_font_size` (SpringBoard config) va ap dung ngay cho editor dang mo.
+
 
