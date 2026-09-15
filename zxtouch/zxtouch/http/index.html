@@ -929,13 +929,28 @@
       return editorDiagnostics(doc).filter(item => item.severity === 'error').length;
     }
 
+    // One toast per distinct verdict. The dashboard's toast is anchored to the
+    // bottom-right, which over the editor reads as the bottom of the editor.
+    let lastValidationVerdict = '';
+    function showValidationToast(message, isError) {
+      if (message === lastValidationVerdict) return;
+      lastValidationVerdict = message;
+      showToast(message, isError);
+    }
+
     function updateValidationStatus(doc) {
       const items = editorDiagnostics(doc);
-      if (!items.length) { setEditorStatus('✓ Không phát hiện lỗi'); return; }
+      if (!items.length) {
+        setEditorStatus('✓ Không phát hiện lỗi');
+        showValidationToast('✓ Không phát hiện lỗi', false);
+        return;
+      }
       const errors = items.filter(item => item.severity === 'error').length;
       const warnings = items.filter(item => item.severity === 'warning').length;
       const first = items.find(item => item.severity === 'error') || items[0];
-      setEditorStatus(`${errors} lỗi, ${warnings} cảnh báo — dòng ${first.line}`);
+      const message = `${errors} lỗi, ${warnings} cảnh báo — dòng ${first.line}`;
+      setEditorStatus(message);
+      showValidationToast(message, errors > 0);
     }
 
     function diagnosticsToMarkers(doc, diagnostics, lineMap) {
@@ -970,6 +985,7 @@
         doc.diagnostics = [];
         editorState.monaco.editor.setModelMarkers(doc.model, 'zxtouch', []);
         setEditorStatus('✓ Không phát hiện lỗi');
+        lastValidationVerdict = '';
         return;
       }
 
@@ -983,6 +999,7 @@
           doc.diagnostics = [{ severity: 'error', code: 'LUA', line, column: 1, endLine: line, endColumn: 2, message: error.message }];
           editorState.monaco.editor.setModelMarkers(doc.model, 'zxtouch', diagnosticsToMarkers(doc, doc.diagnostics, null));
           setEditorStatus(`Lỗi Lua dòng ${error.line}: ${error.message}`);
+          showValidationToast(`Lỗi Lua dòng ${error.line}: ${error.message}`, true);
           return;
         }
       }
@@ -1003,7 +1020,10 @@
         editorState.monaco.editor.setModelMarkers(doc.model, 'zxtouch', diagnosticsToMarkers(doc, doc.diagnostics, lineMap));
         updateValidationStatus(doc);
       } catch (error) {
-        if (activeEditorDocument() === doc) setEditorStatus(`Không kiểm tra được: ${error.message}`);
+        if (activeEditorDocument() === doc) {
+          setEditorStatus(`Không kiểm tra được: ${error.message}`);
+          showValidationToast(`Không kiểm tra được: ${error.message}`, true);
+        }
       } finally {
         doc.validating = false;
         if (doc.validationPending) { doc.validationPending = false; scheduleValidation(); }

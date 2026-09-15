@@ -127,6 +127,11 @@ static UIFont *ZXEditorFont(void)
 - (void)writeFile;
 - (void)updateLineNumbers;
 - (void)applyEditorFontSize;
+- (void)configureToast;
+- (void)showEditorToast:(NSString *)message isError:(BOOL)isError;
+- (void)hideEditorToast;
+- (void)handleToastTap;
+- (void)keyboardWillChangeFrame:(NSNotification *)note;
 @end
 
 @implementation ScriptEditorViewController
@@ -146,6 +151,13 @@ static UIFont *ZXEditorFont(void)
     NSString *diagnosticsSource;
     NSUInteger validationGeneration;
     ZXLineNumberView *lineNumberView;
+    UIView *toastView;
+    UILabel *toastLabel;
+    NSLayoutConstraint *toastBottomConstraint;
+    NSTimer *toastTimer;
+    NSString *lastToastMessage;
+    CGFloat keyboardBottomInset;
+    BOOL toastHasProblems;
 }
 
 - (void)viewDidLoad {
@@ -172,7 +184,14 @@ static UIFont *ZXEditorFont(void)
                                              selector:@selector(applyEditorFontSize)
                                                  name:ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION
                                                object:nil];
+    // The text view is pinned to the safe area, which the keyboard does not
+    // change, so the bottom inset has to be maintained by hand.
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(keyboardWillChangeFrame:)
+                                                 name:UIKeyboardWillChangeFrameNotification
+                                               object:nil];
     [self configureCompletionTable];
+    [self configureToast];
     if ([self isPythonFile]) {
         formatButton = [[UIBarButtonItem alloc] initWithTitle:@"Format"
                                                         style:UIBarButtonItemStylePlain
@@ -184,6 +203,11 @@ static UIFont *ZXEditorFont(void)
     isSaveButtonShown = NO;
     [self updateLineNumbers];
     [self scheduleValidation];
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [super viewWillDisappear:animated];
+    [self hideEditorToast];
 }
 
 - (void)setFile:(NSString *)file {
@@ -400,7 +424,8 @@ static UIFont *ZXEditorFont(void)
     CGFloat height = MIN(270.0, MAX(54.0, completionItems.count * 54.0));
     CGFloat x = MAX(12.0, MIN(CGRectGetWidth(self.view.bounds) - width - 12.0, CGRectGetMinX(caretInView)));
     CGFloat y = CGRectGetMaxY(caretInView) + 4.0;
-    if (y + height > CGRectGetHeight(self.view.bounds) - 12.0) y = MAX(12.0, CGRectGetMinY(caretInView) - height - 4.0);
+    CGFloat availableBottom = CGRectGetHeight(self.view.bounds) - keyboardBottomInset - 12.0;
+    if (y + height > availableBottom) y = MAX(12.0, CGRectGetMinY(caretInView) - height - 4.0);
     completionTableView.frame = CGRectMake(x, y, width, height);
 }
 
@@ -436,6 +461,121 @@ static UIFont *ZXEditorFont(void)
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
     [self scheduleValidation];
+}
+
+#pragma mark - Toast
+
+- (void)configureToast {
+    toastView = [[UIView alloc] init];
+    toastView.translatesAutoresizingMaskIntoConstraints = NO;
+    toastView.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.85];
+    toastView.layer.cornerRadius = 12.0;
+    toastView.layer.masksToBounds = YES;
+    toastView.alpha = 0.0;
+    toastView.hidden = YES;
+    [toastView addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleToastTap)]];
+
+    toastLabel = [[UILabel alloc] init];
+    toastLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    toastLabel.numberOfLines = 0;
+    toastLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
+    toastLabel.textColor = UIColor.whiteColor;
+    toastLabel.textAlignment = NSTextAlignmentCenter;
+    [toastView addSubview:toastLabel];
+
+    [self.view addSubview:toastView];
+    [NSLayoutConstraint activateConstraints:@[
+        [toastLabel.topAnchor constraintEqualToAnchor:toastView.topAnchor constant:10.0],
+        [toastLabel.bottomAnchor constraintEqualToAnchor:toastView.bottomAnchor constant:-10.0],
+        [toastLabel.leadingAnchor constraintEqualToAnchor:toastView.leadingAnchor constant:16.0],
+        [toastLabel.trailingAnchor constraintEqualToAnchor:toastView.trailingAnchor constant:-16.0],
+        [toastView.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [toastView.leadingAnchor constraintGreaterThanOrEqualToAnchor:self.view.leadingAnchor constant:12.0],
+        [toastView.trailingAnchor constraintLessThanOrEqualToAnchor:self.view.trailingAnchor constant:-12.0],
+    ]];
+    // Sits at the bottom of the editor; the keyboard shifts it up in step.
+    toastBottomConstraint = [toastView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor
+                                                                   constant:-12.0];
+    toastBottomConstraint.active = YES;
+}
+
+- (void)showEditorToast:(NSString *)message isError:(BOOL)isError {
+    if (!toastView || message.length == 0) return;
+    // Only a changed verdict is worth a new toast: repeating "no errors" after
+    // every pause would be noise, while error -> clean still announces itself.
+    if (lastToastMessage && [message isEqualToString:lastToastMessage]) return;
+    lastToastMessage = [message copy];
+    toastHasProblems = isError;
+    toastLabel.text = message;
+    toastView.backgroundColor = isError
+        ? [UIColor.systemRedColor colorWithAlphaComponent:0.92]
+        : [[UIColor blackColor] colorWithAlphaComponent:0.85];
+    toastView.hidden = NO;
+    [self.view bringSubviewToFront:toastView];
+    [UIView animateWithDuration:0.2 animations:^{
+        self->toastView.alpha = 1.0;
+    }];
+
+    [toastTimer invalidate];
+    toastTimer = [NSTimer scheduledTimerWithTimeInterval:(isError ? 4.5 : 2.5)
+                                                 target:self
+                                               selector:@selector(hideEditorToast)
+                                               userInfo:nil
+                                                repeats:NO];
+}
+
+- (void)hideEditorToast {
+    [toastTimer invalidate];
+    toastTimer = nil;
+    if (toastView.hidden) return;
+    [UIView animateWithDuration:0.25 animations:^{
+        self->toastView.alpha = 0.0;
+    } completion:^(BOOL finished) {
+        self->toastView.hidden = YES;
+    }];
+}
+
+- (void)handleToastTap {
+    [self hideEditorToast];
+    if (toastHasProblems) [self showProblems];
+}
+
+#pragma mark - Keyboard
+
+- (void)keyboardWillChangeFrame:(NSNotification *)note {
+    CGRect endFrame = [note.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    CGRect keyboardInView = [self.view convertRect:endFrame fromView:nil];
+    CGFloat overlap = MAX(0.0, CGRectGetHeight(self.view.bounds) - CGRectGetMinY(keyboardInView));
+    CGFloat bottomInset = MAX(0.0, overlap - self.view.safeAreaInsets.bottom);
+    if (fabs(bottomInset - keyboardBottomInset) < 0.5) return;
+    keyboardBottomInset = bottomInset;
+
+    UIEdgeInsets inset = _textInput.contentInset;
+    void (^changes)(void) = ^{
+        _textInput.contentInset = UIEdgeInsetsMake(inset.top, inset.left, bottomInset, inset.right);
+        _textInput.verticalScrollIndicatorInsets = UIEdgeInsetsMake(0, 0, bottomInset, 0);
+        self->toastBottomConstraint.constant = -(12.0 + bottomInset);
+        [self.view layoutIfNeeded];
+    };
+
+    NSTimeInterval duration = [note.userInfo[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    UIViewAnimationCurve curve = [note.userInfo[UIKeyboardAnimationCurveUserInfoKey] integerValue];
+    if (duration > 0) {
+        [UIView animateWithDuration:duration
+                              delay:0
+                            options:(UIViewAnimationOptions)(curve << 16)
+                         animations:changes
+                         completion:^(BOOL finished) {
+                             // Re-run once the layout settled on the new inset.
+                             [self->_textInput scrollRangeToVisible:self->_textInput.selectedRange];
+                         }];
+    } else {
+        changes();
+    }
+    [self updateLineNumbers];
+    // Inset alone only lets the content scroll; pull the caret above the
+    // keyboard as well.
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
 }
 
 #pragma mark - Line numbers
@@ -565,12 +705,11 @@ static UIFont *ZXEditorFont(void)
 
 - (void)updateValidationStatus {
     if (![self isPythonFile]) {
-        self.navigationItem.prompt = nil;
         [self refreshBarButtons];
         return;
     }
     if (diagnostics.count == 0) {
-        self.navigationItem.prompt = @"✓ Không phát hiện lỗi";
+        [self showEditorToast:@"✓ Không phát hiện lỗi" isError:NO];
         [self refreshBarButtons];
         return;
     }
@@ -582,8 +721,10 @@ static UIFont *ZXEditorFont(void)
         if ([item[@"severity"] isEqualToString:@"error"]) { errors += 1; }
         if (!foundError) { first = item; foundError = YES; }
     }
-    self.navigationItem.prompt = [NSString stringWithFormat:@"%ld lỗi, %ld cảnh báo — dòng %@",
-                                  (long)errors, (long)warnings, first[@"line"] ?: @0];
+    NSString *message = errors > 0
+        ? [NSString stringWithFormat:@"%ld lỗi, %ld cảnh báo — dòng %@", (long)errors, (long)warnings, first[@"line"] ?: @0]
+        : [NSString stringWithFormat:@"%ld cảnh báo — dòng %@", (long)warnings, first[@"line"] ?: @0];
+    [self showEditorToast:message isError:errors > 0];
     [self refreshBarButtons];
 }
 

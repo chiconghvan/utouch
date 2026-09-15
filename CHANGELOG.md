@@ -13,7 +13,12 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 - Editor script trên iPhone hiển thị số dòng ở mép trái, kèm vạch phân cách; số dòng bám theo layout nên dòng bị xuống hàng không bị đánh số hai lần.
 - Setting `Editor Font Size` (slider 10–28) trong `Settings → Script`; cỡ chữ mới áp dụng ngay cho editor đang mở.
 
+### Đã thay đổi
+- Kết quả kiểm tra script hiển thị bằng toast ở đáy editor thay vì dòng trạng thái cố định phía trên: nền đỏ khi có lỗi, nền đen khi sạch; chạm vào toast để mở danh sách Problems. Toast chỉ hiện khi kết quả đổi nên không nhấp nháy lúc gõ.
+
 ### Đã sửa
+- Editor trên iPhone tự chừa chỗ cho bàn phím và tự cuộn con trỏ lên trên bàn phím; trước đây bàn phím che mất phần dưới (kể cả con trỏ) nên rất khó soạn thảo.
+- Bảng gợi ý autocomplete không còn bị bàn phím che.
 - Checker không còn báo lỗi sai với những giá trị mà prelude chấp nhận: `tapText(..., index=0)` (0 = match đầu tiên, có ghi rõ trong prelude), `count` của `findColor`/`findColors`/`findImage` (bị clamp `max(1, count)`), `mins`/`maxs` âm của `randomInt`/`randomFloat`, và `duration` ngoài 0.3–5 của `setDebugVisual` (bị clamp).
 - Enum của tham số kiểu `any` không còn bị bỏ qua: `keyDown`/`keyUp` với `keyType` sai giờ được báo đúng.
 

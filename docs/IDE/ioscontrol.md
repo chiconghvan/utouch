@@ -2988,5 +2988,7 @@ Dashboard goi qua `POST /api/editor/validate` voi body `{ "code": "<python sourc
 
 - **So dong:** mep trai hien so dong kem vach phan cach, cap nhat theo layout nen dong bi xuong hang khong bi danh so lan hai.
 - **Co chu:** `Settings -> Script -> Editor Font Size` (slider 10-28). Gia tri luu trong config `editor_font_size` (SpringBoard config) va ap dung ngay cho editor dang mo.
+- **Ban phim:** editor tu chua cho ban phim (contentInset) va tu cuon con tro len tren ban phim, nen go o cuoi file khong bi che.
+- **Ket qua kiem tra:** hien bang toast o day editor (do khi co loi, den khi sach); cham toast de mo danh sach Problems. Toast chi hien khi ket qua doi.
 
 
