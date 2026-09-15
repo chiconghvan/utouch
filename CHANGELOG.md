@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.28] — 2026-09-16
+
 ### Đã thêm
 - "Compiler" kiểm tra tĩnh cho script: vừa gõ vừa kiểm (debounce) và khi Run/Save, áp dụng cho cả Monaco (dashboard) lẫn editor native trên iPhone.
 - Đánh giá dựa trên cấu trúc từng hàm qua `zxtouch.apispec`: sai cú pháp/cấu trúc câu lệnh, hàm không tồn tại, thiếu/thừa/sai keyword, sai kiểu literal, ngoài enum/range.
@@ -321,6 +323,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.28]: https://github.com/chiconghvan/utouch/compare/v0.3.27...v0.3.28
 [0.3.27]: https://github.com/chiconghvan/utouch/compare/v0.3.26...v0.3.27
 [0.3.26]: https://github.com/chiconghvan/utouch/compare/v0.3.25...v0.3.26
 [0.3.25]: https://github.com/chiconghvan/utouch/compare/v0.3.24...v0.3.25
