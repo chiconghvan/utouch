@@ -20,11 +20,16 @@ static NSString * const ZXFloatingYKey = @"floating_icon_y";
 @property(nonatomic, assign) CGRect dragStartFrame;
 @property(nonatomic, assign) CGPoint dragTouchOffset;
 @property(nonatomic, assign) BOOL didDrag;
+@property(nonatomic, assign) BOOL isDragging;
+@property(nonatomic, assign) BOOL dragInvalidated;
+@property(nonatomic, assign) NSUInteger dragGeneration;
 @property(nonatomic, assign) BOOL promptVisible;
 - (void)show;
 - (void)layoutForCurrentScreen;
 - (void)handleTap:(UITapGestureRecognizer *)gesture;
 - (void)handlePan:(UIPanGestureRecognizer *)gesture;
+- (void)stopWindowAnimation;
+- (void)snapToEdgeAndSaveWithVelocity:(CGPoint)velocity;
 - (void)showStopPrompt;
 - (void)finishStopPromptWithStop:(BOOL)stop;
 @end
@@ -219,12 +224,17 @@ static UIImage *ZXFloatingIconImage(void)
     CGPoint location = [gesture locationInView:nil];
     switch (gesture.state) {
         case UIGestureRecognizerStateBegan:
+            [self stopWindowAnimation];
+            self.isDragging = YES;
+            self.dragInvalidated = NO;
+            self.dragGeneration += 1;
             self.dragStartFrame = self.window.frame;
             self.dragTouchOffset = CGPointMake(location.x - self.window.frame.origin.x,
                                                location.y - self.window.frame.origin.y);
             self.didDrag = NO;
             break;
         case UIGestureRecognizerStateChanged: {
+            if (self.dragInvalidated) break;
             if (fabs(location.x - (self.dragStartFrame.origin.x + self.dragTouchOffset.x)) > 3.0f ||
                 fabs(location.y - (self.dragStartFrame.origin.y + self.dragTouchOffset.y)) > 3.0f) {
                 self.didDrag = YES;
@@ -237,14 +247,30 @@ static UIImage *ZXFloatingIconImage(void)
         }
         case UIGestureRecognizerStateEnded:
         case UIGestureRecognizerStateCancelled: {
-            [self snapToEdgeAndSave];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)),
-                           dispatch_get_main_queue(), ^{ self.didDrag = NO; });
+            BOOL dragInvalidated = self.dragInvalidated;
+            CGPoint velocity = dragInvalidated ? CGPointZero : [gesture velocityInView:nil];
+            self.isDragging = NO;
+            self.dragInvalidated = NO;
+            if (!dragInvalidated) [self snapToEdgeAndSaveWithVelocity:velocity];
+            NSUInteger generation = self.dragGeneration;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.2 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{
+                if (self.dragGeneration == generation && !self.isDragging) self.didDrag = NO;
+            });
             break;
         }
         default:
             break;
     }
+}
+
+- (void)stopWindowAnimation
+{
+    if (!self.window) return;
+    CALayer *presentationLayer = self.window.layer.presentationLayer;
+    if (presentationLayer) self.window.frame = presentationLayer.frame;
+    [self.window.layer removeAllAnimations];
+    self.dragGeneration += 1;
 }
 
 - (CGRect)clampedFrame:(CGRect)frame
@@ -260,16 +286,37 @@ static UIImage *ZXFloatingIconImage(void)
     return frame;
 }
 
-- (void)snapToEdgeAndSave
+- (void)snapToEdgeAndSaveWithVelocity:(CGPoint)velocity
 {
     CGRect bounds = [UIScreen mainScreen].bounds;
-    CGFloat centerX = CGRectGetMidX(self.window.frame);
+    CGRect currentFrame = self.window.frame;
+    CGFloat centerX = CGRectGetMidX(currentFrame);
     BOOL left = centerX <= CGRectGetMidX(bounds);
-    CGRect frame = self.window.frame;
+    CGRect frame = currentFrame;
     frame.origin.x = left ? CGRectGetMinX(bounds) + ZXFloatingIconMargin
                            : CGRectGetMaxX(bounds) - ZXFloatingIconMargin - ZXFloatingIconSize;
     frame = [self clampedFrame:frame];
-    [UIView animateWithDuration:0.2 animations:^{ self.window.frame = frame; }];
+
+    CGFloat distanceX = frame.origin.x - currentFrame.origin.x;
+    CGFloat velocityTowardTarget = velocity.x * (distanceX < 0.0f ? -1.0f : 1.0f);
+    CGFloat initialVelocity = 0.0f;
+    if (fabs(distanceX) > 1.0f && velocityTowardTarget > 0.0f) {
+        initialVelocity = MIN(3.0f, velocityTowardTarget / fabs(distanceX));
+    }
+
+    NSUInteger generation = self.dragGeneration;
+    [UIView animateWithDuration:0.5
+                          delay:0.0
+         usingSpringWithDamping:0.82
+          initialSpringVelocity:initialVelocity
+                        options:UIViewAnimationOptionBeginFromCurrentState |
+                                UIViewAnimationOptionAllowUserInteraction
+                     animations:^{
+                         self.window.frame = frame;
+                     }
+                     completion:^(BOOL finished) {
+                         if (finished && self.dragGeneration == generation) self.window.frame = frame;
+                     }];
 
     CGFloat available = MAX(1.0f, CGRectGetHeight(bounds) - ZXFloatingIconSize - 2.0f * ZXFloatingIconMargin);
     CGFloat normalizedY = (frame.origin.y - CGRectGetMinY(bounds) - ZXFloatingIconMargin) / available;
@@ -296,6 +343,11 @@ static UIImage *ZXFloatingIconImage(void)
 - (void)orientationChanged:(NSNotification *)notification
 {
     dispatch_async(dispatch_get_main_queue(), ^{
+        [self stopWindowAnimation];
+        if (self.isDragging) {
+            self.dragInvalidated = YES;
+            self.didDrag = YES;
+        }
         [self layoutForCurrentScreen];
     });
 }
