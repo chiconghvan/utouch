@@ -174,7 +174,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     }
     [cells addObject:@{
         @"type": @(SETTING_CELL_SWITCH),
-        @"title": @"VNC server management",
+        @"title": @"VNC Server",
         @"switch_click_handler": NSStringFromSelector(@selector(handleVNCServerWithSwitchCellInstance:)),
         @"switch_init_status": @(ZXVNCServerIsEnabled())
     }];
