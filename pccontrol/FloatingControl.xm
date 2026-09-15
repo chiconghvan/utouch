@@ -159,8 +159,12 @@ static UIImage *ZXFloatingIconImage(void)
     self.window.rootViewController.view.backgroundColor = [UIColor clearColor];
     self.window.userInteractionEnabled = YES;
 
+    UIView *rootView = self.window.rootViewController.view;
+    rootView.userInteractionEnabled = YES;
+
     self.button = [UIButton buttonWithType:UIButtonTypeCustom];
     self.button.frame = CGRectMake(0, 0, ZXFloatingIconSize, ZXFloatingIconSize);
+    self.button.userInteractionEnabled = YES;
     self.button.imageView.contentMode = UIViewContentModeScaleAspectFill;
     self.button.layer.cornerRadius = ZXFloatingIconSize / 2.0f;
     self.button.layer.borderColor = [UIColor blackColor].CGColor;
@@ -168,27 +172,31 @@ static UIImage *ZXFloatingIconImage(void)
     self.button.clipsToBounds = YES;
     self.button.accessibilityLabel = @"Open ZXTouch Panel";
     [self.button setImage:ZXFloatingIconImage() forState:UIControlStateNormal];
-    [self.button addTarget:self action:@selector(buttonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    // Use an explicit tap recognizer instead of relying only on UIButton's
+    // control-event delivery. This remains reliable in SpringBoard's extra
+    // UIWindow hierarchy while the drag recognizer is attached to the same view.
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(handleTap:)];
+    tap.cancelsTouchesInView = NO;
+    [self.button addGestureRecognizer:tap];
 
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
+    pan.cancelsTouchesInView = NO;
     [self.button addGestureRecognizer:pan];
-    [self.window addSubview:self.button];
+    [rootView addSubview:self.button];
 
     [self layoutForCurrentScreen];
+    rootView.frame = self.window.bounds;
+    rootView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.window.hidden = NO;
 }
 
-- (void)buttonTapped:(UIButton *)button
+- (void)handleTap:(UITapGestureRecognizer *)gesture
 {
     if (self.didDrag) {
         self.didDrag = NO;
         return;
     }
-    [self handleTap:nil];
-}
 
-- (void)handleTap:(UITapGestureRecognizer *)gesture
-{
     if (isScriptPlaying()) {
         if (!self.promptVisible) {
             pauseScriptPlaying();
@@ -199,6 +207,9 @@ static UIImage *ZXFloatingIconImage(void)
     }
 
     extern PopupWindow *popupWindow;
+    if (!popupWindow) {
+        popupWindow = [[PopupWindow alloc] init];
+    }
     [popupWindow show];
 }
 

@@ -121,6 +121,18 @@ class FakeDevice:
         self.calls.append(("overlay_hide",))
         return (True, "")
 
+    def show_keyboard(self):
+        self.calls.append(("keyboard_show",))
+        return (True, "")
+
+    def hide_keyboard(self):
+        self.calls.append(("keyboard_hide",))
+        return (True, "")
+
+    def keyboard_visible(self):
+        self.calls.append(("keyboard_visible",))
+        return (True, True)
+
     def app_kill(self, bid):
         self.calls.append(("kill", bid))
         return (True, "")
@@ -789,6 +801,19 @@ def test_debug_visual_tap_swipe_ocr_image():
     prelude.tap(1, 2)
     assert len([c for c in d.calls[n:] if c[0] == "debug"]) == 0
     prelude.setDebugVisual(True)
+
+
+def test_keyboard_helpers_report_and_control_visibility():
+    d = use_fake()
+    assert prelude.showKeyboard() is True
+    assert prelude.hideKeyboard() is True
+    assert prelude.keyboardVisible() is True
+    assert ("keyboard_show",) in d.calls
+    assert ("keyboard_hide",) in d.calls
+    assert ("keyboard_visible",) in d.calls
+
+
+def test_debug_visual_old_daemon_still_allows_tap():
     # Daemon cũ không có debug_mark -> nuốt lỗi, tap vẫn chạy.
     prelude.disconnect()
     class OldDaemon(FakeDevice):

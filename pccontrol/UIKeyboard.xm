@@ -4,6 +4,44 @@
 
 #define TASK_GET_TEXT_FROM_CLIPBOARD 6
 #define TASK_SAVE_TEXT_TO_CLIPBOARD 7
+#define TASK_QUERY_KEYBOARD_VISIBLE 8
+
+static NSString *const ZXKeyboardQueryNotification = @"com.zjx.zxtouch.keyboard.query";
+static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboard.response";
+
+NSString* keyboardVisibleFromRawData(NSError **error)
+{
+    NSString *requestID = [NSString stringWithFormat:@"%.6f-%u",
+                           NSDate.timeIntervalSinceReferenceDate, arc4random()];
+    dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+    __block NSString *visible = nil;
+
+    id observer = [[NSDistributedNotificationCenter defaultCenter]
+        addObserverForName:ZXKeyboardResponseNotification object:nil
+                     queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *notification) {
+        if (![notification.userInfo[@"request_id"] isEqualToString:requestID]) return;
+        visible = [notification.userInfo[@"visible"] boolValue] ? @"true" : @"false";
+        dispatch_semaphore_signal(semaphore);
+    }];
+
+    [[NSDistributedNotificationCenter defaultCenter]
+        postNotificationName:ZXKeyboardQueryNotification object:nil
+                      userInfo:@{ @"request_id": requestID }
+             deliverImmediately:NO];
+
+    long waitResult = dispatch_semaphore_wait(
+        semaphore, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.0 * NSEC_PER_SEC)));
+    [[NSDistributedNotificationCenter defaultCenter] removeObserver:observer];
+    if (waitResult != 0 || visible == nil)
+    {
+        *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:998
+                                  userInfo:@{NSLocalizedDescriptionKey:
+                                      @"-1;;Keyboard visibility query timed out.\r\n"}];
+        return nil;
+    }
+    return visible;
+}
 
 NSString* inputTextFromRawData(UInt8 *eventData, NSError **error)
 {
@@ -31,6 +69,10 @@ NSString* inputTextFromRawData(UInt8 *eventData, NSError **error)
         }
         [UIPasteboard generalPasteboard].string = data[1];
         return @"";
+    }
+    else if (taskType == TASK_QUERY_KEYBOARD_VISIBLE)
+    {
+        return keyboardVisibleFromRawData(error);
     }
 
     // Forward to appdelegate tweak injected in the frontmost app.

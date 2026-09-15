@@ -218,7 +218,9 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     {
         @autoreleasepool {
             NSError *err = nil;
-            NSString *result = inputTextFromRawData(eventData,  &err);
+            NSString *result = ([eventData[0] - '0'] == 8)
+                ? keyboardVisibleFromRawData(&err)
+                : inputTextFromRawData(eventData, &err);
             if (err)
             {
                 notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);

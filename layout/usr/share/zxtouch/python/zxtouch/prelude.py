@@ -925,6 +925,34 @@ def inputText(text):
     return True
 
 
+def showKeyboard():
+    """Request that the frontmost app show its virtual keyboard."""
+    ok, res = get_device().show_keyboard()
+    if not ok:
+        raise RuntimeError("showKeyboard failed: %s" % (res,))
+    return True
+
+
+def hideKeyboard():
+    """Request that the frontmost app hide its virtual keyboard."""
+    ok, res = get_device().hide_keyboard()
+    if not ok:
+        raise RuntimeError("hideKeyboard failed: %s" % (res,))
+    return True
+
+
+def keyboardVisible():
+    """Return the frontmost app's reported virtual keyboard visibility.
+
+    A missing frontmost-app responder is treated as not visible so this
+    helper always returns a boolean.
+    """
+    ok, res = get_device().keyboard_visible()
+    if not ok:
+        return False
+    return bool(res)
+
+
 def keyDown(keyType):
     """Press hardware key down: home|volumeUp|volumeDown|power."""
     get_device().key_press(keyType, "down")
@@ -1697,6 +1725,9 @@ app_clear = appClear
 app_state = appState
 open_url = openURL
 input_text = inputText
+show_keyboard = showKeyboard
+hide_keyboard = hideKeyboard
+keyboard_visible = keyboardVisible
 key_down = keyDown
 key_up = keyUp
 get_clipboard = getClipboard
@@ -1757,7 +1788,8 @@ __all__ = [
     "dialogInput", "dialogChoice", "timestamp", "md5",
     "showOverlay", "updateOverlay", "hideOverlay",
     "appRun", "appKill", "appClear", "appState", "openURL",
-    "inputText", "keyDown", "keyUp", "getClipboard", "setClipboard",
+    "inputText", "showKeyboard", "hideKeyboard", "keyboardVisible",
+    "keyDown", "keyUp", "getClipboard", "setClipboard",
     "toast", "alert", "vibrate", "log",
     "sleep", "usleep", "randomSleep", "screenSize", "deviceInfo",
     "httpGet", "httpPost", "HttpResponse",
@@ -1775,7 +1807,8 @@ __all__ = [
     "tap_image", "tap_text", "swipe_until_image", "swipe_until_text",
     "dialog_input", "dialog_choice", "show_overlay", "update_overlay",
     "hide_overlay", "app_run", "app_kill", "app_clear", "app_state",
-    "open_url", "input_text", "key_down", "key_up",
+    "open_url", "input_text", "show_keyboard", "hide_keyboard",
+    "keyboard_visible", "key_down", "key_up",
     "get_clipboard", "set_clipboard",
     "random_sleep", "screen_size", "device_info",
     "http_get", "http_post", "read_file", "write_file", "append_file",

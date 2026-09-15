@@ -7,6 +7,15 @@ Mẫu thay đổi dạng *Keep a Changelog* cho uTouch / zxtouch, tuân thủ
 Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hành vi sẵn có) ·
 `Đã sửa` (khắc phục lỗi) · `Đã loại bỏ` (bỏ hẳn).
 
+## [0.3.21] — 2026-09-15
+
+### Đã thêm
+- Bổ sung API Python `showKeyboard()`, `hideKeyboard()` và `keyboardVisible()` để điều khiển và truy vấn trạng thái bàn phím của ứng dụng đang ở phía trước.
+- Thêm IPC giữa appdelegate và ZXTouch để phản hồi trạng thái bàn phím an toàn qua distributed notification.
+
+### Đã sửa
+- Nút nổi nhận thao tác chạm ổn định hơn trong hệ thống nhiều `UIWindow`, đồng thời khởi tạo popup khi cần.
+
 ## [0.3.20] — 2026-09-14
 
 ### Đã thêm
@@ -256,6 +265,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.21]: https://github.com/chiconghvan/utouch/compare/v0.3.20...v0.3.21
 [0.3.20]: https://github.com/chiconghvan/utouch/compare/v0.3.19...v0.3.20
 [0.3.19]: https://github.com/chiconghvan/utouch/compare/v0.3.18...v0.3.19
 [0.3.18]: https://github.com/chiconghvan/utouch/compare/v0.3.17...v0.3.18

@@ -19,6 +19,10 @@
 #define VIRTUAL_KEYBOARD_HIDE 1
 #define VIRTUAL_KEYBOARD_SHOW 2
 
+static volatile BOOL zxKeyboardVisible = NO;
+static NSString *const ZXKeyboardQueryNotification = @"com.zjx.zxtouch.keyboard.query";
+static NSString *const ZXKeyboardResponseNotification = @"com.zjx.zxtouch.keyboard.response";
+
 
 @interface UIKeyboardImpl : UIView
 	+ (id)sharedInstance;
@@ -46,6 +50,39 @@
 
 %hook UIKeyboardImpl
 
+    %new
+    - (void)zx_registerKeyboardStateObservers {
+        if ([NSBundle.mainBundle.bundleIdentifier isEqualToString:@"com.apple.springboard"]) return;
+        static dispatch_once_t onceToken;
+        dispatch_once(&onceToken, ^{
+            NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+            [center addObserverForName:UIKeyboardDidShowNotification object:nil
+                                 queue:[NSOperationQueue mainQueue]
+                            usingBlock:^(NSNotification *notification) {
+                zxKeyboardVisible = YES;
+            }];
+            [center addObserverForName:UIKeyboardDidHideNotification object:nil
+                                 queue:[NSOperationQueue mainQueue]
+                            usingBlock:^(NSNotification *notification) {
+                zxKeyboardVisible = NO;
+            }];
+            [[NSDistributedNotificationCenter defaultCenter]
+                addObserverForName:ZXKeyboardQueryNotification object:nil
+                             queue:nil
+                        usingBlock:^(NSNotification *notification) {
+                NSString *requestID = notification.userInfo[@"request_id"];
+                if (!requestID) return;
+                [[NSDistributedNotificationCenter defaultCenter]
+                    postNotificationName:ZXKeyboardResponseNotification object:nil
+                                  userInfo:@{
+                                      @"request_id": requestID,
+                                      @"visible": @(zxKeyboardVisible)
+                                  }
+                         deliverImmediately:NO];
+            }];
+        });
+    }
+
     - (id)initWithFrame:(CGRect)arg1 forCustomInputView:(UIView*)view
     {
         // Don't register in SpringBoard — keyboard commands are sent FROM SpringBoard, not received
@@ -54,7 +91,9 @@
                 addObserver:self selector:@selector(handleKeyboardNotification:)
                 name:@"com.zjx.zxtouch.keyboardcontrol" object:nil];
         }
-		return %orig;
+        id result = %orig;
+        [self zx_registerKeyboardStateObservers];
+        return result;
     }
 
 	- (id)initWithFrame:(CGRect)arg1 {
@@ -63,7 +102,9 @@
                 addObserver:self selector:@selector(handleKeyboardNotification:)
                 name:@"com.zjx.zxtouch.keyboardcontrol" object:nil];
         }
-		return %orig;
+        id result = %orig;
+        [self zx_registerKeyboardStateObservers];
+        return result;
 	}
 
 	- (void)dealloc {

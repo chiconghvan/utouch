@@ -231,6 +231,16 @@ class zxtouch:
             datahandler.format_socket_data(tasktypes.TASK_KEYBOARDIMPL, kbdtasktypes.KEYBOARD_VIRTUAL_KEYBOARD, 1))
         return datahandler.decode_socket_data(self.s.recv(1024))
 
+    def keyboard_visible(self):
+        """Return whether the frontmost app reports its keyboard as visible."""
+        self.s.send(
+            datahandler.format_socket_data(tasktypes.TASK_KEYBOARDIMPL,
+                                           kbdtasktypes.KEYBOARD_QUERY_VISIBLE))
+        result = datahandler.decode_socket_data(self.s.recv(1024))
+        if not result[0]:
+            return False, result[1]
+        return True, str(result[1][0]).lower() == "true"
+
     def paste_from_clipboard(self):
         """paste text from clip board
 
