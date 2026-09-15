@@ -54,6 +54,7 @@
     .button.ghost { background: transparent; }
     .button[disabled], .icon-button[disabled] { cursor: not-allowed; opacity: .4; }
     .button-symbol { width: 15px; display: inline-grid; place-items: center; line-height: 1; }
+    .button-symbol svg { width: 14px; height: 14px; display: block; }
 
     .tabs-shell { position: sticky; z-index: 19; top: 62px; border-bottom: 1px solid var(--line); background: rgba(12, 14, 17, .97); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); }
     .tabs { width: min(1180px, 100%); height: 48px; display: flex; align-items: stretch; margin: 0 auto; padding: 0 18px; overflow-x: auto; }
@@ -201,7 +202,8 @@
       body.editor-wide .editor-layout { flex: 1; min-height: 0; }
       body.editor-wide .editor-main { flex: 1; min-height: 0; align-items: stretch; }
       body.editor-wide .editor-left { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
-      body.editor-wide .editor-toolbar, body.editor-wide .editor-status { flex: 0 0 auto; }
+      body.editor-wide .editor-status { flex: 0 0 auto; }
+      body.editor-wide .editor-surface { flex: 1 1 62%; min-height: 0; display: flex; flex-direction: column; }
       body.editor-wide .editor-box { flex: 1 1 62%; min-height: 140px; max-height: none; display: flex; flex-direction: column; }
       body.editor-wide #monacoHost, body.editor-wide #editorFallback { flex: 1; height: auto !important; min-height: 0; max-height: none; }
       body.editor-wide .transpiled { flex: 0 0 auto; }
@@ -242,9 +244,14 @@
     .runlog .panel-head { min-height: 56px; }
      .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
      .runlog-sep { color: var(--blue); }
-     .editor-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-     .editor-tabs { min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overscroll-behavior: contain; padding: 4px 4px 0; border: 1px solid var(--line); border-bottom: 0; border-radius: 8px 8px 0 0; background: var(--bar); scrollbar-width: thin; }
-     .editor-tab { position: relative; min-width: 126px; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; padding: 8px 8px 9px 11px; border: 0; border-radius: 6px 6px 0 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; text-align: left; white-space: nowrap; }
+      .editor-heading-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; flex-wrap: wrap; }
+      .editor-open-menu { position: absolute; z-index: 25; top: calc(100% + 6px); right: 0; width: min(280px, calc(100vw - 36px)); max-height: 320px; overflow: auto; padding: 5px; border: 1px solid var(--line-strong); border-radius: 7px; background: var(--panel); box-shadow: 0 14px 36px rgba(0, 0, 0, .4); }
+      .editor-open-menu[hidden] { display: none; }
+      .editor-open-menu button { width: 100%; display: block; padding: 8px 9px; border: 0; border-radius: 4px; color: var(--muted-strong); background: transparent; cursor: pointer; text-align: left; font-size: 12px; }
+      .editor-open-menu button:hover, .editor-open-menu button:focus-visible { color: var(--text); background: var(--panel-hover); outline: 0; }
+      .editor-surface { overflow: hidden; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; }
+      .editor-tabs { min-width: 0; display: flex; align-items: stretch; gap: 2px; overflow-x: auto; overscroll-behavior: contain; padding: 4px 4px 0; border-bottom: 1px solid #111315; background: #181a1d; scrollbar-width: thin; }
+      .editor-tab { position: relative; min-width: 126px; max-width: 220px; display: inline-flex; align-items: center; gap: 7px; padding: 5px 8px 6px 11px; border: 0; border-radius: 5px 5px 0 0; color: var(--muted); background: transparent; cursor: pointer; font-size: 12px; text-align: left; white-space: nowrap; }
      .editor-tab:hover { color: var(--muted-strong); background: var(--panel-hover); }
      .editor-tab.active { color: var(--text); background: #1e232a; }
      .editor-tab.active::after { position: absolute; right: 0; bottom: 0; left: 0; height: 2px; background: var(--blue); content: ""; }
@@ -256,7 +263,7 @@
      .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-lang { min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-open { min-height: 34px; max-width: 260px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
-    .editor-box { overflow: auto; border: 1px solid var(--line-strong); border-radius: 8px; background: #1e1e1e; max-height: calc(100vh - 280px); }
+      .editor-box { overflow: auto; border: 0; border-radius: 0; background: #1e1e1e; max-height: calc(100vh - 280px); }
     #monacoHost { height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); }
     #editorFallback { width: 100%; height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; overflow: auto; }
     .editor-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 12px; }
@@ -269,7 +276,7 @@
        The descendant selector outranks Monaco's own `.mtk*` token colors,
        which is exactly why vs-dark cannot do this by theme alone. */
     .monaco-editor .fn-call, .monaco-editor .fn-call * { color: #4fc1ff; }
-    @media (max-width: 620px) { .editor-name { width: 100%; } .editor-open { max-width: none; width: 100%; } }
+     @media (max-width: 620px) { .editor-heading-actions { width: 100%; justify-content: flex-start; } .editor-heading-actions .button { flex: 1 1 auto; } .editor-name { width: 100%; } .editor-open { max-width: none; width: 100%; } }
 
     .toast { position: fixed; z-index: 50; right: 18px; bottom: 18px; width: min(390px, calc(100vw - 36px)); padding: 12px 14px; border: 1px solid #44505f; border-left: 3px solid var(--blue); border-radius: 7px; color: var(--text); background: #222832; box-shadow: 0 18px 50px rgba(0, 0, 0, .35); }
     .toast.error { border-left-color: var(--red); }
@@ -384,21 +391,12 @@
     </section>
 
     <section class="view" id="view-editor" role="tabpanel" hidden>
-      <div class="view-heading"><div><h2>Script Editor</h2><p>Write Lua or Python, run it on the device immediately. No boilerplate needed — <code>tap()</code>, <code>sleep()</code>, <code>log()</code> work directly. Autocomplete: type or press <code>Ctrl+Space</code>.</p></div></div>
+       <div class="view-heading"><div><h2>Script Editor</h2></div><div class="editor-heading-actions"><button class="button" id="editorNewAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>New</button><div style="position:relative"><button class="button" id="editorOpenAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span>Open</button><div class="editor-open-menu" id="editorOpenMenu" hidden role="listbox" aria-label="Open script from library"></div></div><button class="button" id="editorSave"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span>Save</button><button class="button" id="editorSaveAll"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 12 12 17 22 12"></polyline><polyline points="2 17 12 22 22 17"></polyline></svg></span>Save all</button><button class="button primary" id="editorRun"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>Run</button><button class="button danger" id="editorStop"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></span>Stop</button></div></div>
+       <div hidden><select id="editorOpen"><option value="">Open from library…</option></select><input id="editorName" type="text"><select id="editorLang"><option value="lua">Lua</option><option value="python">Python</option></select></div>
       <div class="editor-layout">
         <div class="editor-main">
           <div class="editor-left">
-             <div class="editor-toolbar">
-               <select class="editor-open" id="editorOpen" aria-label="Open script from library"><option value="">Open from library…</option></select>
-               <input class="editor-name" id="editorName" type="text" placeholder="Script name (for Save)" aria-label="Script name for save" maxlength="64">
-               <select class="editor-lang" id="editorLang" aria-label="Editor language"><option value="lua" selected>Lua</option><option value="python">Python</option></select>
-               <button class="button primary" id="editorRun"><span class="button-symbol">&#9654;</span>Run</button>
-               <button class="button danger" id="editorStop"><span class="button-symbol">&#9632;</span>Stop</button>
-               <button class="button" id="editorSave"><span class="button-symbol">&#8595;</span>Save</button>
-               <button class="button" id="editorSaveAll"><span class="button-symbol">&#8595;</span>Save all</button>
-             </div>
-             <div class="editor-tabs" id="editorTabs" role="tablist" aria-label="Open scripts"></div>
-             <div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div>
+             <div class="editor-surface"><div class="editor-tabs" id="editorTabs" role="tablist" aria-label="Open scripts"></div><div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div></div>
             <details class="transpiled" id="transpiledWrap" hidden><summary>Transpiled Python preview (Lua runs via transpile → Python)</summary><pre id="transpiledView"></pre></details>
             <div class="editor-status"><span id="editorStatus">Ready — Monaco loads from CDN, offline falls back to plain text.</span><span class="editor-note">Lua subset: <code>--</code> comments, <code>local</code>, <code>if/elseif/else/end</code>, numeric <code>for</code>, <code>while/do</code>, <code>~=</code>, <code>..</code>, <code>#len</code>.</span></div>
             <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
@@ -410,6 +408,7 @@
   </main>
 
   <div class="toast" id="toast" role="status" hidden></div>
+  <div class="modal-backdrop" id="newEditorModal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="newEditorTitle"><div class="modal-body"><h3 id="newEditorTitle">New script</h3><div class="field" style="margin-top:14px"><label class="field-label" for="newEditorName">Script name</label><input class="editor-name" id="newEditorName" type="text" placeholder="Optional until Save" maxlength="64"></div><div class="field" style="margin-top:12px"><label class="field-label" for="newEditorLang">Language</label><select class="editor-lang" id="newEditorLang"><option value="lua" selected>Lua</option><option value="python">Python</option></select></div></div><div class="modal-actions"><button class="button ghost" id="newEditorCancel">Cancel</button><button class="button primary" id="newEditorCreate">Create</button></div></div></div>
   <div class="modal-backdrop" id="confirmModal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" aria-describedby="confirmMessage"><div class="modal-body"><h3 id="confirmTitle">Confirm action</h3><p id="confirmMessage"></p></div><div class="modal-actions"><button class="button ghost" id="confirmCancel">Cancel</button><button class="button danger" id="confirmSecondary" hidden>Discard</button><button class="button primary" id="confirmAccept">Continue</button></div></div></div>
 
   <script>
@@ -1782,13 +1781,11 @@
          if (doc && doc.dirty && !editorState.saving) editorSave({ silent: true });
        }, 5000);
      }
-     async function editorLoadSelected() {
-       const path = elements.editorOpen.value;
-       if (!path) return;
-       const existing = editorState.docs.find(doc => doc.path === path);
-       if (existing) { activateEditorDocument(existing.id); return; }
-       const option = elements.editorOpen.options[elements.editorOpen.selectedIndex];
-       const doc = createEditorDocument({ path, name: option?.textContent || '', language: 'python', code: '' });
+      async function editorLoadPath(path, selectedName) {
+        if (!path) return;
+        const existing = editorState.docs.find(doc => doc.path === path);
+        if (existing) { activateEditorDocument(existing.id); return; }
+        const doc = createEditorDocument({ path, name: selectedName || '', language: 'python', code: '' });
        doc.loading = true;
        activateEditorDocument(doc.id);
        try {
@@ -1810,10 +1807,16 @@
          if (!editorState.docs.length) createEditorDocument();
          else if (!editorState.activeId) editorState.activeId = editorState.docs[0].id;
          activateEditorDocument(editorState.activeId);
-         showToast(error.message, true);
-       }
-     }
-     function syncEditorOpen() {
+          showToast(error.message, true);
+        }
+      }
+      async function editorLoadSelected() {
+        const path = elements.editorOpen.value;
+        if (!path) return;
+        const option = elements.editorOpen.options[elements.editorOpen.selectedIndex];
+        await editorLoadPath(path, option?.textContent || '');
+      }
+      function syncEditorOpen() {
        const keep = activeEditorDocument()?.path || '';
        elements.editorOpen.innerHTML = '<option value="">Open from library…</option>';
       state.scripts.forEach(script => {
@@ -1822,9 +1825,45 @@
         option.value = script.path;
         option.textContent = script.name;
         elements.editorOpen.appendChild(option);
-       });
-       if (keep) elements.editorOpen.value = keep;
-     }
+        });
+        if (keep) elements.editorOpen.value = keep;
+        renderEditorOpenMenu();
+      }
+      function renderEditorOpenMenu() {
+        elements.editorOpenMenu.innerHTML = '';
+        const scripts = state.scripts.filter(script => scriptType(script) === 'py');
+        if (!scripts.length) {
+          const empty = document.createElement('div');
+          empty.className = 'editor-note';
+          empty.style.padding = '8px 9px';
+          empty.textContent = 'No Python scripts available.';
+          elements.editorOpenMenu.appendChild(empty);
+          return;
+        }
+        scripts.forEach(script => {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.role = 'option';
+          button.dataset.path = script.path;
+          button.dataset.name = script.name;
+          button.textContent = script.name;
+          elements.editorOpenMenu.appendChild(button);
+        });
+      }
+      function openNewEditorDialog() {
+        elements.newEditorName.value = '';
+        elements.newEditorLang.value = 'lua';
+        elements.newEditorModal.hidden = false;
+        elements.newEditorName.focus();
+      }
+      function closeNewEditorDialog() {
+        elements.newEditorModal.hidden = true;
+      }
+      function createEditorDocumentFromDialog() {
+        const doc = createEditorDocument({ name: elements.newEditorName.value.trim(), language: elements.newEditorLang.value });
+        closeNewEditorDialog();
+        activateEditorDocument(doc.id);
+      }
      function applyEditorLanguage() {
        const doc = activeEditorDocument();
        if (!doc) return;
@@ -1855,10 +1894,21 @@
         });
         elements.editorRun.addEventListener('click', editorRun);
         elements.editorStop.addEventListener('click', editorStop);
-        elements.editorSave.addEventListener('click', () => editorSave());
-        elements.editorSaveAll.addEventListener('click', editorSaveAll);
-        elements.editorOpen.addEventListener('change', editorLoadSelected);
-        elements.editorLang.addEventListener('change', applyEditorLanguage);
+         elements.editorSave.addEventListener('click', () => editorSave());
+         elements.editorSaveAll.addEventListener('click', editorSaveAll);
+         elements.editorOpen.addEventListener('change', editorLoadSelected);
+         elements.editorNewAction.addEventListener('click', openNewEditorDialog);
+         elements.editorOpenAction.addEventListener('click', () => { renderEditorOpenMenu(); elements.editorOpenMenu.hidden = !elements.editorOpenMenu.hidden; });
+         elements.editorOpenMenu.addEventListener('click', event => {
+           const option = event.target.closest('button[data-path]');
+           if (!option) return;
+           elements.editorOpenMenu.hidden = true;
+           editorLoadPath(option.dataset.path, option.dataset.name);
+         });
+         elements.newEditorCancel.addEventListener('click', closeNewEditorDialog);
+         elements.newEditorCreate.addEventListener('click', createEditorDocumentFromDialog);
+         elements.newEditorModal.addEventListener('click', event => { if (event.target === elements.newEditorModal) closeNewEditorDialog(); });
+         elements.editorLang.addEventListener('change', applyEditorLanguage);
         elements.editorTabs.addEventListener('click', handleEditorTabClick);
         elements.editorTabs.addEventListener('keydown', event => {
           if ((event.key === 'Enter' || event.key === ' ') && event.target.closest('.editor-tab-close')) {
