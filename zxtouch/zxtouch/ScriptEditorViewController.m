@@ -145,7 +145,6 @@ static UIFont *ZXEditorFont(void)
     UITableView *completionTableView;
     NSArray<NSDictionary *> *completionItems;
     NSRange completionRange;
-    UIBarButtonItem *formatButton;
     UIBarButtonItem *saveButton;
     UIBarButtonItem *problemsButton;
     UIBarButtonItem *checkButton;
@@ -195,13 +194,7 @@ static UIFont *ZXEditorFont(void)
                                                object:nil];
     [self configureCompletionTable];
     [self configureToast];
-    if ([self isPythonFile]) {
-        formatButton = [[UIBarButtonItem alloc] initWithTitle:@"Format"
-                                                        style:UIBarButtonItemStylePlain
-                                                       target:self
-                                                       action:@selector(formatFile)];
-        [self refreshBarButtons];
-    }
+    [self refreshBarButtons];
     [self applySyntaxHighlightingPreservingSelection:NO];
     isSaveButtonShown = NO;
     [self updateLineNumbers];
@@ -260,7 +253,6 @@ static UIFont *ZXEditorFont(void)
         }
         [items addObject:checkButton];
     }
-    if (formatButton) [items addObject:formatButton];
     if (diagnostics.count > 0) {
         if (!problemsButton) {
             problemsButton = [[UIBarButtonItem alloc] initWithTitle:@"Problems"
@@ -780,25 +772,6 @@ static UIFont *ZXEditorFont(void)
                                                             preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)formatFile {
-    if (![self isPythonFile]) return;
-    NSString *formatted = [ZXPythonEditorSupport formatSource:_textInput.text ?: @""];
-    if ([formatted isEqualToString:_textInput.text ?: @""]) return;
-    NSUInteger oldCursor = _textInput.selectedRange.location;
-    NSUInteger newCursor = MIN(oldCursor, formatted.length);
-    if (oldCursor <= _textInput.text.length) {
-        NSString *prefix = [_textInput.text substringToIndex:oldCursor];
-        newCursor = MIN([ZXPythonEditorSupport formatSource:prefix].length, formatted.length);
-    }
-    isApplyingEdit = YES;
-    _textInput.text = formatted;
-    _textInput.selectedRange = NSMakeRange(newCursor, 0);
-    isApplyingEdit = NO;
-    [self applySyntaxHighlightingPreservingSelection:YES];
-    [self showSaveButton];
-    [self hideCompletions];
 }
 
 - (void)saveFile {
