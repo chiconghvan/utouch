@@ -15,6 +15,16 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <dlfcn.h>
+#import <execinfo.h>
+#import <fcntl.h>
+#import <mach/mach.h>
+#import <mach/vm_statistics.h>
+#import <signal.h>
+#import <stdio.h>
+#import <string.h>
+#import <sys/resource.h>
+#import <sys/stat.h>
+#import <unistd.h>
 
 #import "Config.h"
 #if !ZX_DASHBOARD_SPRINGBOARD_SERVER
@@ -41,6 +51,320 @@ static void ZXVNCkillServer(void);
 static void ZXVNCStartServerDirectly(void);
 static BOOL ZXVNCProbePort(uint16_t port);
 static BOOL ZXDashboardDaemonEnabled(void);
+
+// ── Dashboard debug log ───────────────────────────────────────────────────
+// A file logger written by the server itself instead of launchd: the fallback
+// server that runs inside SpringBoard has no stdout redirection, so a crash
+// there would otherwise leave nothing behind. Both hosts run as `mobile` and
+// open the file with O_APPEND, so their lines never overwrite each other.
+static int ZXDashboardDebugLogFD = -1;
+static const unsigned long long ZXDashboardDebugLogMaximumBytes = 2ULL * 1024ULL * 1024ULL;
+
+static void ZXDashboardDebugLogRaw(const char *bytes, size_t length)
+{
+    if (ZXDashboardDebugLogFD < 0 || bytes == NULL || length == 0) return;
+    ssize_t written = write(ZXDashboardDebugLogFD, bytes, length);
+    (void)written;
+}
+
+static void ZXDashboardDebugLog(NSString *format, ...)
+{
+    if (ZXDashboardDebugLogFD < 0) return;
+    va_list arguments;
+    va_start(arguments, format);
+    NSString *message = [[NSString alloc] initWithFormat:format arguments:arguments];
+    va_end(arguments);
+    NSString *line = [NSString stringWithFormat:@"%@ [pid=%d] %@\n", [NSDate date], getpid(), message ?: @""];
+    ZXDashboardDebugLogRaw(line.UTF8String, strlen(line.UTF8String));
+    NSLog(@"[dashboard-debug] %@", message ?: @"");
+}
+
+static NSString *ZXDashboardDebugLogTail(void)
+{
+    NSString *log = [NSString stringWithContentsOfFile:ZX_DASHBOARD_DEBUG_LOG_PATH encoding:NSUTF8StringEncoding error:nil] ?: @"";
+    if (log.length <= ZXDashboardMaximumLogLength) return log;
+    return [@"[Showing the newest debug output.]\n" stringByAppendingString:
+            [log substringFromIndex:log.length - ZXDashboardMaximumLogLength]];
+}
+
+static void ZXDashboardDebugLogClear(void)
+{
+    if (ZXDashboardDebugLogFD < 0) return;
+    ftruncate(ZXDashboardDebugLogFD, 0);
+    ZXDashboardDebugLog(@"===== cleared pid=%d =====", getpid());
+}
+
+// ── Hardware snapshot ─────────────────────────────────────────────────────
+// Taken at session start and again right before the process dies, so an
+// out-of-memory or a runaway-CPU crash is visible from the log alone. The raw
+// variant sticks to syscalls and mach traps to stay async-signal-safe.
+static double ZXDashboardSessionStartCPU = 0.0;
+static unsigned long long ZXDashboardSessionStartUptimeMS = 0;
+
+static double ZXDashboardProcessCPUSeconds(void)
+{
+    struct rusage usage;
+    memset(&usage, 0, sizeof(usage));
+    if (getrusage(RUSAGE_SELF, &usage) != 0) return 0.0;
+    return (double)usage.ru_utime.tv_sec + (double)usage.ru_utime.tv_usec / 1000000.0 +
+           (double)usage.ru_stime.tv_sec + (double)usage.ru_stime.tv_usec / 1000000.0;
+}
+
+static unsigned long long ZXDashboardSystemUptimeMilliseconds(void)
+{
+    int mib[2] = {CTL_KERN, KERN_BOOTTIME};
+    struct timeval boot;
+    size_t size = sizeof(boot);
+    if (sysctl(mib, 2, &boot, &size, NULL, 0) != 0) return 0;
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    long long milliseconds = ((long long)now.tv_sec - (long long)boot.tv_sec) * 1000LL +
+                             ((long long)now.tv_usec - (long long)boot.tv_usec) / 1000LL;
+    return milliseconds > 0 ? (unsigned long long)milliseconds : 0;
+}
+
+static void ZXDashboardHardwareSnapshotRaw(const char *label)
+{
+    if (ZXDashboardDebugLogFD < 0) return;
+
+    struct rusage usage;
+    memset(&usage, 0, sizeof(usage));
+    getrusage(RUSAGE_SELF, &usage);
+    double cpuSeconds = ZXDashboardProcessCPUSeconds();
+    unsigned long long uptimeMS = ZXDashboardSystemUptimeMilliseconds();
+    double cpuPercent = 0.0;
+    if (ZXDashboardSessionStartUptimeMS && uptimeMS > ZXDashboardSessionStartUptimeMS) {
+        cpuPercent = (cpuSeconds - ZXDashboardSessionStartCPU) * 100000.0 /
+                     (double)(uptimeMS - ZXDashboardSessionStartUptimeMS);
+    }
+
+    struct mach_task_basic_info taskInfo;
+    memset(&taskInfo, 0, sizeof(taskInfo));
+    mach_msg_type_number_t taskInfoCount = MACH_TASK_BASIC_INFO_COUNT;
+    kern_return_t taskResult = task_info(mach_task_self(), MACH_TASK_BASIC_INFO,
+                                         (task_info_t)&taskInfo, &taskInfoCount);
+    unsigned long long residentBytes = taskResult == KERN_SUCCESS ? (unsigned long long)taskInfo.resident_size : 0;
+    unsigned long long virtualBytes = taskResult == KERN_SUCCESS ? (unsigned long long)taskInfo.virtual_size : 0;
+
+    unsigned int threadCount = 0;
+    thread_act_array_t threads = NULL;
+    mach_msg_type_number_t threadArrayCount = 0;
+    if (task_threads(mach_task_self(), &threads, &threadArrayCount) == KERN_SUCCESS && threads) {
+        threadCount = (unsigned int)threadArrayCount;
+        for (mach_msg_type_number_t index = 0; index < threadArrayCount; index++) {
+            mach_port_deallocate(mach_task_self(), threads[index]);
+        }
+        vm_deallocate(mach_task_self(), (vm_address_t)threads, threadArrayCount * sizeof(thread_t));
+    }
+
+    vm_size_t pageSize = 0;
+    host_page_size(mach_host_self(), &pageSize);
+    vm_statistics64_data_t vmStats;
+    memset(&vmStats, 0, sizeof(vmStats));
+    mach_msg_type_number_t vmCount = HOST_VM_INFO64_COUNT;
+    double freeMB = 0.0;
+    if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vmStats, &vmCount) == KERN_SUCCESS) {
+        freeMB = (double)vmStats.free_count * (double)pageSize / 1048576.0;
+    }
+
+    char line[512];
+    int length = snprintf(line, sizeof(line),
+        "[hwinfo] %s pid=%d threads=%u rss=%.1fMB vsize=%.1fMB cpu=%.1f%% "
+        "(user=%.2fs sys=%.2fs) uptime=%.1fs free=%.1fMB maxrss=%.1fMB faults=%ld\n",
+        label, getpid(), threadCount,
+        (double)residentBytes / 1048576.0, (double)virtualBytes / 1048576.0, cpuPercent,
+        (double)usage.ru_utime.tv_sec + (double)usage.ru_utime.tv_usec / 1000000.0,
+        (double)usage.ru_stime.tv_sec + (double)usage.ru_stime.tv_usec / 1000000.0,
+        (double)uptimeMS / 1000.0, freeMB,
+        (double)usage.ru_maxrss / 1048576.0, (long)usage.ru_majflt);
+    if (length > 0) ZXDashboardDebugLogRaw(line, MIN((size_t)length, sizeof(line) - 1));
+}
+
+// Adds the values that need ObjC (thermal state, low power, processor counts),
+// so it may only be called from a normal context, never from a signal handler.
+static void ZXDashboardHardwareSnapshotRich(NSString *label)
+{
+    ZXDashboardHardwareSnapshotRaw(label.UTF8String ?: "snapshot");
+    NSProcessInfo *processInfo = [NSProcessInfo processInfo];
+    NSArray<NSString *> *thermalNames = @[@"nominal", @"fair", @"serious", @"critical"];
+    NSUInteger thermalIndex = MIN((NSUInteger)processInfo.thermalState, thermalNames.count - 1);
+    ZXDashboardDebugLog(@"[hwinfo] %@ thermal=%@ lowPower=%d processors=%lu/%lu physical=%.0fMB",
+                        label, thermalNames[thermalIndex], (int)processInfo.lowPowerModeEnabled,
+                        (unsigned long)processInfo.processorCount,
+                        (unsigned long)processInfo.activeProcessorCount,
+                        (double)processInfo.physicalMemory / 1048576.0);
+}
+
+// A run is clean only when its last session marker is session-close. Anything
+// appended after it (postinst markers, another daemon's lines) is irrelevant,
+// and a tail that ends on session-open means the process died without
+// unwinding — a crash or a hard kill, never a normal stop.
+static BOOL ZXDashboardDebugLogPreviousSessionWasClean(void)
+{
+    NSFileHandle *handle = [NSFileHandle fileHandleForReadingAtPath:ZX_DASHBOARD_DEBUG_LOG_PATH];
+    if (!handle) return YES;
+    @try {
+        unsigned long long size = [handle seekToEndOfFile];
+        [handle seekToFileOffset:size > 4096 ? size - 4096 : 0];
+        NSString *text = [[NSString alloc] initWithData:[handle readDataToEndOfFile] encoding:NSUTF8StringEncoding] ?: @"";
+        NSArray<NSString *> *lines = [text componentsSeparatedByString:@"\n"];
+        for (NSInteger index = (NSInteger)lines.count - 1; index >= 0; index--) {
+            NSString *line = [lines[index] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if ([line containsString:@"session-close"]) return YES;
+            if ([line containsString:@"session-open"]) return NO;
+        }
+        return YES;
+    } @finally {
+        [handle closeFile];
+    }
+}
+
+static void ZXDashboardDebugLogInstall(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        [fileManager createDirectoryAtPath:[ZX_DASHBOARD_DEBUG_LOG_PATH stringByDeletingLastPathComponent]
+                   withIntermediateDirectories:YES attributes:nil error:nil];
+        NSDictionary *attributes = [fileManager attributesOfItemAtPath:ZX_DASHBOARD_DEBUG_LOG_PATH error:nil];
+        if ([attributes fileSize] > ZXDashboardDebugLogMaximumBytes) {
+            [fileManager removeItemAtPath:ZX_DASHBOARD_DEBUG_LOG_PATH error:nil];
+        }
+        BOOL uncleanShutdown = !ZXDashboardDebugLogPreviousSessionWasClean();
+
+        ZXDashboardDebugLogFD = open(ZX_DASHBOARD_DEBUG_LOG_PATH.fileSystemRepresentation,
+                                     O_WRONLY | O_CREAT | O_APPEND, 0644);
+        if (ZXDashboardDebugLogFD < 0) return;
+
+        ZXDashboardSessionStartCPU = ZXDashboardProcessCPUSeconds();
+        ZXDashboardSessionStartUptimeMS = ZXDashboardSystemUptimeMilliseconds();
+
+        ZXDashboardDebugLog(@"===== session-open pid=%d uptime=%.0fs =====", getpid(),
+                            [NSProcessInfo processInfo].systemUptime);
+        ZXDashboardHardwareSnapshotRich(@"session-start");
+        if (uncleanShutdown) {
+            ZXDashboardDebugLog(@"previous session did not shut down cleanly (crash or kill)");
+        }
+    });
+}
+
+// ── Crash capture ─────────────────────────────────────────────────────────
+// Writes the faulting signal plus a backtrace to the debug log, then lets the
+// process die its normal death: the handler restores SIG_DFL and re-raises, so
+// the OS crash reporter still records the crash. Only async-signal-safe calls
+// are used here — no ObjC, no allocation.
+static const char *ZXDashboardSignalName(int signalNumber)
+{
+    switch (signalNumber) {
+        case SIGSEGV: return "SIGSEGV";
+        case SIGABRT: return "SIGABRT";
+        case SIGBUS:  return "SIGBUS";
+        case SIGILL:  return "SIGILL";
+        case SIGFPE:  return "SIGFPE";
+        default:      return "signal";
+    }
+}
+
+static void ZXDashboardCrashSignalHandler(int signalNumber)
+{
+    char header[128];
+    int length = snprintf(header, sizeof(header), "\n*** CRASH %s (%d) pid=%d ***\n",
+                          ZXDashboardSignalName(signalNumber), signalNumber, getpid());
+    if (length > 0) ZXDashboardDebugLogRaw(header, MIN((size_t)length, sizeof(header) - 1));
+    ZXDashboardHardwareSnapshotRaw("crash");
+    if (ZXDashboardDebugLogFD >= 0) {
+        void *frames[64];
+        int frameCount = backtrace(frames, 64);
+        backtrace_symbols_fd(frames, frameCount, ZXDashboardDebugLogFD);
+    }
+    signal(signalNumber, SIG_DFL);
+    raise(signalNumber);
+}
+
+static NSUncaughtExceptionHandler *ZXDashboardPreviousExceptionHandler = NULL;
+
+static void ZXDashboardUncaughtExceptionHandler(NSException *exception)
+{
+    @try {
+        ZXDashboardDebugLog(@"*** CRASH uncaught exception %@: %@", exception.name, exception.reason);
+        for (NSString *symbol in exception.callStackSymbols) {
+            ZXDashboardDebugLog(@"[exception] %@", symbol);
+        }
+        ZXDashboardHardwareSnapshotRich(@"exception");
+    } @catch (__unused NSException *ignored) {
+    }
+    if (ZXDashboardPreviousExceptionHandler) ZXDashboardPreviousExceptionHandler(exception);
+}
+
+static void ZXDashboardCrashHandlersInstall(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        ZXDashboardDebugLogInstall();
+        ZXDashboardPreviousExceptionHandler = NSGetUncaughtExceptionHandler();
+        NSSetUncaughtExceptionHandler(&ZXDashboardUncaughtExceptionHandler);
+        const int signals[] = {SIGSEGV, SIGABRT, SIGBUS, SIGILL, SIGFPE};
+        struct sigaction action;
+        memset(&action, 0, sizeof(action));
+        action.sa_handler = ZXDashboardCrashSignalHandler;
+        sigemptyset(&action.sa_mask);
+        action.sa_flags = SA_RESETHAND;
+        for (size_t index = 0; index < sizeof(signals) / sizeof(signals[0]); index++) {
+            sigaction(signals[index], &action, NULL);
+        }
+    });
+}
+
+// The daemon is stopped by launchd with SIGTERM on unload and on every package
+// upgrade, so it writes the clean-shutdown marker itself. Without this, a normal
+// unload would look identical to a crash to the next session.
+static void ZXDashboardDaemonTerminationHandler(int signalNumber)
+{
+    char line[128];
+    int length = snprintf(line, sizeof(line), "===== session-close pid=%d (signal %d) =====\n",
+                          getpid(), signalNumber);
+    if (length > 0) ZXDashboardDebugLogRaw(line, MIN((size_t)length, sizeof(line) - 1));
+    _exit(0);
+}
+
+static void ZXDashboardDaemonTerminationInstall(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        struct sigaction action;
+        memset(&action, 0, sizeof(action));
+        action.sa_handler = ZXDashboardDaemonTerminationHandler;
+        sigemptyset(&action.sa_mask);
+        sigaction(SIGTERM, &action, NULL);
+        sigaction(SIGINT, &action, NULL);
+    });
+}
+
+// ── :8080 liveness watchdog ───────────────────────────────────────────────
+// Logs every transition of the port so a dropped dashboard is timestamped even
+// when the process that served it died without a chance to log anything.
+static void ZXDashboardWatchdogStart(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        ZXDashboardDebugLogInstall();
+        dispatch_source_t timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                                         dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+        if (!timer) return;
+        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, 3 * NSEC_PER_SEC),
+                                  3 * NSEC_PER_SEC, 500 * NSEC_PER_MSEC);
+        dispatch_source_set_event_handler(timer, ^{
+            static BOOL lastOpen = YES;
+            BOOL open = ZXVNCProbePort(8080);
+            if (open != lastOpen) {
+                ZXDashboardDebugLog(@"[watchdog] :8080 %@", open ? @"came up" : @"went down");
+                if (!open) ZXDashboardHardwareSnapshotRich(@"watchdog");
+                lastOpen = open;
+            }
+        });
+        dispatch_resume(timer);
+    });
+}
 
 static BOOL ZXVNCIsEnabled(void)
 {
@@ -259,6 +583,24 @@ static NSString *ZXDashboardIPAddress(void)
 }
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
+
+#import "GCDWebServerConnection.h"
+
+// Logs every client connection close so a dashboard that dropped on its own
+// can be told apart from a browser tab the user simply closed. GCDWebServer's
+// own connection logs are DEBUG-level, which release builds compile out.
+@interface ZXLoggedConnection : GCDWebServerConnection
+@end
+
+@implementation ZXLoggedConnection
+
+- (void)close
+{
+    ZXDashboardDebugLog(@"[conn] closed remote=%@", self.remoteAddressString ?: @"?");
+    [super close];
+}
+
+@end
 
 @interface ZXRemoteDashboardServer : NSObject
 @property(nonatomic, strong) GCDWebServer *server;
@@ -955,6 +1297,23 @@ static NSArray *ZXEditorFunctionCatalog(void)
         return [strongSelf jsonResponse:@{ @"ok": @YES } status:200];
     }];
 
+    // GET /api/debug-log — the dashboard's own crash/disconnect log, written
+    // next to ocrd.log. It outlives the server process, so it is the one place
+    // that still has evidence after :8080 drops.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/debug-log" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"log": ZXDashboardDebugLogTail() } status:200];
+    }];
+
+    [self.server addHandlerForMethod:@"POST" path:@"/api/debug-log/clear" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        ZXDashboardDebugLogClear();
+        strongSelf.lastAction = @"Clear dashboard debug log";
+        return [strongSelf jsonResponse:@{ @"ok": @YES } status:200];
+    }];
+
     [self.server addHandlerForMethod:@"POST" path:@"/api/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
@@ -1199,22 +1558,31 @@ static NSArray *ZXEditorFunctionCatalog(void)
 - (BOOL)start
 {
     if (self.server.running) return YES;
+    ZXDashboardDebugLogInstall();
+    // Route GCDWebServer's own messages (bind / accept / socket errors) into the
+    // debug log. Level 1 is VERBOSE per the documented scale in GCDWebServer.h;
+    // DEBUG levels 0 stay unusable on purpose, since enabling them also turns
+    // GWS_DCHECK into abort() and would cause the very crash we are chasing.
+    static dispatch_once_t loggingOnce;
+    dispatch_once(&loggingOnce, ^{
+        [GCDWebServer setLogLevel:1];
+        [GCDWebServer setBuiltInLogger:^(int level, NSString *message) {
+            ZXDashboardDebugLog(@"[gws:%d] %@", level, message);
+        }];
+    });
     self.server = [[GCDWebServer alloc] init];
     [self configureHandlers];
     NSError *error = nil;
     BOOL started = [self.server startWithOptions:@{
         GCDWebServerOption_Port: @8080,
         GCDWebServerOption_ServerName: @"ZXTouch Dashboard",
-        GCDWebServerOption_AutomaticallySuspendInBackground: @NO
+        GCDWebServerOption_AutomaticallySuspendInBackground: @NO,
+        GCDWebServerOption_ConnectionClass: [ZXLoggedConnection class]
     } error:&error];
     self.lastError = started ? @"" : (error.localizedDescription ?: @"Unable to start dashboard.");
-    if (!started) {
-        self.server = nil;
-        // The standalone dashboard daemon may already serve :8080. That is the
-        // healthy post-migration state — not an error worth surfacing.
-        if (ZXVNCProbePort(8080)) self.lastError = @"";
-    }
     if (started) {
+        ZXDashboardDebugLog(@"[server] started port=%d pid=%d uptime=%.0fs", (int)self.server.port, getpid(),
+                            [NSProcessInfo processInfo].systemUptime);
         // LaunchDaemons can be absent after a jailbreak re-enable or can stop
         // without launchd recovering them. Give the dashboard one guarded
         // chance to restore VNC without waiting for a browser retry cycle.
@@ -1225,12 +1593,21 @@ static NSArray *ZXEditorFunctionCatalog(void)
                 [self recoverVNC];
             }
         });
+    } else {
+        BOOL portTaken = ZXVNCProbePort(8080);
+        ZXDashboardDebugLog(@"[server] start failed: %@ (port8080Open=%d)", self.lastError, portTaken);
+        self.server = nil;
+        // The standalone dashboard daemon may already serve :8080. That is the
+        // healthy post-migration state — not an error worth surfacing.
+        if (portTaken) self.lastError = @"";
     }
     return started;
 }
 
 - (void)stop
 {
+    ZXDashboardDebugLog(@"[server] stopped pid=%d", getpid());
+    ZXDashboardDebugLog(@"===== session-close pid=%d =====", getpid());
     [self.server stop];
     self.server = nil;
 }
@@ -1254,6 +1631,7 @@ static void ZXDashboardForceVNCDisabledInConfig(void)
 
 void ZXDashboardReloadConfiguration(void)
 {
+    ZXDashboardCrashHandlersInstall();
     NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
     if (![configuration isKindOfClass:[NSDictionary class]]) {
         NSDictionary *legacy = [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.zjx.zxtouch.plist"];
@@ -1281,6 +1659,7 @@ void ZXDashboardReloadConfiguration(void)
     // fight it for the port — a crash here would take SpringBoard down.
     if (!ZXDashboardServer && ZXVNCProbePort(8080)) return;
     if (!ZXDashboardServer) ZXDashboardServer = [[ZXRemoteDashboardServer alloc] init];
+    ZXDashboardWatchdogStart();
     [ZXDashboardServer start];
 }
 
@@ -1296,6 +1675,9 @@ static BOOL ZXDashboardDaemonEnabled(void)
 
 int ZXDashboardDaemonMain(void)
 {
+    ZXDashboardCrashHandlersInstall();
+    ZXDashboardDaemonTerminationInstall();
+    ZXDashboardWatchdogStart();
     __block ZXRemoteDashboardServer *server = [[ZXRemoteDashboardServer alloc] init];
     __block BOOL vncStateKnown = NO;
     __block BOOL lastVNCEnabled = YES;
@@ -1348,6 +1730,7 @@ int ZXDashboardDaemonMain(void)
                 // Port busy (embedded SpringBoard server until the next
                 // respring) or transient failure — wait, never crash-loop.
                 NSLog(@"[dashboardd] :8080 unavailable (%@), retrying", server.lastError);
+                ZXDashboardDebugLog(@"[dashboardd] :8080 unavailable (%@), retrying", server.lastError);
             }
             }
         }

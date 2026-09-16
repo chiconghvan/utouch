@@ -9,6 +9,10 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thêm
+- Log debug cho server dashboard `:8080` tại `/var/mobile/Library/ZXTouch/dashboard-debug.log` (cạnh `ocrd.log`): ghi mỗi lần cổng `:8080` mất kết nối (watchdog 3 giây), mỗi lần một client ngắt kết nối, lỗi bind/accept/socket của GCDWebServer, và backtrace khi crash (signal + uncaught exception). Áp dụng cho cả daemon `zxtouch-dashboardd` lẫn server fallback nhúng trong SpringBoard — nơi launchd không redirect stdout nên trước đây không để lại dấu vết nào. Kèm snapshot phần cứng lúc crash (CPU, RSS/vsize, số thread, RAM trống, thermal, low power) và cảnh báo khi phiên trước kết thúc không sạch.
+- Endpoint `GET /api/debug-log` và `POST /api/debug-log/clear` để xem/xoá log debug ngay trên dashboard.
+
 ## [0.3.31] — 2026-09-16
 
 ### Đã thêm

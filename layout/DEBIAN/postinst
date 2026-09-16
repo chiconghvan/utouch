@@ -161,6 +161,13 @@ else
     echo "ZXTouch: warning — zxtouch-dashboardd not found. Dashboard stays SpringBoard-hosted." >&2
 fi
 
+# Dashboard debug log (:8080). The server writes this file itself, so only make
+# sure it exists and belongs to `mobile` — the uid both hosts run as.
+DASHBOARD_DEBUG_LOG=/var/mobile/Library/ZXTouch/dashboard-debug.log
+touch "$DASHBOARD_DEBUG_LOG" 2>/dev/null || true
+chown mobile:mobile "$DASHBOARD_DEBUG_LOG" 2>/dev/null || true
+echo "ZXTouch: package installed" >> "$DASHBOARD_DEBUG_LOG" 2>/dev/null || true
+
 if [ -x /var/jb/usr/bin/zxtouch-ocrd ]; then
     mkdir -p /var/mobile/Library/ZXTouch
     chown mobile:mobile /var/mobile/Library/ZXTouch 2>/dev/null || true

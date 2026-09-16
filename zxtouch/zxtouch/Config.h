@@ -11,6 +11,10 @@
 #define SCRIPTS_PATH @"/var/mobile/Library/ZXTouch/scripts/"
 #define RUNTIME_OUTPUT_PATH @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output"
 
+// Dashboard crash/disconnect diagnostics. Written by the server code itself
+// (not by launchd) so the SpringBoard-hosted fallback server can log too.
+#define ZX_DASHBOARD_DEBUG_LOG_PATH @"/var/mobile/Library/ZXTouch/dashboard-debug.log"
+
 #define SPRINGBOARD_CONFIG_PATH @"/var/mobile/Library/ZXTouch/config/tweak/config.plist"
 
 #define SCRIPT_PLAY_CONFIG_PATH @"/var/mobile/Library/ZXTouch/config/tweak/script_play_settings.plist"
