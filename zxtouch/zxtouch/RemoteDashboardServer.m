@@ -1097,6 +1097,34 @@ static NSArray *ZXEditorFunctionCatalog(void)
     return [fileName caseInsensitiveCompare:@"info.plist"] != NSOrderedSame;
 }
 
+- (BOOL)isImageFileName:(NSString *)fileName
+{
+    static NSSet<NSString *> *extensions = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        extensions = [NSSet setWithArray:@[@"png", @"jpg", @"jpeg", @"gif", @"webp", @"bmp", @"tif", @"tiff", @"heic"]];
+    });
+    NSString *extension = fileName.pathExtension.lowercaseString;
+    return extension.length > 0 && [extensions containsObject:extension];
+}
+
+- (NSString *)assetPathInBundle:(NSString *)bundlePath relativeName:(NSString *)relativeName
+{
+    // Second traversal guard behind bundlePathForRelativePath: the name arrives
+    // straight from the client query, so it must not escape the bundle folder.
+    if (![bundlePath isKindOfClass:[NSString class]] || bundlePath.length == 0) return nil;
+    if (![relativeName isKindOfClass:[NSString class]] || relativeName.length == 0) return nil;
+    if ([relativeName hasPrefix:@"/"] || [relativeName rangeOfString:@".."].location != NSNotFound) return nil;
+
+    NSString *candidate = [[bundlePath stringByAppendingPathComponent:relativeName] stringByStandardizingPath];
+    NSString *prefix = [bundlePath stringByAppendingString:@"/"];
+    BOOL isDirectory = NO;
+    if (![candidate hasPrefix:prefix] || ![[NSFileManager defaultManager] fileExistsAtPath:candidate isDirectory:&isDirectory] || isDirectory) {
+        return nil;
+    }
+    return candidate;
+}
+
 - (NSString *)dashboardBasePath
 {
     // Rootless SpringBoard server. Roothide variant is resolved by the OS
@@ -1451,6 +1479,57 @@ static NSArray *ZXEditorFunctionCatalog(void)
         }
         strongSelf.lastAction = fileNames.count == 1 ? [NSString stringWithFormat:@"Upload %@", fileNames[0]] : [NSString stringWithFormat:@"Upload %lu assets", (unsigned long)fileNames.count];
         return [strongSelf jsonResponse:@{ @"ok": @YES, @"files": fileNames } status:200];
+    }];
+
+    // ── Script bundle assets: list + serve ──────────────────────────
+    // GET /api/scripts/assets?path=<rel.bdl> — every file inside the bundle
+    // (recursively, so "img/btn.png" shows up), minus bundle metadata, the
+    // entry script and dotfiles. "image" tells the dashboard when a hover
+    // preview is worth fetching.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/scripts/assets" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        NSString *bundlePath = [strongSelf bundlePathForRelativePath:request.query[@"path"]];
+        if (!bundlePath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Choose a script bundle." } status:400];
+        }
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:[bundlePath stringByAppendingPathComponent:@"info.plist"]];
+        // info.plist is user-editable, so the value is only trusted when it
+        // really is a string (same guard as -scripts).
+        NSString *entry = [info[@"Entry"] isKindOfClass:[NSString class]] ? info[@"Entry"] : @"";
+        NSMutableArray<NSDictionary *> *assets = [NSMutableArray array];
+        for (NSString *relative in [fileManager subpathsAtPath:bundlePath] ?: @[]) {
+            NSString *fileName = relative.lastPathComponent;
+            if ([fileName hasPrefix:@"."]) continue;
+            if ([fileName caseInsensitiveCompare:@"info.plist"] == NSOrderedSame) continue;
+            if (entry.length && [relative isEqualToString:entry]) continue;
+            NSString *fullPath = [bundlePath stringByAppendingPathComponent:relative];
+            BOOL isDirectory = NO;
+            if (![fileManager fileExistsAtPath:fullPath isDirectory:&isDirectory] || isDirectory) continue;
+            NSDictionary *attributes = [fileManager attributesOfItemAtPath:fullPath error:nil];
+            [assets addObject:@{ @"name": relative,
+                                 @"size": @([attributes fileSize]),
+                                 @"image": @([strongSelf isImageFileName:relative]) }];
+        }
+        [assets sortUsingComparator:^NSComparisonResult(NSDictionary *left, NSDictionary *right) {
+            return [left[@"name"] localizedCaseInsensitiveCompare:right[@"name"]];
+        }];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"path": request.query[@"path"], @"assets": assets } status:200];
+    }];
+
+    // GET /api/scripts/asset?path=<rel.bdl>&name=<relative path> — raw bytes
+    // of one asset. Not an attachment: the dashboard loads it in an <img>, so
+    // GCDWebServerFileResponse sets the content type from the extension.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/scripts/asset" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        NSString *bundlePath = [strongSelf bundlePathForRelativePath:request.query[@"path"]];
+        NSString *filePath = [strongSelf assetPathInBundle:bundlePath relativeName:request.query[@"name"]];
+        if (!filePath) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Asset was not found." } status:404];
+        }
+        return [GCDWebServerFileResponse responseWithFile:filePath];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/download" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {

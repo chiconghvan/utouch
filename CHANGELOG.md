@@ -9,6 +9,9 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thêm
+- Pane `Assets` trong tab Editor, nằm sát phải Monaco và dùng chung chiều cao với editor: liệt kê đệ quy mọi file trong thư mục `.bdl` của script đang mở (kể cả file trong thư mục con như `img/btn.png`). Kéo-thả một asset vào vùng code để chèn đường dẫn tương đối ngay tại vị trí thả, hoặc bấm để chèn tại con trỏ; rê chuột lên asset là ảnh sẽ hiện popup preview. Thêm hai endpoint `GET /api/scripts/assets` (liệt kê file trong bundle, kèm cờ `image`) và `GET /api/scripts/asset` (trả bytes của một asset để hiển thị preview).
+
 ## [0.3.33] — 2026-09-16
 
 ### Đã thay đổi

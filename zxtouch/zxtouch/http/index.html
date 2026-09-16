@@ -209,8 +209,9 @@
       body.editor-wide .editor-left { min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 12px; }
       body.editor-wide .editor-status { flex: 0 0 auto; }
       body.editor-wide .editor-surface { flex: 1 1 62%; min-height: 0; display: flex; flex-direction: column; }
-      body.editor-wide .editor-box { flex: 1 1 62%; min-height: 140px; max-height: none; display: flex; flex-direction: column; }
-      body.editor-wide #monacoHost, body.editor-wide #editorFallback { flex: 1; height: auto !important; min-height: 0; max-height: none; }
+      body.editor-wide .editor-box { flex: 1 1 62%; min-height: 140px; max-height: none; display: flex; flex-direction: row; align-items: stretch; }
+      body.editor-wide #monacoHost, body.editor-wide #editorFallback { flex: 1; height: auto !important; min-height: 0; max-height: none; min-width: 0; }
+      body.editor-wide .assetpane { flex: 0 0 220px; min-height: 0; }
       body.editor-wide .transpiled { flex: 0 0 auto; }
       body.editor-wide .runlog { flex: 1 1 38%; min-height: 130px; display: flex; flex-direction: column; overflow: hidden; }
       body.editor-wide .runlog .panel-head { flex: 0 0 auto; }
@@ -249,6 +250,18 @@
     .func-tooltip[hidden] { display: none; }
     .func-search { flex: 0 0 auto; width: 150px; min-height: 30px; padding: 5px 9px; font-size: 12px; }
     .func-empty { padding: 18px 13px; color: var(--muted); font-size: 12px; text-align: center; }
+    .assetpane { flex: 0 0 220px; min-width: 180px; max-width: 300px; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-left: 1px solid var(--line); background: var(--panel); }
+    .assetpane .panel-head { flex: 0 0 auto; min-height: 40px; padding: 6px 9px; gap: 6px; }
+    .assetpane .panel-title h3 { font-size: 12px; }
+    .assetpane .icon-button { width: 28px; height: 28px; min-height: 28px; font-size: 15px; }
+    .assetpane-body { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
+    .assetpane-body .empty-state { min-height: 0; padding: 18px 10px; font-size: 12px; }
+    .asset-item { display: block; width: 100%; padding: 5px 7px; border: 1px solid transparent; border-radius: 6px; color: var(--muted-strong); background: var(--field); cursor: grab; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .asset-item:hover, .asset-item:focus-visible { border-color: var(--blue); color: var(--text); }
+    .asset-item.dragging { opacity: .5; }
+    .asset-preview { position: fixed; z-index: 1000; padding: 6px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.35); pointer-events: none; }
+    .asset-preview[hidden] { display: none; }
+    .asset-preview img { display: block; max-width: 264px; max-height: 264px; border-radius: 4px; }
     .runlog .panel-head { min-height: 56px; }
      .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
      .runlog-sep { color: var(--blue); }
@@ -271,9 +284,9 @@
      .editor-name { width: 210px; min-height: 34px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-lang { min-height: 34px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
     .editor-open { min-height: 34px; max-width: 260px; padding: 6px 8px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--field); }
-      .editor-box { overflow: auto; border: 0; border-radius: 0; background: #1e1e1e; max-height: calc(100vh - 280px); }
-    #monacoHost { height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); }
-    #editorFallback { width: 100%; height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; overflow: auto; }
+      .editor-box { display: flex; flex-direction: row; align-items: stretch; overflow: auto; border: 0; border-radius: 0; background: #1e1e1e; max-height: calc(100vh - 280px); }
+    #monacoHost { flex: 1 1 auto; min-width: 0; height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); }
+    #editorFallback { flex: 1 1 auto; min-width: 0; width: 100%; height: 46vh; min-height: 300px; max-height: calc(100vh - 282px); padding: 12px; border: 0; color: #d5dbe3; background: #1e1e1e; font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; overflow: auto; }
     .editor-status { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 13px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--panel); font-size: 12px; }
     .editor-status strong { color: var(--muted-strong); }
     .transpiled { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
@@ -298,6 +311,8 @@
     @media (max-width: 820px) {
       .asset-layout, .device-layout, .editor-main { grid-template-columns: 1fr; }
       .funcpane-body { max-height: 300px; min-height: 0; }
+      .editor-box { flex-direction: column; }
+      .assetpane { flex: 0 0 auto; max-width: none; max-height: 40vh; border-left: 0; border-top: 1px solid var(--line); }
       .asset-notes { padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
       .script-list { max-height: 560px; }
     }
@@ -407,7 +422,7 @@
           <div class="editor-left">
             <div class="view-heading"><div><h2>Script Editor</h2></div><div class="editor-heading-actions"><button class="button" id="editorNewAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>New</button><div style="position:relative"><button class="button" id="editorOpenAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span>Open</button><div class="editor-open-menu" id="editorOpenMenu" hidden role="listbox" aria-label="Open script from library"></div></div><button class="button" id="editorSave"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span>Save</button><button class="button" id="editorSaveAll"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 12 12 17 22 12"></polyline><polyline points="2 17 12 22 22 17"></polyline></svg></span>Save all</button><button class="button" id="editorCheck"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></span>Check</button><button class="button primary" id="editorRun"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>Run</button><button class="button danger" id="editorStop"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></span>Stop</button></div></div>
             <div hidden><select id="editorOpen"><option value="">Open from library…</option></select><input id="editorName" type="text"><select id="editorLang"><option value="lua">Lua</option><option value="python">Python</option></select></div>
-             <div class="editor-surface"><div class="editor-tabs" id="editorTabs" role="tablist" aria-label="Open scripts"></div><div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div></div>
+             <div class="editor-surface"><div class="editor-tabs" id="editorTabs" role="tablist" aria-label="Open scripts"></div><div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea><aside class="assetpane" id="assetPane" aria-label="Script assets"><div class="panel-head"><div class="panel-title"><h3>Assets</h3></div><div class="panel-tools"><button class="icon-button" id="assetPaneRefresh" type="button" title="Reload assets" aria-label="Reload assets">&#8635;</button></div></div><div class="assetpane-body" id="assetPaneList"><div class="empty-state">Open a script to see its assets.</div></div></aside></div></div>
             <div hidden><details id="transpiledWrap"><pre id="transpiledView"></pre></details><span id="editorStatus"></span></div>
             <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
           </div>
@@ -1686,6 +1701,114 @@
          markEditorDirty();
        }
      }
+    // ── Editor asset pane ────────────────────────────────────────────
+    // Lists the files inside the active script's .bdl bundle: drag one into
+    // the editor to insert its name, or click to insert at the cursor.
+    const assetPreview = document.createElement('div');
+    assetPreview.className = 'asset-preview';
+    assetPreview.setAttribute('role', 'tooltip');
+    assetPreview.hidden = true;
+    document.body.appendChild(assetPreview);
+    function hideAssetPreview() { assetPreview.hidden = true; assetPreview.innerHTML = ''; }
+    function showAssetPreview(anchor, bundlePath, name) {
+      const source = `/api/scripts/asset?path=${encodeURIComponent(bundlePath)}&name=${encodeURIComponent(name)}`;
+      assetPreview.innerHTML = `<img src="${source}" alt="${escapeHTML(name)}">`;
+      assetPreview.hidden = false;
+      const anchorRect = anchor.getBoundingClientRect();
+      const previewRect = assetPreview.getBoundingClientRect();
+      const gap = 8;
+      // The pane sits on the right, so the preview flips to its left by default.
+      const left = anchorRect.left - gap - previewRect.width >= gap
+        ? anchorRect.left - gap - previewRect.width
+        : Math.min(innerWidth - gap - previewRect.width, anchorRect.right + gap);
+      const top = Math.min(Math.max(gap, anchorRect.top), Math.max(gap, innerHeight - previewRect.height - gap));
+      assetPreview.style.left = `${Math.max(gap, left)}px`;
+      assetPreview.style.top = `${top}px`;
+    }
+    function activeBundlePath() {
+      const doc = activeEditorDocument();
+      return doc && doc.path ? doc.path : null;
+    }
+    function renderAssetPane(assets, bundlePath) {
+      const list = elements.assetPaneList;
+      list.innerHTML = '';
+      if (!assets.length) {
+        list.innerHTML = '<div class="empty-state">No assets in this bundle yet.</div>';
+        return;
+      }
+      assets.forEach(asset => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'asset-item';
+        button.draggable = true;
+        button.dataset.asset = asset.name;
+        button.title = asset.name;
+        button.textContent = asset.name;
+        button.addEventListener('click', () => editorInsert(asset.name));
+        button.addEventListener('dragstart', event => {
+          event.dataTransfer.setData('text/plain', asset.name);
+          event.dataTransfer.effectAllowed = 'copy';
+          button.classList.add('dragging');
+        });
+        button.addEventListener('dragend', () => button.classList.remove('dragging'));
+        if (asset.image) {
+          button.addEventListener('pointerenter', () => showAssetPreview(button, bundlePath, asset.name));
+          button.addEventListener('pointerleave', hideAssetPreview);
+          button.addEventListener('focus', () => showAssetPreview(button, bundlePath, asset.name));
+          button.addEventListener('blur', hideAssetPreview);
+        }
+        list.appendChild(button);
+      });
+    }
+    async function refreshAssetPane() {
+      const list = elements.assetPaneList;
+      const bundlePath = activeBundlePath();
+      if (!bundlePath) {
+        list.innerHTML = '<div class="empty-state">Save the script to see its assets.</div>';
+        return;
+      }
+      list.innerHTML = '<div class="empty-state">Loading assets…</div>';
+      try {
+        const payload = await api(`/api/scripts/assets?path=${encodeURIComponent(bundlePath)}`);
+        renderAssetPane(payload.assets || [], bundlePath);
+      } catch (error) {
+        list.innerHTML = `<div class="empty-state">${escapeHTML(error.message)}</div>`;
+      }
+    }
+    function editorInsertAt(text, clientX, clientY) {
+      const doc = activeEditorDocument();
+      if (!doc) return;
+      if (editorState.monaco && doc.model && editorState.view) {
+        const target = editorState.view.getTargetAtClientPoint(clientX, clientY);
+        const position = (target && target.position) || editorState.view.getPosition();
+        if (position) {
+          editorState.view.executeEdits('asset-drop', [{ range: new editorState.monaco.Range(position.lineNumber, position.column, position.lineNumber, position.column), text, forceMoveMarkers: true }]);
+          editorState.view.setPosition({ lineNumber: position.lineNumber, column: position.column + text.length });
+          editorState.view.focus();
+          return;
+        }
+      }
+      editorInsert(text);
+    }
+    function setupEditorDropTarget() {
+      // Capture phase so Monaco's own drop handling never sees the event:
+      // a bubble listener on the host would run after the editor widget.
+      [elements.monacoHost, elements.editorFallback].forEach(host => {
+        if (!host) return;
+        host.addEventListener('dragover', event => {
+          if (!event.dataTransfer) return;
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'copy';
+        }, true);
+        host.addEventListener('drop', event => {
+          const text = event.dataTransfer ? event.dataTransfer.getData('text/plain') : '';
+          if (!text) return;
+          event.preventDefault();
+          event.stopPropagation();
+          editorInsertAt(text, event.clientX, event.clientY);
+        }, true);
+      });
+    }
     // Autocomplete: same FUNC_GROUPS data drives Monaco suggestions.
     // Registered once after Monaco boots; per-language insert text.
     let autocompleteRegistered = false;
@@ -2008,6 +2131,7 @@
        saveEditorViewState();
        editorState.activeId = doc.id;
        setEditorModel(doc);
+       refreshAssetPane();
      }
      function removeEditorDocument(doc) {
        if (!doc) return;
@@ -2135,6 +2259,7 @@
          renderEditorTabs();
          await loadScripts();
          syncEditorControls();
+         refreshAssetPane();
          return true;
        } catch (error) { if (!options.silent) showToast(error.message, true); return false; }
        finally { editorState.saving = false; setButtonBusy(elements.editorSave, false); }
@@ -2276,6 +2401,9 @@
         createEditorDocument();
         renderFuncPane();
         loadFunctionCatalog();
+        setupEditorDropTarget();
+        elements.assetPaneRefresh.addEventListener('click', refreshAssetPane);
+        refreshAssetPane();
         elements.runLogOut.dataset.empty = '1';
         elements.runLogClear.addEventListener('click', () => {
           runLogStop();
@@ -2352,6 +2480,10 @@
                     insertSpaces: true, tabSize: 2, detectIndentation: false,
                     autoIndent: 'full', formatOnType: true, formatOnPaste: true,
                     trimAutoWhitespace: true,
+                    // Asset drops are inserted by setupEditorDropTarget() so the
+                    // text lands at the pointer through executeEdits; Monaco's
+                    // own drop handling is turned off to avoid inserting twice.
+                    dragAndDrop: false, dropIntoEditor: { enabled: false },
                     // Render the suggest widget (and hover) outside the editor's
                     // overflow container, so when the caret is near the bottom
                     // of the pane Monaco flips the dropdown above the cursor
