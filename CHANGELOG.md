@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.30] — 2026-09-16
+
 ### Đã thêm
 - Nút `Check` trên cả hai editor (native và Monaco) để chạy kiểm tra tĩnh theo yêu cầu.
 
@@ -350,6 +352,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.30]: https://github.com/chiconghvan/utouch/compare/v0.3.29...v0.3.30
 [0.3.29]: https://github.com/chiconghvan/utouch/compare/v0.3.28...v0.3.29
 [0.3.28]: https://github.com/chiconghvan/utouch/compare/v0.3.27...v0.3.28
 [0.3.27]: https://github.com/chiconghvan/utouch/compare/v0.3.26...v0.3.27
