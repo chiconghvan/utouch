@@ -9,9 +9,17 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.32] — 2026-09-16
+
 ### Đã thêm
 - Log debug cho server dashboard `:8080` tại `/var/mobile/Library/ZXTouch/dashboard-debug.log` (cạnh `ocrd.log`): ghi mỗi lần cổng `:8080` mất kết nối (watchdog 3 giây), mỗi lần một client ngắt kết nối, lỗi bind/accept/socket của GCDWebServer, và backtrace khi crash (signal + uncaught exception). Áp dụng cho cả daemon `zxtouch-dashboardd` lẫn server fallback nhúng trong SpringBoard — nơi launchd không redirect stdout nên trước đây không để lại dấu vết nào. Kèm snapshot phần cứng lúc crash (CPU, RSS/vsize, số thread, RAM trống, thermal, low power) và cảnh báo khi phiên trước kết thúc không sạch.
 - Endpoint `GET /api/debug-log` và `POST /api/debug-log/clear` để xem/xoá log debug ngay trên dashboard.
+
+### Đã sửa
+- Popup gợi ý autocomplete của editor native tự ẩn khi chạm ra ngoài: trước đây bảng gợi ý chỉ ẩn khi nội dung văn bản thay đổi nên trên iPhone nó vẫn nằm trên màn hình sau khi chạm chỗ khác. Cử chỉ chạm gắn ở view gốc của editor và bỏ qua cú chạm rơi vào chính bảng gợi ý, nên chọn một item trong bảng vẫn hoạt động bình thường.
+
+### Đã loại bỏ
+- Nút `Format` trong editor native (bỏ hẳn cùng ivar `formatButton` và method `formatFile`): editor đã tự thụt lề khi gõ `:` hoặc xuống dòng trong ngoặc và tự định dạng văn bản dán vào, nên thao tác định dạng toàn file trùng với những gì việc gõ và `Check` vẫn làm.
 
 ## [0.3.31] — 2026-09-16
 
@@ -370,6 +378,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.32]: https://github.com/chiconghvan/utouch/compare/v0.3.31...v0.3.32
 [0.3.31]: https://github.com/chiconghvan/utouch/compare/v0.3.30...v0.3.31
 [0.3.30]: https://github.com/chiconghvan/utouch/compare/v0.3.29...v0.3.30
 [0.3.29]: https://github.com/chiconghvan/utouch/compare/v0.3.28...v0.3.29
