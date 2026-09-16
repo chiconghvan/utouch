@@ -9,8 +9,17 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.34] — 2026-09-16
+
 ### Đã thêm
-- Pane `Assets` trong tab Editor, nằm sát phải Monaco và dùng chung chiều cao với editor: liệt kê đệ quy mọi file trong thư mục `.bdl` của script đang mở (kể cả file trong thư mục con như `img/btn.png`). Kéo-thả một asset vào vùng code để chèn đường dẫn tương đối ngay tại vị trí thả, hoặc bấm để chèn tại con trỏ; rê chuột lên asset là ảnh sẽ hiện popup preview. Thêm hai endpoint `GET /api/scripts/assets` (liệt kê file trong bundle, kèm cờ `image`) và `GET /api/scripts/asset` (trả bytes của một asset để hiển thị preview).
+- Pane `Assets` trong tab Editor, nằm sát phải Monaco và dùng chung chiều cao với editor: liệt kê đệ quy mọi file trong thư mục `.bdl` của script đang mở (kể cả file trong thư mục con như `img/btn.png`). Kéo-thả một asset vào vùng code để chèn đường dẫn tương đối ngay tại vị trí thả, hoặc bấm để chèn tại con trỏ; rê chuột lên asset là ảnh sẽ hiện popup preview. Thêm hai endpoint `GET /api/scripts/assets` (liệt kê file trong bundle, kèm cờ `image`) và `GET /api/scripts/asset` (trả bytes của một asset để hiển thị preview). Cách xử lý thả file sẵn có của Monaco được tắt nên asset chỉ được chèn một lần, qua `executeEdits` ngay tại con trỏ chuột; cả hai endpoint đều đi qua `bundlePathForRelativePath` và kiểm lại tên asset nên không thể thoát ra ngoài thư mục bundle.
+- Card `Log Files` trong tab `Device` của dashboard: mỗi log một nút tải về qua `GET /api/logs/download?name=dashboardd|trollvnc|debug` (tải kèm tên file, dạng attachment). Tên log được đối chiếu với danh sách trắng rồi mới ghép vào đường dẫn cố định, nên dữ liệu client gửi lên không đi thẳng vào hệ thống file; log chưa có trả về JSON thay vì file, và client tải bằng blob nên 404 hiện toast chứ không thay cả trang bằng nội dung lỗi.
+
+### Đã thay đổi
+- Tab `Assets` cho chọn nhiều file trong một lần: `POST /api/assets` gom toàn bộ part `asset` của body multipart thay vì chỉ part đầu, nên cả lượt chọn được gửi trong một request và phản hồi trả danh sách tên đã lưu ở khoá `files`. Cả lô được kiểm tra trước khi ghi (tên file an toàn, tối đa 25 MB mỗi file) nên một file bị từ chối không để phần còn lại rơi vào trạng thái nửa vời; dropzone hiện số file đã chọn kèm tối đa ba tên, hộp xác nhận và toast đổi theo số lượng file.
+
+### Đã sửa
+- `findImage` không tìm được ảnh template nằm cạnh script: daemon mở đường dẫn đúng như client gửi, tính theo thư mục làm việc của chính nó (thư mục của SpringBoard), nên tên trần như `findImage("home-activ.png")` không bao giờ tới được ảnh đi kèm script. `zxtouch.runner` giờ báo thư mục của file script đang chạy qua `prelude.setScriptDir()`, và `findImage()` đổi tên trần thành đường dẫn tuyệt đối khi file đó thật sự tồn tại trong thư mục script — áp dụng cho mọi hàm đi qua `findImage`: `waitForImage`, `tapImage` và `swipeUntilImage`. Đường dẫn tuyệt đối, tên không có trong thư mục script, và lần gọi ngoài lúc chạy script (không có thư mục nào được báo) đều giữ nguyên hành vi cũ. Tài liệu `docs/IDE/ioscontrol.md` cập nhật theo cách tra đường dẫn mới.
 
 ## [0.3.33] — 2026-09-16
 
@@ -395,6 +404,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.34]: https://github.com/chiconghvan/utouch/compare/v0.3.33...v0.3.34
 [0.3.33]: https://github.com/chiconghvan/utouch/compare/v0.3.32...v0.3.33
 [0.3.32]: https://github.com/chiconghvan/utouch/compare/v0.3.31...v0.3.32
 [0.3.31]: https://github.com/chiconghvan/utouch/compare/v0.3.30...v0.3.31
