@@ -9,6 +9,16 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.35] — 2026-09-16
+
+### Đã thêm
+- Skill `utool-deploy` (`.commandcode/skills/utool-deploy/SKILL.md`) ghi lại trọn quy trình phát hành của repo: đọc commit kể từ tag gần nhất, viết mục CHANGELOG tiếng Việt kèm link so sánh, bump version ở đủ 9 nguồn khai báo, commit `Release vX.Y.Z`, push `main`, tạo annotated tag rồi để CI dựng `.deb` và publish GitHub Release lẫn APT repo. Skill nằm trong Git để cả repo dùng chung thay vì chỉ ở máy một người.
+
+### Đã sửa
+- `findImage` báo `None` cho template đang nằm rõ trên màn hình: tầng quét thô chạy trên mặt phẳng tương quan độ phân giải gốc với bước nhảy `min(tw,th)/8` (8-20 px) và chỉ chấm điểm lại ứng viên khi điểm thô đã vượt ngưỡng, trong khi template nhiều chi tiết chỉ đạt sát ngưỡng trong khoảng hai pixel — bước nhảy vì thế đi thẳng qua đúng vị trí khớp và lượt chấm điểm tinh không bao giờ chạy. Đo trên ảnh chụp 1242x2208: 11 trong 13 template có mặt đúng từng pixel (NCC 1.00) bị báo `None` với điểm 0.47-0.76. Nay tầng thô quét trên ảnh và template đã hạ mẫu (`F = 1..4`, đỉnh đủ rộng để bắt được) và giữ 4 ứng viên khác nhau, mọi ứng viên được chấm điểm lại ở bước 1 vô điều kiện trước khi áp ngưỡng; phép quét theo bước nhảy vẫn là phương án dự phòng khi không dựng được mức thô nào (template quá nhỏ, cấp phát lỗi). `patchNorm` được so với chính biên độ của patch (`1e-6 * patchSqSum`) thay vì hằng số tuyệt đối `1e-6`, nên vá phẳng không còn khuếch đại điểm số vượt 1.0 và kết thúc sớm vòng tìm kiếm; điểm khớp được kẹp trong `[-1, 1]`. Kiểm trên toàn bộ bộ dữ liệu test: 11/11 template trên màn hình khớp đúng pixel (điểm 1.00, lệch 0 px), hai template không có vẫn trả kết quả rỗng, các ca xoay/lật/nhiễu không phát sinh dương tính giả.
+- Tài liệu `docs/IDE/ioscontrol.md` khớp lại với code: `findImage` và `swipeUntilImage` mặc định ngưỡng `0.8` (không phải `0.9`), và `swipeUntilImage` mặc định 5 lần vuốt (không phải 10).
+- Popup preview ảnh trong pane `Assets` chườm lên tên file đang rê chuột: hộp preview được đo ngay sau khi thẻ `<img>` vừa tạo nên kích thước còn 0 và phép tính vị trí chạy trên hình chữ nhật 14x14; khi bitmap về, hộp phình ra đúng kích thước thật rồi đè lên hàng asset cùng con trỏ chuột (ở pane bên phải còn vượt mép khung nhìn). Nay preview chỉ được đặt vị trí sau khi ảnh load xong và chọn trong bốn phía của hàng asset, nên hộp luôn né tên file đang hover khi khung nhìn còn chỗ. Áp dụng cho cả index.html trên dashboard lẫn bản mirror trong app.
+
 ## [0.3.34] — 2026-09-16
 
 ### Đã thêm
@@ -404,6 +414,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.35]: https://github.com/chiconghvan/utouch/compare/v0.3.34...v0.3.35
 [0.3.34]: https://github.com/chiconghvan/utouch/compare/v0.3.33...v0.3.34
 [0.3.33]: https://github.com/chiconghvan/utouch/compare/v0.3.32...v0.3.33
 [0.3.32]: https://github.com/chiconghvan/utouch/compare/v0.3.31...v0.3.32
