@@ -519,11 +519,17 @@ static void ZXVNCSetScale(double scale)
 // routes end up with the identical process.
 static void ZXVNCStartServerDirectly(void)
 {
+    // The "already running?" check has to happen here in C, never inside the
+    // command string: that string carries the binary path in its own argv, so a
+    // `ps -ax | grep '[t]rollvncserver'` run from within it matches the spawning
+    // `sh -c` itself and the nohup copy was skipped even with no server alive.
+    // `sh` also has no coreutils in its PATH on a rootless jailbreak, so the
+    // grep could not be relied on anyway.
+    if (ZXVNCServerProcessRunning()) return;
     ZXVNCSystem([NSString stringWithFormat:
         @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
          @"(launchctl load -w %@ >/dev/null 2>&1); "
-         @"if ! ps -ax 2>/dev/null | grep -q '[t]rollvncserver'; then "
-         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null & fi",
+         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null &",
         ZXVNCLaunchDaemonPath(), ZXVNCLaunchDaemonPath(),
         @"/var/jb/usr/bin/trollvncserver", ZXVNCScale(),
         @"/var/mobile/Library/ZXTouch/trollvnc.log"]);
