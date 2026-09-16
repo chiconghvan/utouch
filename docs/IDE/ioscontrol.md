@@ -2945,11 +2945,13 @@ va **editor native** tren iPhone (`ScriptEditorViewController`) — deu chay kie
 check) dua tren **cau truc cua tung ham** trong catalog (`zxtouch.apispec`, introspect tu
 `zxtouch.prelude`). Ket qua hien ngay trong editor:
 
-- Monaco: gach chan + dau o le (markers) tai dong loi.
-- Native: gach chan do (loi) / cam (canh bao) va dong trang thai duoi tieu de.
+- Monaco: gach chan + dau o le (markers) tai dong loi, va toast o day vung editor.
+- Native: gach chan do (loi) / cam (canh bao) va toast o day editor (cham toast de mo Problems).
 
-**Khi nao chay:** vua go vua kiem (debounce ~0.5s) va khi Run/Save. Neu con loi, editor hoi xac
-nhan truoc khi chay hoac luu.
+**Khi nao chay:** chi khi bam nut `Check` (native: tren thanh tieu de; dashboard: canh nut Run).
+Khong con kiem khi dang go, khi mo/chuyen tab hay khi doi ngon ngu. Rieng Run (dashboard) va Save
+(iPhone) tu kiem lai khi ket qua dang cu, nen canh bao "con loi" luon khop voi code dang mo. Neu
+con loi, editor hoi xac nhan truoc khi chay hoac luu.
 
 ### Pham vi kiem tra
 
@@ -2987,8 +2989,9 @@ Dashboard goi qua `POST /api/editor/validate` voi body `{ "code": "<python sourc
 ### Editor tren iPhone
 
 - **So dong:** mep trai hien so dong kem vach phan cach, cap nhat theo layout nen dong bi xuong hang khong bi danh so lan hai.
-- **Co chu:** `Settings -> Script -> Editor Font Size` (slider 10-28). Gia tri luu trong config `editor_font_size` (SpringBoard config) va ap dung ngay cho editor dang mo.
+- **Co chu:** `Settings -> Script -> Editor Font Size` (slider 10-28). Gia tri luu trong config `editor_font_size` (SpringBoard config) va ap dung ngay cho editor native dang mo; Monaco tren dashboard khong dung setting nay (co chu co dinh).
 - **Ban phim:** editor tu chua cho ban phim (contentInset) va tu cuon con tro len tren ban phim, nen go o cuoi file khong bi che.
-- **Ket qua kiem tra:** hien bang toast o day editor (do khi co loi, den khi sach); cham toast de mo danh sach Problems. Toast chi hien khi ket qua doi.
+- **Thut le:** mot cap thut le la 2 ky tu — phim Tab chen 2 dau cach, auto-indent sau dau `:` va noi dong ngoac cung 2 ky tu. Monaco cau hinh `tabSize: 2` cho khop.
+- **Ket qua kiem tra:** hien bang toast o day editor (do khi co loi, den khi sach); cham toast de mo danh sach Problems. Bam `Check` luon hien toast.
 
 

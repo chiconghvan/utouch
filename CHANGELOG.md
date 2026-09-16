@@ -9,6 +9,16 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thêm
+- Nút `Check` trên cả hai editor (native và Monaco) để chạy kiểm tra tĩnh theo yêu cầu.
+
+### Đã thay đổi
+- Kiểm tra script chỉ chạy khi bấm `Check`: bỏ kiểm tự động khi đang gõ, khi mở/chuyển tab và khi đổi ngôn ngữ, ở cả editor native lẫn Monaco. Run (dashboard) và Save (iPhone) vẫn kiểm lại nếu kết quả đang cũ nên cảnh báo "còn lỗi" luôn khớp với code hiện tại.
+- Thụt lề còn 2 ký tự ở cả hai editor: phím Tab và auto-indent của editor native, `formatSource` của engine Python dùng chung, và `tabSize` của Monaco.
+
+### Đã sửa
+- Toast kết quả kiểm tra: bấm `Check` luôn hiện toast kể cả khi kết quả lặp lại; trước đây toast chỉ hiện khi kết quả đổi (để tránh nhấp nháy lúc kiểm tự động).
+
 ## [0.3.29] — 2026-09-16
 
 ### Đã thêm

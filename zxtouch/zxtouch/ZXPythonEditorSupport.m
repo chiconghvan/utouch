@@ -1,4 +1,5 @@
 #import "ZXPythonEditorSupport.h"
+#import "Config.h"
 
 static NSCharacterSet *ZXIdentifierStartSet(void)
 {
@@ -223,8 +224,8 @@ static NSString *ZXTrimTrailingWhitespace(NSString *line)
         }
         BOOL dedent = [trimmed hasPrefix:@"else:"] || [trimmed hasPrefix:@"elif "] || [trimmed hasPrefix:@"except"] || [trimmed hasPrefix:@"finally:"];
         NSUInteger outputIndent = leading;
-        if (dedent && outputIndent >= 4) outputIndent -= 4;
-        if (continuationDepth > 0 && !dedent && outputIndent < continuationDepth * 4) outputIndent = continuationDepth * 4;
+        if (dedent && outputIndent >= ZX_EDITOR_INDENT_WIDTH) outputIndent -= ZX_EDITOR_INDENT_WIDTH;
+        if (continuationDepth > 0 && !dedent && outputIndent < continuationDepth * ZX_EDITOR_INDENT_WIDTH) outputIndent = continuationDepth * ZX_EDITOR_INDENT_WIDTH;
         NSMutableString *prefix = [NSMutableString string];
         for (NSUInteger index = 0; index < outputIndent; index++) [prefix appendString:@" "];
         [formatted addObject:[prefix stringByAppendingString:body]];
@@ -260,7 +261,7 @@ static NSString *ZXTrimTrailingWhitespace(NSString *line)
     NSString *lineWithoutNewline = [line stringByTrimmingCharactersInSet:[NSCharacterSet newlineCharacterSet]];
     NSUInteger spaces = ZXLeadingSpaces(lineWithoutNewline);
     NSString *body = [lineWithoutNewline substringFromIndex:MIN(lineWithoutNewline.length, [ZXLeadingWhitespace(lineWithoutNewline) length])];
-    if (ZXLineHasCodeColon(body)) spaces += 4;
+    if (ZXLineHasCodeColon(body)) spaces += ZX_EDITOR_INDENT_WIDTH;
     NSUInteger continuation = 0;
     BOOL single = NO;
     BOOL doubleQuote = NO;
@@ -277,7 +278,7 @@ static NSString *ZXTrimTrailingWhitespace(NSString *line)
             if (continuation > 0) continuation--;
         }
     }
-    if (continuation > 0) spaces = MAX(spaces, ZXLeadingSpaces(lineWithoutNewline) + 4);
+    if (continuation > 0) spaces = MAX(spaces, ZXLeadingSpaces(lineWithoutNewline) + ZX_EDITOR_INDENT_WIDTH);
     NSMutableString *result = [NSMutableString string];
     for (NSUInteger index = 0; index < spaces; index++) [result appendString:@" "];
     return result;

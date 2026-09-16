@@ -116,7 +116,7 @@ static UIFont *ZXEditorFont(void)
 
 @interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate>
 - (void)refreshBarButtons;
-- (void)scheduleValidation;
+- (void)checkScript;
 - (void)runValidation;
 - (NSString *)validationFilePath;
 - (NSArray<NSDictionary *> *)validateSource:(NSString *)source;
@@ -125,6 +125,7 @@ static UIFont *ZXEditorFont(void)
 - (void)updateValidationStatus;
 - (void)showProblems;
 - (void)writeFile;
+- (void)finishPendingSave;
 - (void)updateLineNumbers;
 - (void)applyEditorFontSize;
 - (void)configureToast;
@@ -146,7 +147,8 @@ static UIFont *ZXEditorFont(void)
     UIBarButtonItem *formatButton;
     UIBarButtonItem *saveButton;
     UIBarButtonItem *problemsButton;
-    NSTimer *validationTimer;
+    UIBarButtonItem *checkButton;
+    BOOL saveAfterValidation;
     NSArray<NSDictionary *> *diagnostics;
     NSString *diagnosticsSource;
     NSUInteger validationGeneration;
@@ -202,7 +204,6 @@ static UIFont *ZXEditorFont(void)
     [self applySyntaxHighlightingPreservingSelection:NO];
     isSaveButtonShown = NO;
     [self updateLineNumbers];
-    [self scheduleValidation];
 }
 
 - (void)viewWillDisappear:(BOOL)animated {
@@ -234,6 +235,15 @@ static UIFont *ZXEditorFont(void)
 
 - (void)refreshBarButtons {
     NSMutableArray<UIBarButtonItem *> *items = [NSMutableArray array];
+    if ([self isPythonFile]) {
+        if (!checkButton) {
+            checkButton = [[UIBarButtonItem alloc] initWithTitle:@"Check"
+                                                           style:UIBarButtonItemStylePlain
+                                                          target:self
+                                                          action:@selector(checkScript)];
+        }
+        [items addObject:checkButton];
+    }
     if (formatButton) [items addObject:formatButton];
     if (diagnostics.count > 0) {
         if (!problemsButton) {
@@ -281,7 +291,6 @@ static UIFont *ZXEditorFont(void)
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
     [self updateCompletions];
-    [self scheduleValidation];
 }
 
 - (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
@@ -297,7 +306,21 @@ static UIFont *ZXEditorFont(void)
         [self applySyntaxHighlightingPreservingSelection:YES];
         [self showSaveButton];
         [self updateCompletions];
-        [self scheduleValidation];
+        return NO;
+    }
+    if ([text isEqualToString:@"\t"]) {
+        NSString *spaces = [@"" stringByPaddingToLength:ZX_EDITOR_INDENT_WIDTH
+                                             withString:@" "
+                                        startingAtIndex:0];
+        isApplyingEdit = YES;
+        UITextPosition *start = [textView positionFromPosition:textView.beginningOfDocument offset:range.location];
+        UITextPosition *end = [textView positionFromPosition:start offset:range.length];
+        UITextRange *textRange = [textView textRangeFromPosition:start toPosition:end];
+        [textView replaceRange:textRange withText:spaces];
+        isApplyingEdit = NO;
+        [self applySyntaxHighlightingPreservingSelection:YES];
+        [self showSaveButton];
+        [self updateCompletions];
         return NO;
     }
     if (text.length > 1 && [text containsString:@"\n"]) {
@@ -461,7 +484,6 @@ static UIFont *ZXEditorFont(void)
     [self hideCompletions];
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
-    [self scheduleValidation];
 }
 
 #pragma mark - Toast
@@ -614,14 +636,17 @@ static UIFont *ZXEditorFont(void)
 
 #pragma mark - Validation
 
-- (void)scheduleValidation {
-    [validationTimer invalidate];
-    if (![self isPythonFile]) return;
-    validationTimer = [NSTimer scheduledTimerWithTimeInterval:0.6
-                                                       target:self
-                                                     selector:@selector(runValidation)
-                                                     userInfo:nil
-                                                      repeats:NO];
+// Checking is manual on purpose: the button is the only thing that starts a
+// run, so the editor never pays for a check while the user is still typing.
+- (void)checkScript {
+    lastToastMessage = nil;
+    [self runValidation];
+}
+
+- (void)finishPendingSave {
+    if (!saveAfterValidation) return;
+    saveAfterValidation = NO;
+    [self saveFile];
 }
 
 - (NSString *)validationFilePath {
@@ -631,7 +656,10 @@ static UIFont *ZXEditorFont(void)
 }
 
 - (void)runValidation {
-    if (![self isPythonFile] || isApplyingEdit) return;
+    if (![self isPythonFile] || isApplyingEdit) {
+        [self finishPendingSave];
+        return;
+    }
     NSString *source = _textInput.text ?: @"";
     validationGeneration += 1;
     NSUInteger generation = validationGeneration;
@@ -647,6 +675,7 @@ static UIFont *ZXEditorFont(void)
             main->diagnosticsSource = source;
             [main applySyntaxHighlightingPreservingSelection:YES];
             [main updateValidationStatus];
+            [main finishPendingSave];
         });
     });
 }
@@ -754,10 +783,17 @@ static UIFont *ZXEditorFont(void)
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
     [self hideCompletions];
-    [self scheduleValidation];
 }
 
 - (void)saveFile {
+    // The verdict has to match the text being saved: a stale result would warn
+    // about errors the user already fixed, or miss the ones just typed.
+    NSString *source = _textInput.text ?: @"";
+    if ([self isPythonFile] && ![source isEqualToString:diagnosticsSource ?: @""]) {
+        saveAfterValidation = YES;
+        [self runValidation];
+        return;
+    }
     NSInteger errors = [self errorCount];
     if (errors > 0) {
         UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Code còn lỗi"
@@ -791,8 +827,6 @@ static UIFont *ZXEditorFont(void)
 
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
-    [validationTimer invalidate];
-    validationTimer = nil;
 }
 
 @end

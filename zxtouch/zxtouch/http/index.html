@@ -395,7 +395,7 @@
       <div class="editor-layout">
         <div class="editor-main">
           <div class="editor-left">
-            <div class="view-heading"><div><h2>Script Editor</h2></div><div class="editor-heading-actions"><button class="button" id="editorNewAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>New</button><div style="position:relative"><button class="button" id="editorOpenAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span>Open</button><div class="editor-open-menu" id="editorOpenMenu" hidden role="listbox" aria-label="Open script from library"></div></div><button class="button" id="editorSave"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span>Save</button><button class="button" id="editorSaveAll"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 12 12 17 22 12"></polyline><polyline points="2 17 12 22 22 17"></polyline></svg></span>Save all</button><button class="button primary" id="editorRun"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>Run</button><button class="button danger" id="editorStop"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></span>Stop</button></div></div>
+            <div class="view-heading"><div><h2>Script Editor</h2></div><div class="editor-heading-actions"><button class="button" id="editorNewAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></span>New</button><div style="position:relative"><button class="button" id="editorOpenAction"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg></span>Open</button><div class="editor-open-menu" id="editorOpenMenu" hidden role="listbox" aria-label="Open script from library"></div></div><button class="button" id="editorSave"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg></span>Save</button><button class="button" id="editorSaveAll"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 12 12 17 22 12"></polyline><polyline points="2 17 12 22 22 17"></polyline></svg></span>Save all</button><button class="button" id="editorCheck"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></span>Check</button><button class="button primary" id="editorRun"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg></span>Run</button><button class="button danger" id="editorStop"><span class="button-symbol"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></span>Stop</button></div></div>
             <div hidden><select id="editorOpen"><option value="">Open from library…</option></select><input id="editorName" type="text"><select id="editorLang"><option value="lua">Lua</option><option value="python">Python</option></select></div>
              <div class="editor-surface"><div class="editor-tabs" id="editorTabs" role="tablist" aria-label="Open scripts"></div><div class="editor-box"><div id="monacoHost"></div><textarea id="editorFallback" hidden spellcheck="false" aria-label="Script code fallback"></textarea></div></div>
             <div hidden><details id="transpiledWrap"><pre id="transpiledView"></pre></details><span id="editorStatus"></span></div>
@@ -907,19 +907,14 @@
       funcHlTimer = setTimeout(refreshFuncHighlights, 80);
     }
 
-    // ── Live validation ("compiler") ──────────────────────────────────
-    // Debounced static check of the active document. Lua is transpiled first
-    // (lineMap maps Python diagnostics back to Lua lines); Python is sent as is.
-    // The device runs `zxtouch.checker` and returns per-function diagnostics.
-    let validationTimer = 0;
-    const VALIDATION_DEBOUNCE = 450;
+    // ── Manual validation ("compiler") ────────────────────────────────
+    // Static check of the active document, started only by the Check button (or
+    // by Run, so its error gate never acts on a stale verdict). Lua is
+    // transpiled first (lineMap maps Python diagnostics back to Lua lines);
+    // Python is sent as is. The device runs `zxtouch.checker` and returns
+    // per-function diagnostics.
     // Monaco MarkerSeverity: Hint 1, Info 2, Warning 4, Error 8.
     const MARKER_SEVERITY = { error: 8, warning: 4, info: 2 };
-
-    function scheduleValidation() {
-      clearTimeout(validationTimer);
-      validationTimer = setTimeout(validateActiveEditor, VALIDATION_DEBOUNCE);
-    }
 
     function editorDiagnostics(doc) {
       return (doc && doc.diagnostics) || [];
@@ -929,7 +924,8 @@
       return editorDiagnostics(doc).filter(item => item.severity === 'error').length;
     }
 
-    // One toast per distinct verdict. The dashboard's toast is anchored to the
+    // One toast per distinct verdict; a manual check clears it first so the
+    // button always answers. The dashboard's toast is anchored to the
     // bottom-right, which over the editor reads as the bottom of the editor.
     let lastValidationVerdict = '';
     function showValidationToast(message, isError) {
@@ -1004,7 +1000,7 @@
         }
       }
 
-      if (doc.validating) { doc.validationPending = true; return; }
+      if (doc.validating) return;
       if (doc.validationCode === payloadCode) { updateValidationStatus(doc); return; }
 
       doc.validating = true;
@@ -1026,7 +1022,6 @@
         }
       } finally {
         doc.validating = false;
-        if (doc.validationPending) { doc.validationPending = false; scheduleValidation(); }
       }
     }
 
@@ -1697,7 +1692,7 @@
        doc.modelListener = doc.model.onDidChangeContent(() => {
          doc.code = doc.model.getValue();
          if (!doc.suppressDirty) markEditorDirty(doc);
-          if (doc.id === editorState.activeId) { scheduleFuncHighlights(); scheduleValidation(); }
+          if (doc.id === editorState.activeId) scheduleFuncHighlights();
        });
        return doc.model;
      }
@@ -1778,7 +1773,6 @@
        renderEditorTabs();
        renderFuncPane();
        refreshFuncHighlights();
-       scheduleValidation();
        setEditorStatus(doc.dirty ? 'Unsaved changes' : `Ready — ${editorDisplayName(doc)}`);
      }
      function createEditorDocument({ name = '', path = null, language = 'lua', code } = {}) {
@@ -1798,7 +1792,6 @@
          diagnostics: [],
          validationCode: null,
          validating: false,
-         validationPending: false,
        };
        editorState.docs.push(doc);
        if (!editorState.activeId) editorState.activeId = doc.id;
@@ -1874,9 +1867,22 @@
       elements.transpiledWrap.hidden = true;
       return src;
     }
+     async function checkScript() {
+       const doc = activeEditorDocument();
+       if (!doc) return;
+       if (!editorState.monaco || !doc.model) { showToast('Kiểm tra cần Monaco — chưa sẵn sàng.', true); return; }
+       // The user asked for this check, so the verdict is reported even when it
+       // repeats the previous one.
+       lastValidationVerdict = '';
+       setButtonBusy(elements.editorCheck, true, 'Checking…');
+       try { await validateActiveEditor(); } finally { setButtonBusy(elements.editorCheck, false); }
+     }
      async function editorRun() {
        const doc = activeEditorDocument();
        if (!doc) return;
+       // Run gates on the static check, so refresh a stale verdict first:
+       // validateActiveEditor() skips the device call when the code is unchanged.
+       await validateActiveEditor();
        const errors = editorErrorCount(doc);
        if (errors > 0) {
          const proceed = await ask('Script có lỗi', `${editorDisplayName(doc)} có ${errors} lỗi theo kiểm tra tĩnh. Vẫn chạy?`, 'Vẫn chạy', true);
@@ -2057,7 +2063,6 @@
          refreshFuncHighlights();
          // Same source, different language => different payload to check.
          doc.validationCode = null;
-         scheduleValidation();
        }
        if (lang === 'lua' && !editorGet().trim()) editorSet(LUA_SAMPLE);
        if (lang === 'python' && !editorGet().trim()) editorSet(PY_SAMPLE);
@@ -2075,6 +2080,7 @@
           elements.runLogOut.dataset.empty = '1';
           elements.runLogSummary.textContent = 'Script output only — accumulates across runs';
         });
+        elements.editorCheck.addEventListener('click', checkScript);
         elements.editorRun.addEventListener('click', editorRun);
         elements.editorStop.addEventListener('click', editorStop);
          elements.editorSave.addEventListener('click', () => editorSave());
@@ -2140,7 +2146,7 @@
                     model: null, theme: 'vs-dark',
                     automaticLayout: true, minimap: { enabled: false },
                     fontSize: 13, scrollBeyondLastLine: false, padding: { top: 10 },
-                    insertSpaces: true, tabSize: 4, detectIndentation: false,
+                    insertSpaces: true, tabSize: 2, detectIndentation: false,
                     autoIndent: 'full', formatOnType: true, formatOnPaste: true,
                     trimAutoWhitespace: true,
                     // Render the suggest widget (and hover) outside the editor's

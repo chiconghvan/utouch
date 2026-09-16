@@ -25,6 +25,10 @@
 #define ZX_EDITOR_FONT_SIZE_MAX 28.0
 #define ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION @"ZXEditorFontSizeChangedNotification"
 
+// One indent level in the script editors. Monaco is configured with the same
+// width (tabSize in dashboard index.html), so both editors indent alike.
+#define ZX_EDITOR_INDENT_WIDTH 2
+
 // Activator is not used in this rootless build; define path to avoid compile errors
 #define ACTIVATOR_CONFIG_PATH @"/var/mobile/Library/ZXTouch/config/tweak/activator_config.plist"
 
