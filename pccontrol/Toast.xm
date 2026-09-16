@@ -22,7 +22,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
             return;
         }
         int type = [data[0] intValue];
-        int duration = [data[2] intValue];
+        float duration = [data[2] floatValue];
         int position = 0;
         int fontSize = 0;
         if ([data count] >= 4)
@@ -39,14 +39,16 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
             *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Unknown type. The type ranges from 0-3. Please refer to the documentation on Github.\r\n"}];
             return;
         }
-        if (duration <= 0 && type != 0)
+        if (duration < 0 && type != 0)
         {
-            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Duration should be a positive float number.\r\n"}];
+            *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;Duration should be a non-negative float number, 0 keeps the toast on screen until the next toast.\r\n"}];
             return;
         }
         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             if (type == 0)
                 [Toast hideToast];
+            else if (duration == 0)
+                [Toast showPersistentToastWithContent:data[1] type:type position:position fontSize:fontSize];
             else
                 [Toast showToastWithContent:data[1] type:type duration:duration position:position fontSize:fontSize];
         });

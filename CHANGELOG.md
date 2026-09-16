@@ -12,6 +12,10 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 ### Đã thêm
 - Ô tìm nhanh trong bảng `Functions` của dashboard (Monaco): nằm cùng hàng, bên phải tiêu đề panel; lọc theo tên hàm, tên hàm không kèm tham số và tên nhóm, không phân biệt hoa thường; hiện `No functions match "…"` khi không có kết quả; `Esc` xoá nhanh từ khoá.
 
+### Đã thay đổi
+- Toast của `toast(message, delay)` bám theo theme hệ thống thay vì luôn dùng nền trắng: chế độ sáng nền đen chữ trắng, chế độ tối nền trắng chữ đen; toast lỗi/cảnh báo/thành công vẫn giữ màu đỏ/vàng/xanh. Chữ đổi sang font hệ thống chuẩn (SF Pro, weight Regular) thay vì weight Light nét mảnh.
+- `toast(message, 0)` giữ toast trên màn hình cho tới khi có lệnh toast mới (trước đây delay 0 bị coi là lỗi và không hiện gì); delay âm vẫn báo lỗi, delay thập phân (ví dụ `1.5`) được tôn trọng đúng thay vì bị cắt thành số nguyên.
+
 ## [0.3.30] — 2026-09-16
 
 ### Đã thêm

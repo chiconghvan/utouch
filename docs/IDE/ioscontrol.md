@@ -1410,7 +1410,7 @@ _Hiện thông báo toast, alert, rung, và ghi log._
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
 | `message` | `string` | yes | Message text | Nội dung thông báo |
-| `delay` | `number` | no | Display duration in seconds (default: 2) | Thời gian hiển thị (giây, mặc định: 2) |
+| `delay` | `number` | no | Display duration in seconds (default: 2); `0` keeps the toast on screen until the next toast | Thời gian hiển thị (giây, mặc định: 2); `0` giữ toast trên màn hình cho tới khi có toast mới |
 
 **Example (Lua/cURL):**
 
