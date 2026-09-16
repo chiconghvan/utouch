@@ -21,6 +21,7 @@ def main(argv):
     sys.argv = argv[1:]  # user script sees its own path as argv[0]
 
     from zxtouch import prelude
+    prelude.setScriptDir(script)
     # Pre-connect (with retries inside); on failure runpy still runs so the
     # traceback is visible in Logs instead of a silent exit.
     try:

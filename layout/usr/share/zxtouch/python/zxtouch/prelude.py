@@ -37,6 +37,12 @@ TOUCH_UP = touchtypes.TOUCH_UP
 _DEVICE = None
 _DEVICE_IP = "127.0.0.1"
 
+# Directory holding the script being run, announced by zxtouch.runner from the
+# entry file path. findImage() resolves a bare template name against it so an
+# image shipped inside the script's own .bdl bundle is found; the daemon would
+# otherwise open the name relative to its own working directory (SpringBoard's).
+_SCRIPT_DIR = None
+
 # Default User-Agent for httpGet/httpPost. urllib sends "Python-urllib/3.x",
 # which Cloudflare-fronted APIs answer with 403 "error code: 1010"; a Safari
 # UA on an iOS device is both honest and accepted. Scripts can still override
@@ -166,6 +172,18 @@ def disconnect():
         except Exception:
             pass
         _DEVICE = None
+
+
+def setScriptDir(path):
+    """Announce the directory of the script being run (zxtouch.runner calls this).
+
+    Template images referenced by bare name — ``findImage("home-activ.png")`` —
+    are looked up in this directory, i.e. the script's own .bdl bundle. Pass
+    None to forget it (back to sending names through untouched).
+    """
+    global _SCRIPT_DIR
+    _SCRIPT_DIR = os.path.dirname(os.path.abspath(path)) if path else None
+    return _SCRIPT_DIR
 
 
 # ---------------------------------------------------------------- Touch
@@ -559,8 +577,31 @@ def _match_result(res):
     return res
 
 
+def _resolve_image_path(path):
+    """Point a bare template name at the running script's own bundle.
+
+    The daemon opens the path exactly as sent — relative to its own working
+    directory (SpringBoard's), never the script's — so an image shipped next to
+    the script was unreachable by name. When zxtouch.runner has announced the
+    script directory and the name resolves to a file inside it, that absolute
+    path is sent instead. Absolute paths, and names that live nowhere in the
+    script directory, are passed through so the daemon resolves them as before.
+    """
+    if _SCRIPT_DIR is None or not isinstance(path, str) or not path:
+        return path
+    if os.path.isabs(path):
+        return path
+    candidate = os.path.join(_SCRIPT_DIR, path)
+    if os.path.exists(candidate):
+        return candidate
+    return path
+
+
 def findImage(path, count=1, threshold=0.8, region=None):
     """Find template image. Returns dict {x,y,width,height} or None.
+
+    ``path`` may be an absolute device path or a file name next to the script
+    (see _resolve_image_path).
 
     Uses native TASK_IMAGE_REGION / TASK_IMAGE_MULTI when a region or
     count>1 is requested; falls back to full-screen single match. The
@@ -569,6 +610,7 @@ def findImage(path, count=1, threshold=0.8, region=None):
     an older daemon lacks the task, that shows up in the log instead of
     silently changing what comes back.
     """
+    path = _resolve_image_path(path)
     want = max(1, int(count))
     if region is not None:
         try:

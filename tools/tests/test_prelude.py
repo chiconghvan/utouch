@@ -3,6 +3,7 @@
 Run:  python -m pytest tools/tests/test_prelude.py -q
 """
 import json
+import os
 import re
 import sys
 import types
@@ -1084,6 +1085,82 @@ def test_find_image_multi_reports_count(capsys):
         out = capsys.readouterr().out
         assert "2/4" in out                                  # no silent discard of extra matches
     finally:
+        prelude.disconnect()
+
+
+# ---------------------------------------------------------------- .bdl image paths
+
+def test_find_image_resolves_name_in_script_bundle(tmp_path):
+    # The daemon opens the template relative to its own working directory, so a
+    # bare name must be turned into the script's own path before it is sent.
+    bundle = tmp_path / "demo.bdl"
+    bundle.mkdir()
+    (bundle / "home-activ.png").write_bytes(b"\x89PNG\r\n")
+    d = use_fake()
+    prelude.setScriptDir(str(bundle / "home.py"))
+    try:
+        prelude.findImage("home-activ.png")
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == (
+            str(bundle / "home-activ.png"), 0.8, 2, 0.8)
+    finally:
+        prelude.setScriptDir(None)
+
+
+def test_find_image_resolves_relative_subdir(tmp_path):
+    bundle = tmp_path / "demo.bdl"
+    (bundle / "img").mkdir(parents=True)
+    (bundle / "img" / "btn.png").write_bytes(b"\x89PNG\r\n")
+    d = use_fake()
+    prelude.setScriptDir(str(bundle / "home.py"))
+    try:
+        prelude.findImage("img/btn.png")
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == (
+            os.path.join(str(bundle), "img/btn.png"), 0.8, 2, 0.8)
+    finally:
+        prelude.setScriptDir(None)
+
+
+def test_find_image_leaves_other_paths_alone(tmp_path):
+    bundle = tmp_path / "demo.bdl"
+    bundle.mkdir()
+    d = use_fake()
+    prelude.setScriptDir(str(bundle / "home.py"))
+    try:
+        prelude.findImage("missing.png")            # not shipped with the script
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == ("missing.png", 0.8, 2, 0.8)
+        prelude.findImage("/var/mobile/abs.png")    # absolute path untouched
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == ("/var/mobile/abs.png", 0.8, 2, 0.8)
+    finally:
+        prelude.setScriptDir(None)
+    prelude.findImage("manual.png")                 # outside a run, old behaviour
+    assert [c for c in d.calls if c[0] == "image"][-1][1] == ("manual.png", 0.8, 2, 0.8)
+
+
+def test_tap_image_resolves_in_bundle(tmp_path):
+    bundle = tmp_path / "demo.bdl"
+    bundle.mkdir()
+    (bundle / "btn.png").write_bytes(b"\x89PNG\r\n")
+    d = use_fake()
+    prelude.setScriptDir(str(bundle / "home.py"))
+    try:
+        m = prelude.tapImage("btn.png", timeout=0.1)
+        assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
+        assert ("image", (str(bundle / "btn.png"), 0.8, 2, 0.8)) in d.calls
+    finally:
+        prelude.setScriptDir(None)
+
+
+def test_runner_announces_script_dir(tmp_path):
+    import zxtouch.runner as runner
+    script = tmp_path / "s.py"
+    script.write_text("pass\n", encoding="utf-8")
+    prelude.disconnect()
+    prelude.set_device(FakeDevice())
+    try:
+        assert runner.main(["runner", str(script)]) == 0
+        assert prelude._SCRIPT_DIR == str(tmp_path)
+    finally:
+        prelude.setScriptDir(None)
         prelude.disconnect()
 
 

@@ -509,7 +509,7 @@ _Tìm hình ảnh trên màn hình bằng template matching, nhận dạng chữ
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image filename (from images/ or scripts/ dir) | Tên file ảnh (từ thư mục images/ hoặc scripts/) |
+| `path` | `string` | yes | Image filename — looked up in the script's own .bdl folder, or an absolute device path | Tên file ảnh — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
 | `count` | `number` | no | Max matches (default: 1) | Số kết quả tối đa (mặc định: 1) |
 | `threshold` | `number` | no | Match threshold 0-1 (default: 0.9) | Ngưỡng khớp 0-1 (mặc định: 0.9) |
 | `region` | `table` | no | {x, y, w, h} search region (POINT) | Vùng tìm {x, y, w, h} (POINT) |
@@ -550,7 +550,7 @@ local x, y = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image filename | Tên file ảnh |
+| `path` | `string` | yes | Image filename — looked up in the script's own .bdl folder, or an absolute device path | Tên file ảnh — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
 | `timeout` | `number` | no | Timeout in seconds (default: 10) | Thời gian chờ giây (mặc định: 10) |
 
 **Example (Lua/cURL):**
@@ -756,7 +756,7 @@ end
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image filename | Tên file ảnh |
+| `path` | `string` | yes | Image filename — looked up in the script's own .bdl folder, or an absolute device path | Tên file ảnh — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
 | `timeout` | `number` | no | Timeout seconds (default 5) | Thời gian chờ (mặc định 5) |
 | `threshold` | `number` | no | Match threshold 0-1 (default 0.8) | Ngưỡng khớp 0-1 (mặc định 0.8) |
 | `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
@@ -820,7 +820,7 @@ tapText("Continue")
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image to search for | Hình cần tìm |
+| `path` | `string` | yes | Image to search for — looked up in the script's own .bdl folder, or an absolute device path | Hình cần tìm — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
 | `direction` | `string` | no | "up", "down", "left", "right" | "up", "down", "left", "right" |
 | `maxSwipes` | `number` | no | Maximum swipe attempts (default 10) | Số lần vuốt tối đa (mặc định 10) |
 | `threshold` | `number` | no | Match threshold 0-1 (default 0.9) | Ngưỡng khớp 0-1 (mặc định 0.9) |
