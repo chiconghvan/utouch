@@ -4,8 +4,8 @@
 
 static int windowWidth = 200;
 static int windowHeight = 200;
-static NSDictionary* backgroundColorDict = @{@"4":[UIColor colorWithRed:0.282f green:0.78f blue:0.45f alpha:1.0f], @"1":[UIColor colorWithRed:0.945f green:0.275f blue:0.408f alpha:1.0f],@"2":[UIColor colorWithRed:1.0f green:0.867f blue:0.341f alpha:1.0f],@"3":[UIColor whiteColor]};
-static NSDictionary* fontColorDict = @{@"4":[UIColor whiteColor], @"1":[UIColor whiteColor],@"2":[UIColor colorWithRed:0.0f green:0.0f blue:0.0f alpha:0.7f],@"3":[UIColor colorWithRed:0.0f green:0.0f blue:0.0f alpha:0.7f]};
+static NSDictionary* backgroundColorDict = @{@"4":[UIColor colorWithRed:0.282f green:0.78f blue:0.45f alpha:1.0f], @"1":[UIColor colorWithRed:0.945f green:0.275f blue:0.408f alpha:1.0f],@"2":[UIColor colorWithRed:1.0f green:0.867f blue:0.341f alpha:1.0f]};
+static NSDictionary* fontColorDict = @{@"4":[UIColor whiteColor], @"1":[UIColor whiteColor],@"2":[UIColor colorWithRed:0.0f green:0.0f blue:0.0f alpha:0.7f]};
 static UIWindow *_window;
 static NSUInteger _toastGeneration = 0;
 
@@ -116,7 +116,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
             }
         }
 
-        UIFont * font = [UIFont systemFontOfSize:fontSize weight:UIFontWeightLight];
+        UIFont * font = [UIFont systemFontOfSize:fontSize];
         CGSize contentSize = [content sizeWithFont:font];
 
         windowWidth = contentSize.width + 40;
@@ -155,7 +155,21 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
         _window.rootViewController = [[UIViewController alloc] init];
         currentWindow = _window;
         _window.windowLevel = UIWindowLevelStatusBar + 1;
-        [_window setBackgroundColor: backgroundColorDict[[@(type) stringValue]]];
+
+        UIUserInterfaceStyle appearance = [UIScreen mainScreen].traitCollection.userInterfaceStyle;
+        if (appearance == UIUserInterfaceStyleUnspecified)
+        {
+            appearance = _window.traitCollection.userInterfaceStyle;
+        }
+        BOOL darkAppearance = (appearance == UIUserInterfaceStyleDark);
+        UIColor *toastBackgroundColor = backgroundColorDict[[@(type) stringValue]];
+        UIColor *toastTextColor = fontColorDict[[@(type) stringValue]];
+        if (type == 3)
+        {
+            toastBackgroundColor = darkAppearance ? [UIColor whiteColor] : [UIColor blackColor];
+            toastTextColor = darkAppearance ? [UIColor blackColor] : [UIColor whiteColor];
+        }
+        [_window setBackgroundColor: toastBackgroundColor];
 
         _window.layer.borderColor = [UIColor clearColor].CGColor;
         _window.layer.borderWidth = 2.0f;
@@ -172,7 +186,7 @@ void showToastFromRawData(UInt8 *eventData, NSError **error)
         contentLabel.minimumScaleFactor = 10.0f/12.0f;
         contentLabel.clipsToBounds = YES;
         contentLabel.backgroundColor = [UIColor clearColor];
-        contentLabel.textColor = fontColorDict[[@(type) stringValue]];
+        contentLabel.textColor = toastTextColor;
         contentLabel.textAlignment = NSTextAlignmentLeft;
         [_window addSubview:contentLabel];
 
