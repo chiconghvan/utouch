@@ -38,6 +38,7 @@ static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 static void ZXVNCkillServer(void);
+static void ZXVNCStartServerDirectly(void);
 static BOOL ZXVNCProbePort(uint16_t port);
 static BOOL ZXDashboardDaemonEnabled(void);
 
@@ -124,14 +125,20 @@ static void ZXVNCSetDaemonDisabled(BOOL disabled)
 static void ZXVNCApplyEnabledState(BOOL enabled)
 {
     if (enabled) {
-        // Enable path: make sure launchd owns the server again. Never spawn a
-        // manual nohup copy here — on-demand start belongs to recoverVNC so a
-        // stale call cannot resurrect a server the user just turned off.
+        // Enable path: make sure launchd owns the server again, then make sure a
+        // server is actually listening. `launchctl load -w` on a system daemon
+        // needs root while this code runs as mobile, and re-loading an already
+        // loaded job never starts it — so spawn the same binary directly when
+        // the port is still closed. Re-check the switch first: an OFF that
+        // landed in between must win over this stale enable.
         ZXVNCSetDaemonDisabled(NO);
+        if (ZXVNCIsEnabled() && !ZXVNCProbePort(5901)) ZXVNCStartServerDirectly();
         return;
     }
-    // Disable path must be total: unload first (so KeepAlive cannot respawn),
-    // then TERM, unload again, then KILL, then verify ports are really closed.
+    // Disable path must be total. The daemon entry carries no KeepAlive, so the
+    // kill alone already makes OFF stick; the unload/Disabled steps stay for
+    // the case where this runs as root (SpringBoard on a rootful setup) and are
+    // harmless no-ops when it does not.
     ZXVNCSetDaemonDisabled(YES);
     ZXVNCkillServerSignal(SIGTERM);
     [NSThread sleepForTimeInterval:0.5];
@@ -140,7 +147,8 @@ static void ZXVNCApplyEnabledState(BOOL enabled)
         ZXVNCkillServerSignal(SIGKILL);
         [NSThread sleepForTimeInterval:0.5];
     }
-    // Final sweep: a launchd respawn between the two kills would otherwise live on.
+    // Final sweep: a server that came back between the two kills would
+    // otherwise live on.
     if (ZXVNCServerProcessRunning() || ZXVNCProbePort(5901) || ZXVNCProbePort(5801)) {
         ZXVNCSetDaemonDisabled(YES);
         ZXVNCkillServerSignal(SIGKILL);
@@ -177,6 +185,24 @@ static void ZXVNCSetScale(double scale)
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent]
                               withIntermediateDirectories:YES attributes:nil error:nil];
     [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
+}
+
+// Start the server without relying on launchd. `launchctl load -w` is a
+// root-only operation for a system daemon, and everything that flips the VNC
+// switch (app, dashboardd, SpringBoard tweak) runs as mobile — so the job stays
+// loaded and the nohup copy below is what actually brings the port up. The
+// binary drops itself to uid 501 (same as the launchd-started one), so both
+// routes end up with the identical process.
+static void ZXVNCStartServerDirectly(void)
+{
+    ZXVNCSystem([NSString stringWithFormat:
+        @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
+         @"(launchctl load -w %@ >/dev/null 2>&1); "
+         @"if ! ps -ax 2>/dev/null | grep -q '[t]rollvncserver'; then "
+         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null & fi",
+        ZXVNCLaunchDaemonPath(), ZXVNCLaunchDaemonPath(),
+        @"/var/jb/usr/bin/trollvncserver", ZXVNCScale(),
+        @"/var/mobile/Library/ZXTouch/trollvnc.log"]);
 }
 
 static void ZXVNCkillServer(void)
@@ -646,17 +672,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
         return @{ @"ok": @NO, @"started": @NO, @"vncPortOpen": @NO, @"httpPortOpen": @NO,
                   @"message": @"VNC Server is disabled in Settings." };
     }
-    NSString *plist = ZXVNCLaunchDaemonPath();
-    NSString *binary = @"/var/jb/usr/bin/trollvncserver";
-    NSString *log = @"/var/mobile/Library/ZXTouch/trollvnc.log";
-    NSString *scale = [NSString stringWithFormat:@"%g", ZXVNCScale()];
-    NSString *command = [NSString stringWithFormat:
-        @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
-         @"(launchctl load -w %@ >/dev/null 2>&1); "
-         @"if ! ps -ax 2>/dev/null | grep -q '[t]rollvncserver'; then "
-         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %@ -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null & fi",
-        plist, plist, binary, scale, log];
-    ZXVNCSystem(command);
+    ZXVNCStartServerDirectly();
     for (int i = 0; i < 16 && !vncOpen; i++) {
         // Abort the wait as soon as the user disables VNC mid-start, and tear
         // down the half-started server so OFF is always final.
@@ -1318,7 +1334,12 @@ int ZXDashboardDaemonMain(void)
                 if (server.server.running) [server stop];
             } else {
             BOOL enabled = ZXVNCIsEnabled();
-            if (!vncStateKnown || enabled != lastVNCEnabled) {
+            // Re-apply not only when the switch changes but whenever the server
+            // has drifted from it: this daemon is what keeps :5901 up now that
+            // the LaunchDaemon carries no KeepAlive, and it is also what keeps
+            // the server dead when the switch is off.
+            BOOL drifted = enabled != ZXVNCProbePort(5901);
+            if (!vncStateKnown || enabled != lastVNCEnabled || drifted) {
                 ZXVNCApplyEnabledState(enabled);
                 lastVNCEnabled = enabled;
                 vncStateKnown = YES;

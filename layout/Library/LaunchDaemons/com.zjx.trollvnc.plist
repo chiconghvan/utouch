@@ -21,7 +21,13 @@
         <string>-A</string><string>15</string>
     </array>
     <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
+    <!-- Deliberately no KeepAlive: the only way to stop launchd from respawning
+         a system daemon is a root-only `launchctl unload`, while every process
+         that flips the VNC switch (app, dashboardd, SpringBoard tweak) runs as
+         mobile. With KeepAlive a killed server was back seconds later even
+         though the setting said OFF, so the toggle looked broken. Supervision
+         now belongs to the dashboard daemon: it starts the server while the
+         switch is on and keeps it dead while it is off. -->
     <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/trollvnc.log</string>
     <key>StandardErrorPath</key><string>/var/mobile/Library/ZXTouch/trollvnc.log</string>
 </dict>

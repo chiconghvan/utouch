@@ -18,6 +18,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ### Đã sửa
 - Toast kết quả kiểm tra: bấm `Check` luôn hiện toast kể cả khi kết quả lặp lại; trước đây toast chỉ hiện khi kết quả đổi (để tránh nhấp nháy lúc kiểm tự động).
+- Tắt VNC giờ tắt hẳn: bỏ `KeepAlive` khỏi LaunchDaemon TrollVNC nên launchd không dựng lại server sau khi tắt (trước đây chỉ bước kill chạy được, còn `plutil`/`launchctl unload` đòi root trong khi app, dashboardd và tweak đều chạy bằng `mobile`); dashboardd giám sát theo công tắc — bật thì khởi động server, tắt thì kill và giữ đúng trạng thái, kiểm tra lại mỗi 30 giây.
+- Dashboard chỉ tự kết nối Live Screen khi `/api/status` xác nhận `vnc.enabled === true`: trạng thái chưa biết hoặc còn cũ (lần đầu mở trang, hoặc tab được đưa lên trước khi poll kịp cập nhật) không còn bị coi là được phép, nên tắt VNC rồi quay lại trang Scripts không còn tự kết nối và không còn thông báo client kết nối từ TrollVNC.
 
 ## [0.3.29] — 2026-09-16
 
