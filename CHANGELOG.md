@@ -11,6 +11,11 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ### Đã thêm
 - Ô tìm nhanh trong bảng `Functions` của dashboard (Monaco): nằm cùng hàng, bên phải tiêu đề panel; lọc theo tên hàm, tên hàm không kèm tham số và tên nhóm, không phân biệt hoa thường; hiện `No functions match "…"` khi không có kết quả; `Esc` xoá nhanh từ khoá.
+- Tooltip trong bảng `Functions` có thêm một dòng mô tả ngắn cho từng hàm (lấy từ `docs/IDE/ioscontrol.md`), trước đây chỉ có chữ ký và kiểu trả về. Mô tả do daemon gửi vẫn được ưu tiên nếu có.
+- Nhóm `Crane` có chữ ký đầy đủ kiểu tham số cho cả 10 hàm, ví dụ `crane.list(bundleId: string = None)` và `crane.backup(bundleId: string, container: string = None, name: string = None)`, thay vì hiện nguyên mẫu gọi mẫu `crane.list("com.facebook.Facebook")`.
+
+### Đã sửa
+- Danh mục hàm nạp từ daemon không còn bỏ qua tên có namespace: guard chỉ nhận `^[A-Za-z_]\w*$` nên mọi mục dạng `namespace.method` (như `crane.*`) đều bị loại bỏ, và vì thế nhóm `Crane` không có chữ ký lẫn mô tả.
 
 ### Đã thay đổi
 - Toast của `toast(message, delay)` bám theo theme hệ thống thay vì luôn dùng nền trắng: chế độ sáng nền đen chữ trắng, chế độ tối nền trắng chữ đen; toast lỗi/cảnh báo/thành công vẫn giữ màu đỏ/vàng/xanh. Chữ đổi sang font hệ thống chuẩn (SF Pro, weight Regular) thay vì weight Light nét mảnh.

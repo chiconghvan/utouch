@@ -717,16 +717,129 @@
       'crane.list': 'object[]', 'crane.switch': 'object', 'crane.create': 'object', 'crane.rename': 'object', 'crane.delete': 'object', 'crane.wipe': 'object',
       'crane.restore': 'object', 'crane.clearData': 'object', 'crane.backup': 'object', 'crane.size': 'object',
     };
+    // One-line summaries shown in the palette tooltip. The daemon's catalog
+    // fills `description` with the signature itself, so it carries no prose;
+    // these come from docs/IDE/ioscontrol.md (EN wording).
+    const FUNC_DESCRIPTIONS = {
+      if: 'Run a block when the condition is true.',
+      else: 'Fallback block for if / elseif.',
+      for: 'Counted loop over a numeric range.',
+      while: 'Loop while the condition stays true.',
+      tap: 'Tap once at the given coordinates.',
+      touchDown: 'Press a finger down, starting a multi-touch sequence.',
+      touchMove: 'Drag an already-pressed finger to a new position.',
+      touchUp: 'Release a pressed finger.',
+      swipe: 'Swipe from one point to another.',
+      longPress: 'Press and hold at coordinates.',
+      pinch: 'Pinch to zoom in or out.',
+      rotate: 'Rotate around a center point.',
+      getColor: 'Read the pixel color at one point.',
+      getColors: 'Read pixel colors at many points at once.',
+      findColor: 'Find pixels matching one color; returns a list of {x, y}.',
+      findColors: 'Find a multi-color pattern; offsets are relative to the anchor.',
+      waitForColor: 'Wait until a pixel matches the target color.',
+      findImage: 'Find a template image on screen; returns its center.',
+      waitForImage: 'Wait for an image to appear; polls every 500 ms.',
+      swipeUntilImage: 'Swipe until the image is found.',
+      deleteScreenshot: 'Delete a saved screenshot file.',
+      convertBase64: 'Convert a file to a base64 string.',
+      tapImage: 'Find an image and tap its center.',
+      screenshot: 'Take a screenshot and save it as a JPEG.',
+      ocrText: 'Read text from a screen region with OCR.',
+      findText: 'Find every OCR match; returns a list.',
+      ocrFind: 'Return the first OCR match as x, y, text.',
+      waitForText: 'Wait for text to appear; polls every 500 ms.',
+      tapText: 'Find text with OCR and tap it; index picks the match.',
+      swipeUntilText: 'Swipe until the text is found.',
+      dialogInput: 'Show a text input dialog and wait for the reply.',
+      dialogChoice: 'Show a choice dialog and return the picked index.',
+      toast: 'Show a temporary notification on the device.',
+      alert: 'Show a modal alert popup.',
+      vibrate: 'Vibrate the device.',
+      showOverlay: 'Show a transparent stats overlay; touches pass through.',
+      updateOverlay: 'Update one entry in the overlay.',
+      hideOverlay: 'Remove the stats overlay.',
+      setDebugVisual: 'Toggle the debug shapes drawn on screen for matches and touches.',
+      clearDebugVisual: 'Clear all debug shapes immediately.',
+      log: 'Write a message to the console.',
+      timestamp: 'Current unix time in milliseconds.',
+      md5: 'MD5 hash of a string.',
+      appRun: 'Launch an app by bundle ID.',
+      appKill: 'Kill a running app.',
+      appState: 'App state: 0 stopped, 1 running, 2 frontmost.',
+      appClear: 'Wipe all app data back to a fresh-install state.',
+      openURL: 'Open a URL or URL scheme.',
+      inputText: 'Type a text string on the device.',
+      showKeyboard: 'Ask the frontmost app to show its keyboard.',
+      hideKeyboard: 'Ask the frontmost app to hide its keyboard.',
+      keyboardVisible: 'Whether the frontmost app reports a visible keyboard.',
+      keyDown: 'Press a hardware key: home, volumeUp, volumeDown, power.',
+      keyUp: 'Release a hardware key: home, volumeUp, volumeDown, power.',
+      getClipboard: 'Read the clipboard text.',
+      setClipboard: 'Write text to the clipboard.',
+      sleep: 'Pause for the given number of seconds.',
+      usleep: 'Pause for the given number of microseconds.',
+      randomSleep: 'Sleep a random duration between min and max.',
+      screenSize: 'Screen width and height.',
+      deviceInfo: 'Device model, iOS version and battery.',
+      randomInt: 'Random integer between min and max.',
+      randomFloat: 'Random float between min and max.',
+      readFile: 'Read a text file.',
+      writeFile: 'Write a string to a file.',
+      jsonEncode: 'Convert a table to a JSON string.',
+      jsonDecode: 'Parse a JSON string into a table.',
+      httpGet: 'HTTP GET request.',
+      httpPost: 'HTTP POST request.',
+      appendFile: 'Append text to a file, creating it if needed.',
+      wifiInfo: 'Wi-Fi SSID and local IP address.',
+      getIP: 'Public IP address, read from api.ipify.org.',
+      setAirplaneMode: 'Turn airplane mode on or off.',
+      setCellularData: 'Turn cellular data on or off.',
+      setProxySystem: 'Set a device-wide Wi-Fi proxy from host and port.',
+      clearProxySystem: 'Disable the device-wide Wi-Fi proxy.',
+      recordStart: 'Start recording touch events.',
+      recordStop: 'Stop recording and save the events.',
+      recordPlay: 'Replay recorded events.',
+      recordSave: 'Save a recording to file.',
+      recordLoad: 'Load a recording from file.',
+      'crane.list': 'List Crane containers, for one app or for all apps.',
+      'crane.switch': 'Switch the active container; run appRun() afterwards.',
+      'crane.create': 'Create a new container. Returns {ok, id}.',
+      'crane.rename': 'Rename a container.',
+      'crane.delete': 'Delete a container; its data is lost.',
+      'crane.wipe': 'Full wipe of data and keychain, then a fresh skeleton.',
+      'crane.restore': 'Restore a container from a tar.gz backup.',
+      'crane.clearData': 'Clear caches but keep the login.',
+      'crane.backup': 'Back up a container as tar.gz.',
+      'crane.size': 'Container size breakdown in bytes.',
+    };
+    // Signatures for names the daemon's catalog cannot type: the crane methods
+    // live inside _CraneNamespace, not top-level defs, so the prelude scan never
+    // sees them. Parameter names follow _CraneNamespace, not the older docs.
+    const FUNC_SIGNATURES = {
+      'crane.list': 'crane.list(bundleId: string = None)',
+      'crane.switch': 'crane.switch(bundleId: string, name: string)',
+      'crane.create': 'crane.create(bundleId: string, name: string)',
+      'crane.rename': 'crane.rename(bundleId: string, old: string, new: string)',
+      'crane.delete': 'crane.delete(bundleId: string, name: string)',
+      'crane.wipe': 'crane.wipe(bundleId: string, name: string)',
+      'crane.restore': 'crane.restore(bundleId: string, path: string)',
+      'crane.clearData': 'crane.clearData(bundleId: string, container: string = None)',
+      'crane.backup': 'crane.backup(bundleId: string, container: string = None, name: string = None)',
+      'crane.size': 'crane.size(bundleId: string, container: string = None)',
+    };
     function functionKey(item) {
       const name = Array.isArray(item) ? item[0] : item.name;
       return String(name || '').split('(')[0].trim();
     }
     function functionLabel(item) { return String(Array.isArray(item) ? item[0] : item.name || ''); }
     function functionSignature(item) {
-      const detail = FUNCTION_DETAILS.get(functionKey(item));
+      const key = functionKey(item);
+      const detail = FUNCTION_DETAILS.get(key);
       if (detail && detail.signature) return detail.signature;
+      if (FUNC_SIGNATURES[key]) return FUNC_SIGNATURES[key];
       const label = functionLabel(item);
-      if (['if', 'else', 'for', 'while'].includes(functionKey(item))) return label;
+      if (['if', 'else', 'for', 'while'].includes(key)) return label;
       return label.includes('(') ? label : `${label}()`;
     }
     function functionOutputType(item) {
@@ -734,10 +847,14 @@
       return detail?.outputType || detail?.returnType || detail?.returns || FUNCTION_OUTPUT_TYPES[functionKey(item)] || 'unknown';
     }
     function functionNote(item) {
-      const detail = FUNCTION_DETAILS.get(functionKey(item));
+      const key = functionKey(item);
+      const detail = FUNCTION_DETAILS.get(key);
       const signature = functionSignature(item);
-      const description = detail?.description && detail.description !== signature ? `\n${detail.description}` : '';
-      return `${signature}\nOutput type: ${functionOutputType(item)}${description}`;
+      const serverNote = detail?.description && detail.description !== signature ? detail.description : '';
+      const lines = [signature, `Output type: ${functionOutputType(item)}`];
+      const description = serverNote || FUNC_DESCRIPTIONS[key] || '';
+      if (description) lines.push(description);
+      return lines.join('\n');
     }
     const functionTooltip = document.createElement('div');
     functionTooltip.className = 'func-tooltip';
@@ -781,7 +898,7 @@
       FUNC_GROUPS.forEach(group => group.items.forEach(item => known.set(functionKey(item), item)));
       (Array.isArray(definitions) ? definitions : []).forEach(definition => {
         const name = String(definition?.name || '').trim();
-        if (!/^[A-Za-z_]\w*$/.test(name)) return;
+        if (!/^[A-Za-z_]\w*(\.\w+)*$/.test(name)) return;
         FUNCTION_DETAILS.set(name, definition);
         if (!known.has(name)) {
           const item = [name, `${name}()`, `${name}()`, `${name}()`];
