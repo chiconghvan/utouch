@@ -134,7 +134,7 @@ Scripts searches and filters the library, runs or stops scripts, downloads entri
 
 The Live Screen panel auto-connects to TrollVNC when the dashboard first loads and retries a dropped or refused stream with a capped backoff (2/4/8/15/30s, then backend VNC recovery). An **Auto-connect & retry** checkbox in the panel turns this off and remembers the choice per browser.
 
-No login or token is required: opening `http://&lt;iphone-ip&gt;:8080/` from the same Wi-Fi network gives full control. Do not expose port 8080 outside your local network. Dashboard HTTP is served by the standalone `com.zjx.dashboard` daemon (`zxtouch-dashboardd`, auto-restarted by launchd), so a dashboard crash no longer takes SpringBoard down; SpringBoard keeps a fallback server until the daemon binds `:8080`.
+No login or token is required: opening `http://&lt;iphone-ip&gt;:8688/` from the same Wi-Fi network gives full control. Do not expose port 8688 outside your local network. Dashboard HTTP is served by the standalone `com.zjx.dashboard` daemon (`zxtouch-dashboardd`, restarted by launchd after a crash), so a dashboard crash no longer takes SpringBoard down; SpringBoard keeps a fallback server until the daemon binds `:8688`. Only one daemon runs at a time — a `dashboardd.lock` held with `flock()` makes any second copy exit instead of fighting over the port.
 
 ### Live screen (TrollVNC, built from source)
 

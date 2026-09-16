@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
     <!-- Standalone ZXTouch dashboard: same HTTP server as the SpringBoard
-         fallback, but crash-isolated. If this process dies, only :8080 drops
-         and launchd restarts it — SpringBoard stays alive.
+         fallback, but crash-isolated. If this process dies, only the dashboard
+         port drops and launchd restarts it — SpringBoard stays alive.
          Theos rootless scheme prefixes layout/ with /var/jb on device,
          so /usr/bin below resolves to /var/jb/usr/bin/zxtouch-dashboardd. -->
     <key>Label</key><string>com.zjx.dashboard</string>
@@ -13,9 +13,17 @@
         <string>/var/jb/usr/bin/zxtouch-dashboardd</string>
     </array>
     <key>RunAtLoad</key><true/>
-    <key>KeepAlive</key><true/>
+    <!-- Restart only after an unsuccessful exit. The daemon exits 0 when another
+         copy already holds dashboardd.lock, and restarting that copy every
+         ThrottleInterval would recreate the losing process forever — which is
+         exactly the loop this guards against. A crash (signal or non-zero exit)
+         still restarts. -->
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key><false/>
+    </dict>
     <!-- Serve as mobile: same files, sockets and permissions as the
-         SpringBoard-hosted server. No root needed (port 8080 > 1024). -->
+         SpringBoard-hosted server. No root needed (port 8688 > 1024). -->
     <key>UserName</key><string>mobile</string>
     <key>ThrottleInterval</key><integer>30</integer>
     <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/dashboardd.log</string>

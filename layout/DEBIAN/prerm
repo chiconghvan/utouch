@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Stop the dashboard daemon before an upgrade or removal. postinst kills any
+# leftover copy before loading the new one; doing it here as well means the old
+# daemon is already gone while dpkg swaps the binary, so no copy of the previous
+# build can end up running next to the new one. SIGTERM first so the daemon
+# writes its session-close marker instead of looking like a crash to the next
+# session, then SIGKILL for a wedged copy.
+/var/jb/bin/launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null || true
+launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null || true
+/usr/bin/killall zxtouch-dashboardd 2>/dev/null || killall zxtouch-dashboardd 2>/dev/null || true
+sleep 1
+/usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
+
+exit 0

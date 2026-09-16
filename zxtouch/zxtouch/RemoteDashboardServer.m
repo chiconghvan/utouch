@@ -22,6 +22,7 @@
 #import <signal.h>
 #import <stdio.h>
 #import <string.h>
+#import <sys/file.h>
 #import <sys/resource.h>
 #import <sys/stat.h>
 #import <unistd.h>
@@ -45,11 +46,15 @@ static const NSUInteger ZXEditorMaximumCodeLength = 256 * 1024;
 static NSString *const ZXVNCEnabledKey = @"vnc_server_enabled";
 static const NSTimeInterval ZXDashboardStatusCacheTTL = 2.0;
 static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
+// Single source of truth for the dashboard port: the standalone daemon, the
+// SpringBoard fallback server and the URL shown in Settings all read it.
+static const uint16_t ZXDashboardPort = 8688;
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 static void ZXVNCkillServer(void);
 static void ZXVNCStartServerDirectly(void);
 static BOOL ZXVNCProbePort(uint16_t port);
+static BOOL ZXDashboardPortIsTaken(uint16_t port);
 static BOOL ZXDashboardDaemonEnabled(void);
 
 // ── Dashboard debug log ───────────────────────────────────────────────────
@@ -340,7 +345,7 @@ static void ZXDashboardDaemonTerminationInstall(void)
     });
 }
 
-// ── :8080 liveness watchdog ───────────────────────────────────────────────
+// ── dashboard port liveness watchdog ─────────────────────────────────────
 // Logs every transition of the port so a dropped dashboard is timestamped even
 // when the process that served it died without a chance to log anything.
 static void ZXDashboardWatchdogStart(void)
@@ -355,9 +360,9 @@ static void ZXDashboardWatchdogStart(void)
                                   3 * NSEC_PER_SEC, 500 * NSEC_PER_MSEC);
         dispatch_source_set_event_handler(timer, ^{
             static BOOL lastOpen = YES;
-            BOOL open = ZXVNCProbePort(8080);
+            BOOL open = ZXDashboardPortIsTaken(ZXDashboardPort);
             if (open != lastOpen) {
-                ZXDashboardDebugLog(@"[watchdog] :8080 %@", open ? @"came up" : @"went down");
+                ZXDashboardDebugLog(@"[watchdog] :%d %@", ZXDashboardPort, open ? @"came up" : @"went down");
                 if (!open) ZXDashboardHardwareSnapshotRich(@"watchdog");
                 lastOpen = open;
             }
@@ -563,6 +568,33 @@ static BOOL ZXVNCProbePort(uint16_t port)
     BOOL open = connect(fd, (struct sockaddr *)&address, sizeof(address)) == 0;
     close(fd);
     return open;
+}
+
+// Liveness check for our own HTTP port that does NOT open a connection. A bare
+// connect+close (what ZXVNCProbePort does, which is fine for the VNC ports)
+// makes the server that owns the port read EOF before any header arrived, and
+// it logs that as a 500 "(invalid request)" — once per probe. bind() instead
+// never touches the owner: it fails with EADDRINUSE as soon as a live listener
+// holds the port.
+//
+// SO_REUSEADDR mirrors what GCDWebServer itself passes before its own bind
+// (GCDWebServer.m `_createListeningSocket:`), so this answer is exactly the one
+// our server would get: leftover TIME_WAIT sockets from previous connections do
+// not count as taken, while a second live listener can never bind.
+static BOOL ZXDashboardPortIsTaken(uint16_t port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NO;
+    int reuse = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    BOOL bound = bind(fd, (struct sockaddr *)&address, sizeof(address)) == 0;
+    close(fd);
+    return !bound;
 }
 #endif
 
@@ -1305,7 +1337,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
     // GET /api/debug-log — the dashboard's own crash/disconnect log, written
     // next to ocrd.log. It outlives the server process, so it is the one place
-    // that still has evidence after :8080 drops.
+    // that still has evidence after the dashboard port drops.
     [self.server addHandlerForMethod:@"GET" path:@"/api/debug-log" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
@@ -1580,7 +1612,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
     [self configureHandlers];
     NSError *error = nil;
     BOOL started = [self.server startWithOptions:@{
-        GCDWebServerOption_Port: @8080,
+        GCDWebServerOption_Port: @(ZXDashboardPort),
         GCDWebServerOption_ServerName: @"ZXTouch Dashboard",
         GCDWebServerOption_AutomaticallySuspendInBackground: @NO,
         GCDWebServerOption_ConnectionClass: [ZXLoggedConnection class]
@@ -1600,11 +1632,14 @@ static NSArray *ZXEditorFunctionCatalog(void)
             }
         });
     } else {
-        BOOL portTaken = ZXVNCProbePort(8080);
-        ZXDashboardDebugLog(@"[server] start failed: %@ (port8080Open=%d)", self.lastError, portTaken);
+        // GCDWebServer reports the bind failure as NSPOSIXErrorDomain/EADDRINUSE;
+        // reading the code here keeps the "who owns the port?" answer without a
+        // second probe that would make the current owner log a bogus 500.
+        BOOL portTaken = (error.domain == NSPOSIXErrorDomain && error.code == EADDRINUSE);
+        ZXDashboardDebugLog(@"[server] start failed: %@ (portTaken=%d)", self.lastError, portTaken);
         self.server = nil;
-        // The standalone dashboard daemon may already serve :8080. That is the
-        // healthy post-migration state — not an error worth surfacing.
+        // The standalone dashboard daemon may already serve this port. That is
+        // the healthy post-migration state — not an error worth surfacing.
         if (portTaken) self.lastError = @"";
     }
     return started;
@@ -1649,9 +1684,10 @@ void ZXDashboardReloadConfiguration(void)
     }
     BOOL dashboardEnabled = [configuration[ZXDashboardEnabledKey] boolValue];
     if (!dashboardEnabled) {
-        // Order matters: kill VNC FIRST while :8080 still answers (so the open
-        // web page receives enabled=false), then stop the dashboard. Stopping
-        // :8080 alone would orphan :5901 with the browser still connected.
+        // Order matters: kill VNC FIRST while the dashboard still answers (so
+        // the open web page receives enabled=false), then stop the dashboard.
+        // Stopping the dashboard alone would orphan :5901 with the browser still
+        // connected.
         ZXDashboardForceVNCDisabledInConfig();
         ZXVNCApplyEnabledState(NO);
         [ZXDashboardServer stop];
@@ -1660,18 +1696,18 @@ void ZXDashboardReloadConfiguration(void)
     }
     ZXVNCApplyEnabledState(configuration[ZXVNCEnabledKey] == nil ? YES : [configuration[ZXVNCEnabledKey] boolValue]);
     BOOL enabled = dashboardEnabled;
-    // The standalone dashboard daemon (com.zjx.dashboard) owns :8080 once it has
-    // bound after install/respring. The embedded SpringBoard server must not
+    // The standalone dashboard daemon (com.zjx.dashboard) owns the port once it
+    // has bound after install/respring. The embedded SpringBoard server must not
     // fight it for the port — a crash here would take SpringBoard down.
-    if (!ZXDashboardServer && ZXVNCProbePort(8080)) return;
+    if (!ZXDashboardServer && ZXDashboardPortIsTaken(ZXDashboardPort)) return;
     if (!ZXDashboardServer) ZXDashboardServer = [[ZXRemoteDashboardServer alloc] init];
     ZXDashboardWatchdogStart();
     [ZXDashboardServer start];
 }
 
 // ── Standalone dashboard daemon (zxtouch-dashboardd) ─────────────────────
-// Same HTTP server, zero SpringBoard hosting: if this process crashes, only
-// port :8080 drops and launchd restarts it — SpringBoard stays alive.
+// Same HTTP server, zero SpringBoard hosting: if this process crashes, only the
+// dashboard port drops and launchd restarts it — SpringBoard stays alive.
 static BOOL ZXDashboardDaemonEnabled(void)
 {
     NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
@@ -1679,8 +1715,48 @@ static BOOL ZXDashboardDaemonEnabled(void)
     return [configuration[ZXDashboardEnabledKey] boolValue];
 }
 
+// ── Single-instance guard ────────────────────────────────────────────────
+// Two daemons used to coexist whenever one survived an upgrade outside launchd
+// (postinst only did launchctl unload/load): the loser then retried to bind the
+// port forever, filled dashboardd.log and drove VNC twice. flock() keeps the
+// invariant in the process itself. The kernel drops the lock when the holder
+// dies, so a stale lock file can never wedge the daemon, and the path sits next
+// to dashboardd.log / dashboard-debug.log where the other daemon files live.
+static int ZXDashboardDaemonLockFD = -1;
+// Tracks the "port busy" message so the retry loop logs the transition once
+// instead of repeating itself every 30 seconds.
+static BOOL ZXDashboardPortConflictNoted = NO;
+
+static BOOL ZXDashboardDaemonAcquireLock(void)
+{
+    NSString *path = @"/var/mobile/Library/ZXTouch/dashboardd.lock";
+    int fd = open(path.fileSystemRepresentation, O_RDWR | O_CREAT, 0644);
+    // Fail open: an unusable lock file must not cost the user the dashboard.
+    if (fd < 0) return YES;
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        close(fd);
+        return NO;
+    }
+    ZXDashboardDaemonLockFD = fd;
+    if (ftruncate(fd, 0) == 0) {
+        dprintf(fd, "%d\n", getpid());
+    }
+    return YES;
+}
+
 int ZXDashboardDaemonMain(void)
 {
+    // Take the lock before anything writes a session marker: a copy that loses
+    // the race must not leave a trailing session-open behind, or the next real
+    // session would report a crash that never happened. NSLog reaches
+    // dashboardd.log through launchd's stderr redirection.
+    if (!ZXDashboardDaemonAcquireLock()) {
+        // Another daemon already serves the port. Exit cleanly so launchd's
+        // KeepAlive (SuccessfulExit=false) leaves this copy stopped instead of
+        // restarting it into the same conflict every 30 seconds.
+        NSLog(@"[dashboardd] another instance holds the lock, exiting pid=%d", getpid());
+        return 0;
+    }
     ZXDashboardCrashHandlersInstall();
     ZXDashboardDaemonTerminationInstall();
     ZXDashboardWatchdogStart();
@@ -1695,7 +1771,7 @@ int ZXDashboardDaemonMain(void)
         // Apply the VNC switch here as well as in the SpringBoard path so a
         // running standalone dashboard cannot leave the old server alive.
         // Dashboard OFF forces VNC OFF (persisted) and kills VNC BEFORE
-        // stopping :8080 so the browser learns enabled=false first.
+        // stopping the dashboard so the browser learns enabled=false first.
         if (!ZXDashboardDaemonEnabled()) {
             ZXDashboardForceVNCDisabledInConfig();
             ZXVNCApplyEnabledState(NO);
@@ -1735,8 +1811,16 @@ int ZXDashboardDaemonMain(void)
             if (!server.server.running && ![server start]) {
                 // Port busy (embedded SpringBoard server until the next
                 // respring) or transient failure — wait, never crash-loop.
-                NSLog(@"[dashboardd] :8080 unavailable (%@), retrying", server.lastError);
-                ZXDashboardDebugLog(@"[dashboardd] :8080 unavailable (%@), retrying", server.lastError);
+                // Only the transition is logged: repeating the same line every
+                // 30 s for hours is what buried the real events in this log.
+                if (!ZXDashboardPortConflictNoted) {
+                    ZXDashboardDebugLog(@"[dashboardd] :%d unavailable (%@), retrying", ZXDashboardPort,
+                                        server.lastError);
+                    ZXDashboardPortConflictNoted = YES;
+                }
+            } else if (ZXDashboardPortConflictNoted) {
+                ZXDashboardDebugLog(@"[dashboardd] :%d available", ZXDashboardPort);
+                ZXDashboardPortConflictNoted = NO;
             }
             }
         }
@@ -1796,9 +1880,9 @@ BOOL ZXRemoteDashboardIsEnabled(void)
 
 NSString *ZXRemoteDashboardURL(void)
 {
-    // No token: open http://<iphone-ip>:8080/ directly from the same Wi-Fi.
+    // No token: open http://<iphone-ip>:8688/ directly from the same Wi-Fi.
     NSString *host = ZXDashboardIPAddress() ?: @"iPad-IP-address";
-    return [NSString stringWithFormat:@"http://%@:%d/", host, 8080];
+    return [NSString stringWithFormat:@"http://%@:%d/", host, ZXDashboardPort];
 }
 
 NSString *ZXRemoteDashboardLastError(void)

@@ -141,27 +141,40 @@ else
     echo "ZXTouch: warning — trollvncserver not found. Rebuild with tools/trollvnc/build-and-stage.sh for live-screen support." >&2
 fi
 
-# Standalone dashboard daemon (crash-isolated HTTP :8080). SpringBoard keeps a
+# Standalone dashboard daemon (crash-isolated HTTP :8688). SpringBoard keeps a
 # fallback until this daemon binds after respring/reboot.
 if [ -x /var/jb/usr/bin/zxtouch-dashboardd ]; then
     mkdir -p /var/mobile/Library/ZXTouch
     chown mobile:mobile /var/mobile/Library/ZXTouch 2>/dev/null || true
     if [ -x /var/jb/bin/launchctl ]; then
         /var/jb/bin/launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null || true
+        # `unload` is a no-op for a daemon launchd never managed (it can survive
+        # a failed load or a respring outside the job). Such a copy predates
+        # dashboardd.lock, so it would keep retrying to bind the port forever
+        # next to the new instance. SIGTERM first so the daemon writes its
+        # session-close marker and the upgrade does not look like a crash in
+        # dashboard-debug.log; SIGKILL then guarantees a wedged copy cannot
+        # survive next to the new instance.
+        /usr/bin/killall zxtouch-dashboardd 2>/dev/null || killall zxtouch-dashboardd 2>/dev/null || true
+        sleep 1
+        /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
         if ! /var/jb/bin/launchctl load /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
-            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8080." >> /var/mobile/Library/ZXTouch/dashboardd.log
+            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8688." >> /var/mobile/Library/ZXTouch/dashboardd.log
         fi
     elif command -v launchctl >/dev/null 2>&1; then
         launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null || true
+        /usr/bin/killall zxtouch-dashboardd 2>/dev/null || killall zxtouch-dashboardd 2>/dev/null || true
+        sleep 1
+        /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
         if ! launchctl load /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
-            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8080." >> /var/mobile/Library/ZXTouch/dashboardd.log
+            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8688." >> /var/mobile/Library/ZXTouch/dashboardd.log
         fi
     fi
 else
     echo "ZXTouch: warning — zxtouch-dashboardd not found. Dashboard stays SpringBoard-hosted." >&2
 fi
 
-# Dashboard debug log (:8080). The server writes this file itself, so only make
+# Dashboard debug log (:8688). The server writes this file itself, so only make
 # sure it exists and belongs to `mobile` — the uid both hosts run as.
 DASHBOARD_DEBUG_LOG=/var/mobile/Library/ZXTouch/dashboard-debug.log
 touch "$DASHBOARD_DEBUG_LOG" 2>/dev/null || true

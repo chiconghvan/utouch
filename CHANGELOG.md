@@ -9,6 +9,15 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thay đổi
+- Cổng HTTP của dashboard đổi từ `:8080` sang `:8688`. Cả daemon `zxtouch-dashboardd`, server fallback trong SpringBoard, URL hiện trong Settings lẫn giá trị mặc định trên giao diện web đều lấy từ một hằng số duy nhất `ZXDashboardPort`, nên không còn tình trạng lệch cổng. Địa chỉ mới: `http://<iphone-ip>:8688/`.
+- `KeepAlive` của `com.zjx.dashboard` đổi từ `true` sang `SuccessfulExit=false`: daemon tự thoát khi đã có bản khác giữ khoá sẽ không bị launchd dựng lại mỗi 30 giây, nhưng crash (tín hiệu/thoát khác 0) vẫn được restart như cũ.
+- Vòng lặp retry của daemon chỉ ghi log tại thời điểm trạng thái cổng đổi (`unavailable` một lần khi mất, `available` một lần khi trở lại) thay vì in lại cùng một dòng mỗi 30 giây.
+
+### Đã sửa
+- Daemon dashboard chạy trùng: trước đây một instance sống sót ngoài launchd (khởi động lại qua respring, hoặc job load thất bại rồi được chạy tay) vẫn nằm mãi trong `for (;;)`, mỗi 30 giây lại bind thất bại và ghi `Address already in use` — log ghi nhận liên tục suốt 8 giờ với hai PID cùng lúc, và cả hai cùng điều khiển VNC. Nay `zxtouch-dashboardd` giữ khoá `flock()` trên `/var/mobile/Library/ZXTouch/dashboardd.lock` và thoát ngay nếu đã có instance khác; `postinst`/`postinst-roothide` `killall` bản cũ trước khi `launchctl load`, và thêm `prerm` dừng daemon khi nâng cấp/gỡ.
+- Log 500 `"(invalid request)"` sai trên server đang giữ cổng: nguyên nhân là `ZXVNCProbePort()` mở TCP connect rồi `close()` mà không gửi HTTP, khiến GCDWebServer đọc được EOF trước khi có header và ghi 500. Cổng dashboard giờ được kiểm tra bằng `bind()` (`ZXDashboardPortIsTaken`), không tạo kết nối nên không đụng tới server đang chạy; ở đường start thì đọc thẳng `NSPOSIXErrorDomain`/`EADDRINUSE` từ lỗi bind. Cũng nhờ vậy watchdog 3 giây không còn sinh log 500 mỗi lần dò cổng.
+
 ## [0.3.32] — 2026-09-16
 
 ### Đã thêm

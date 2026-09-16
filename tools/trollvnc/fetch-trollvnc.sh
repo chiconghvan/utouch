@@ -49,7 +49,7 @@ fi
 for d in "$TMP/tvnc/var/jb/usr/lib" "$TMP/tvnc/usr/lib" "$TMP/tvnc/var/jb/usr/lib/trollvnc"; do
   if [ -d "$d" ]; then cp -Rf "$d/"*.dylib "$ROOT/layout/usr/lib/trollvnc/" 2>/dev/null || true; fi
 done
-# noVNC webclients for :5801 (+ dashboard bundle copy for :8080/novnc/*)
+# noVNC webclients for :5801 (+ dashboard bundle copy for :8688/novnc/*)
 for d in "$TMP/tvnc/var/jb/usr/share/trollvnc/webclients" "$TMP/tvnc/usr/share/trollvnc/webclients"; do
   if [ -d "$d" ]; then cp -Rf "$d/"* "$ROOT/layout/usr/share/trollvnc/webclients/"; break
   fi
