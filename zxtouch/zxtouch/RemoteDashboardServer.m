@@ -537,7 +537,7 @@ static void ZXVNCStartServerDirectly(void)
          @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 -I off >>%@ 2>&1 </dev/null &",
         ZXVNCLaunchDaemonPath(), ZXVNCLaunchDaemonPath(),
         @"/var/jb/usr/bin/trollvncserver", ZXVNCScale(),
-        @"/var/mobile/Library/ZXTouch/trollvnc.log"]);
+        ZX_TROLLVNC_LOG_PATH]);
 }
 
 static void ZXVNCkillServer(void)
@@ -1350,6 +1350,30 @@ static NSArray *ZXEditorFunctionCatalog(void)
         ZXDashboardDebugLogClear();
         strongSelf.lastAction = @"Clear dashboard debug log";
         return [strongSelf jsonResponse:@{ @"ok": @YES } status:200];
+    }];
+
+    // GET /api/logs/download?name=dashboardd|trollvnc|debug — the three daemon
+    // log files, streamed as a download. The name is whitelisted onto a fixed
+    // path, so nothing the client sends can reach the filesystem.
+    [self.server addHandlerForMethod:@"GET" path:@"/api/logs/download" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        ZXRemoteDashboardServer *strongSelf = weakSelf;
+        if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
+        NSDictionary<NSString *, NSString *> *logs = @{
+            @"dashboardd": ZX_DASHBOARDD_LOG_PATH,
+            @"trollvnc": ZX_TROLLVNC_LOG_PATH,
+            @"debug": ZX_DASHBOARD_DEBUG_LOG_PATH,
+        };
+        NSString *path = logs[request.query[@"name"] ?: @""];
+        if (path.length == 0) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Unknown log name." } status:400];
+        }
+        if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": [NSString stringWithFormat:@"%@ was not found.", path.lastPathComponent] } status:404];
+        }
+        GCDWebServerFileResponse *response = [GCDWebServerFileResponse responseWithFile:path isAttachment:YES];
+        if (!response) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": [NSString stringWithFormat:@"%@ could not be read.", path.lastPathComponent] } status:500];
+        [response setValue:@"no-store" forAdditionalHeader:@"Cache-Control"];
+        return response;
     }];
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerDataRequest *request) {

@@ -15,6 +15,12 @@
 // (not by launchd) so the SpringBoard-hosted fallback server can log too.
 #define ZX_DASHBOARD_DEBUG_LOG_PATH @"/var/mobile/Library/ZXTouch/dashboard-debug.log"
 
+// Daemon logs owned by launchd: the dashboard LaunchDaemon redirects its
+// stdout/stderr to dashboardd.log and TrollVNC's to trollvnc.log. The server
+// only reads them, and serves them through GET /api/logs/download.
+#define ZX_DASHBOARDD_LOG_PATH @"/var/mobile/Library/ZXTouch/dashboardd.log"
+#define ZX_TROLLVNC_LOG_PATH @"/var/mobile/Library/ZXTouch/trollvnc.log"
+
 #define SPRINGBOARD_CONFIG_PATH @"/var/mobile/Library/ZXTouch/config/tweak/config.plist"
 
 #define SCRIPT_PLAY_CONFIG_PATH @"/var/mobile/Library/ZXTouch/config/tweak/script_play_settings.plist"

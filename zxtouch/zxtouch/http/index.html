@@ -120,6 +120,11 @@
     .note-row:last-child { border-bottom: 0; }
     .note-mark { color: var(--green); }
 
+    /* Log Files card (Device view): the download buttons share the title row,
+       so the card is a single band without a body or trailing border. */
+    .log-files-panel { margin-top: 14px; }
+    .log-files-panel .panel-head { border-bottom: 0; }
+
     /* Installed apps card: vertical list, app name + bundle id per row. */
     .apps-panel { margin-top: 14px; }
     .apps-list { max-height: 460px; overflow: auto; overscroll-behavior: contain; }
@@ -390,6 +395,9 @@
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Current Status</h3></div></div><div class="data-grid"><div class="data-row"><div class="data-label">Service</div><div class="data-value" id="service">Checking</div></div><div class="data-row"><div class="data-label">Activity</div><div class="data-value" id="deviceActivity">Idle</div></div><div class="data-row"><div class="data-label">Display</div><div class="data-value" id="screen">-</div></div><div class="data-row"><div class="data-label">Orientation</div><div class="data-value" id="orientation">-</div></div><div class="data-row"><div class="data-label">Battery</div><div class="data-value" id="battery">-</div></div><div class="data-row"><div class="data-label">Foreground app</div><div class="data-value" id="foreground">-</div></div></div></section>
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Diagnostics</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">Socket</span><span class="diagnostic-value" id="socketState">Checking</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP port</span><span class="diagnostic-value" id="port">8688</span></div><div class="diagnostic"><span class="diagnostic-label">Scripts indexed</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">Access</span><span class="diagnostic-value">Open · LAN only</span></div><div class="diagnostic"><span class="diagnostic-label">Last error</span><span class="diagnostic-value" id="lastError">None</span></div></div></section>
       </div>
+      <section class="panel log-files-panel">
+        <div class="panel-head"><div class="panel-title"><h3>Log Files</h3></div><div class="panel-tools"><button class="button ghost download-log" id="downloadDashboarddLog" type="button" data-log="dashboardd" data-file="dashboardd.log"><span class="button-symbol">&#8595;</span>dashboardd.log</button><button class="button ghost download-log" id="downloadTrollvncLog" type="button" data-log="trollvnc" data-file="trollvnc.log"><span class="button-symbol">&#8595;</span>trollvnc.log</button><button class="button ghost download-log" id="downloadDebugLog" type="button" data-log="debug" data-file="dashboard-debug.log"><span class="button-symbol">&#8595;</span>dashboard-debug.log</button></div></div>
+      </section>
       <section class="panel apps-panel"><div class="panel-head"><div class="panel-title"><h3>Installed Apps</h3><p id="appsSummary">Loading apps</p></div><div class="panel-tools"><input class="search" id="appsSearch" type="search" placeholder="Search name or bundle id" aria-label="Search installed apps"><button class="button ghost" id="appsRefresh">Reload</button></div></div><div class="apps-list" id="apps"><div class="empty-state">Loading installed apps...</div></div></section>
     </section>
 
@@ -543,6 +551,30 @@
     }
     if (elements.appsSearch) elements.appsSearch.addEventListener('input', renderApps);
     if (elements.appsRefresh) elements.appsRefresh.addEventListener('click', () => loadApps(true));
+
+    // ── Log file downloads (Device view) ────────────────────────────────
+    // Fetched as a blob rather than navigated to, so a missing log (404)
+    // surfaces as a toast instead of replacing the dashboard with the error.
+    async function downloadLog(button) {
+      const file = button.dataset.file;
+      setButtonBusy(button, true, '&#8230;');
+      try {
+        const response = await fetch(`/api/logs/download?name=${encodeURIComponent(button.dataset.log)}`);
+        if (!response.ok) { let payload = null; try { payload = await response.json(); } catch (_) {} throw new Error((payload && payload.error) || `Dashboard returned HTTP ${response.status}.`); }
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`Saved ${file}.`);
+      } catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(button, false); }
+    }
+    document.querySelectorAll('.download-log').forEach(button => button.addEventListener('click', () => downloadLog(button)));
+
     function renderLogs() { const filter = elements.logFilter.value.trim().toLowerCase(); const lines = state.rawLogs ? state.rawLogs.split(/\r?\n/) : []; const visible = filter ? lines.filter(line => line.toLowerCase().includes(filter)) : lines; const stick = elements.autoFollow.checked || elements.logs.scrollTop + elements.logs.clientHeight >= elements.logs.scrollHeight - 16; elements.logs.textContent = visible.join('\n') || 'No runtime log output yet.'; elements.logSummary.textContent = `${visible.length} visible line${visible.length === 1 ? '' : 's'}`; if (stick) elements.logs.scrollTop = elements.logs.scrollHeight; }
     async function loadLogs() { const payload = await api('/api/logs'); state.rawLogs = payload.logs || ''; renderLogs(); }
 
