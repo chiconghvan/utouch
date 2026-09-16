@@ -114,7 +114,7 @@ static UIFont *ZXEditorFont(void)
 
 @end
 
-@interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate>
 - (void)refreshBarButtons;
 - (void)checkScript;
 - (void)runValidation;
@@ -132,6 +132,7 @@ static UIFont *ZXEditorFont(void)
 - (void)showEditorToast:(NSString *)message isError:(BOOL)isError;
 - (void)hideEditorToast;
 - (void)handleToastTap;
+- (void)handleEditorTap:(UITapGestureRecognizer *)recognizer;
 - (void)keyboardWillChangeFrame:(NSNotification *)note;
 @end
 
@@ -231,6 +232,21 @@ static UIFont *ZXEditorFont(void)
     completionTableView.rowHeight = 54.0;
     completionTableView.backgroundColor = [UIColor systemBackgroundColor];
     [self.view addSubview:completionTableView];
+
+    UITapGestureRecognizer *dismissTap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                                action:@selector(handleEditorTap:)];
+    dismissTap.cancelsTouchesInView = NO;
+    dismissTap.delegate = self;
+    [self.view addGestureRecognizer:dismissTap];
+}
+
+- (void)handleEditorTap:(UITapGestureRecognizer *)recognizer {
+    if (!completionTableView.hidden) [self hideCompletions];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    if (gestureRecognizer.view != self.view) return YES;
+    return ![touch.view isDescendantOfView:completionTableView];
 }
 
 - (void)refreshBarButtons {
