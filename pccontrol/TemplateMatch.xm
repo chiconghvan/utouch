@@ -120,7 +120,11 @@ static float nccScoreFast(const float *img, size_t imgW,
     double patchSum = integralRectSum(integral, imgW, x, y, tw, th);
     double patchSqSum = integralRectSum(sqIntegral, imgW, x, y, tw, th);
     double patchNorm = patchSqSum - ((patchSum * patchSum) / (double)n);
-    if (patchNorm <= 1e-6 || tmplNorm <= 1e-6f) return 0.0f;
+    // patchNorm is a difference of two ~1e9 values, so a flat patch leaves a
+    // rounding residue of ~1e-5 behind; an absolute epsilon lets that residue
+    // through as a near-zero denominator and inflates the score past 1. Compare
+    // against the patch's own magnitude instead.
+    if (patchNorm <= 1e-6 * patchSqSum || tmplNorm <= 1e-6f) return 0.0f;
 
     double dotProduct = 0.0;
     for (size_t row = 0; row < th; row++) {
@@ -133,7 +137,43 @@ static float nccScoreFast(const float *img, size_t imgW,
 
     double denom = sqrt(patchNorm * (double)tmplNorm);
     if (denom < 1e-6) return 0.0f;
-    return (float)(dotProduct / denom);
+    float score = (float)(dotProduct / denom);
+    return MAX(-1.0f, MIN(1.0f, score));
+}
+
+#define ZX_COARSE_CANDIDATES 4
+
+// Collect the best few distinct coarse hits. The coarse level is too blunt to
+// commit to a single peak, and two hits closer together than minDist are the
+// same find reported twice -- in which case the better of the two is kept, so a
+// hit is never represented by a neighbour that scored lower than it.
+static void zxAddCandidate(float *scores, size_t *xs, size_t *ys, int *count,
+                           float score, size_t x, size_t y, size_t minDist) {
+    size_t minDistSq = minDist * minDist;
+    int worst = 0;
+    for (int k = 0; k < *count; k++) {
+        long dx = (long)x - (long)xs[k];
+        long dy = (long)y - (long)ys[k];
+        if ((size_t)(dx * dx + dy * dy) < minDistSq) {
+            if (score > scores[k]) {
+                scores[k] = score;
+                xs[k] = x;
+                ys[k] = y;
+            }
+            return;
+        }
+        if (scores[k] < scores[worst]) worst = k;
+    }
+    if (*count < ZX_COARSE_CANDIDATES) {
+        scores[*count] = score;
+        xs[*count] = x;
+        ys[*count] = y;
+        (*count)++;
+    } else if (score > scores[worst]) {
+        scores[worst] = score;
+        xs[worst] = x;
+        ys[worst] = y;
+    }
 }
 
 @interface TemplateMatch() {
@@ -187,10 +227,37 @@ static float nccScoreFast(const float *img, size_t imgW,
         return CGRectZero;
     }
 
+    // Coarse level. Scanning the full-resolution correlation surface on a stride
+    // of min(tw,th)/8 steps straight over the match: a template with fine detail
+    // only scores near the threshold within about two pixels, so a 8-20px stride
+    // reports a perfect, pixel-for-pixel on-screen match as "not found" (measured
+    // 0.56 for a match scoring 1.00). Downsampling the screen and the template
+    // first broadens that peak, so an exhaustive search of the small level lands
+    // within a couple of pixels of the match for 1/F^4 of the full-res cost.
+    int pyramid = (int)MAX((size_t)1, MIN((size_t)4, MIN(tmplW, tmplH) / 8));
+    size_t coarseW = 0, coarseH = 0;
+    float *coarseGray = NULL;
+    double *coarseIntegral = NULL;
+    double *coarseSqIntegral = NULL;
+    if (pyramid > 1) {
+        coarseW = imgW / pyramid;
+        coarseH = imgH / pyramid;
+        if (coarseW >= 8 && coarseH >= 8) {
+            coarseGray = resizeFloat(imgGray, imgW, imgH, coarseW, coarseH);
+            if (coarseGray && !buildIntegralImages(coarseGray, coarseW, coarseH,
+                                                   &coarseIntegral, &coarseSqIntegral)) {
+                free(coarseGray);
+                coarseGray = NULL;
+            }
+        } else {
+            coarseW = 0;
+            coarseH = 0;
+        }
+        if (!coarseGray) pyramid = 1;
+    }
+
     CGRect best = CGRectZero;
     float bestScore = -1.0f;
-    size_t bestTW = tmplW;
-    size_t bestTH = tmplH;
 
     NSMutableArray *scales = [NSMutableArray array];
     [scales addObject:@(1.0f)];
@@ -215,22 +282,88 @@ static float nccScoreFast(const float *img, size_t imgW,
 
         float tmplNorm = 0.0f;
         float *tmplCentered = centeredTemplate(tmplScaled, tw, th, &tmplNorm);
-        if (!tmplCentered || tmplNorm <= 1e-6f) {
-            if (tmplCentered) free(tmplCentered);
-            if (tmplScaled != tmplGray) free(tmplScaled);
-            continue;
-        }
+        if (tmplCentered && tmplNorm > 1e-6f) {
+            float candScores[ZX_COARSE_CANDIDATES];
+            size_t candXs[ZX_COARSE_CANDIDATES];
+            size_t candYs[ZX_COARSE_CANDIDATES];
+            int candCount = 0;
+            size_t pad = 0;
 
-        size_t step = MAX((size_t)1, MIN(tw, th) / 8);
-        for (size_t y = 0; y + th <= imgH; y += step) {
-            for (size_t x = 0; x + tw <= imgW; x += step) {
-                float score = nccScoreFast(imgGray, imgW, integral, sqIntegral, tmplCentered, tmplNorm, tw, th, x, y);
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = CGRectMake(x, y, tw, th);
-                    bestTW = tw;
-                    bestTH = th;
+            if (coarseGray) {
+                size_t ctw = MAX((size_t)2, (size_t)llround((double)tw / (double)pyramid));
+                size_t cth = MAX((size_t)2, (size_t)llround((double)th / (double)pyramid));
+                if (ctw < coarseW && cth < coarseH) {
+                    float *coarseTmpl = resizeFloat(tmplScaled, tw, th, ctw, cth);
+                    float coarseNorm = 0.0f;
+                    float *coarseCentered = coarseTmpl ? centeredTemplate(coarseTmpl, ctw, cth, &coarseNorm) : NULL;
+                    if (coarseCentered && coarseNorm > 1e-6f) {
+                        size_t minDist = MAX((size_t)2, MIN(ctw, cth) / 2);
+                        for (size_t y = 0; y + cth <= coarseH; y++) {
+                            for (size_t x = 0; x + ctw <= coarseW; x++) {
+                                float score = nccScoreFast(coarseGray, coarseW, coarseIntegral,
+                                                           coarseSqIntegral, coarseCentered, coarseNorm,
+                                                           ctw, cth, x, y);
+                                zxAddCandidate(candScores, candXs, candYs, &candCount, score,
+                                               x * (size_t)pyramid, y * (size_t)pyramid, minDist);
+                            }
+                        }
+                        pad = (size_t)pyramid * 2 + 2;
+                    }
+                    if (coarseCentered) free(coarseCentered);
+                    free(coarseTmpl);
                 }
+            }
+
+            if (candCount == 0) {
+                // No usable coarse level -- tiny template, or the downsample or
+                // its integral images could not be allocated. Fall back to the
+                // strided scan, whose stride of min(tw,th)/8 is small enough for
+                // these templates that the peak survives it.
+                size_t step = MAX((size_t)1, MIN(tw, th) / 8);
+                float coarseScore = -1.0f;
+                for (size_t y = 0; y + th <= imgH; y += step) {
+                    for (size_t x = 0; x + tw <= imgW; x += step) {
+                        float score = nccScoreFast(imgGray, imgW, integral, sqIntegral,
+                                                   tmplCentered, tmplNorm, tw, th, x, y);
+                        if (score > coarseScore) {
+                            coarseScore = score;
+                            candXs[0] = x;
+                            candYs[0] = y;
+                        }
+                    }
+                }
+                candScores[0] = coarseScore;
+                candCount = 1;
+                pad = MAX((size_t)4, step);
+            }
+
+            // Rescore every candidate at step 1. This always runs: it is what
+            // actually measures the match, so gating it on the coarse score --
+            // as the previous revision did -- threw away matches whose coarse
+            // hit happened to land next to the peak instead of on it.
+            float scaleScore = -1.0f;
+            size_t hitX = 0;
+            size_t hitY = 0;
+            for (int c = 0; c < candCount; c++) {
+                size_t rx = (candXs[c] > pad) ? candXs[c] - pad : 0;
+                size_t ry = (candYs[c] > pad) ? candYs[c] - pad : 0;
+                size_t rxMax = MIN(candXs[c] + pad, imgW - tw);
+                size_t ryMax = MIN(candYs[c] + pad, imgH - th);
+                for (size_t y = ry; y <= ryMax; y++) {
+                    for (size_t x = rx; x <= rxMax; x++) {
+                        float score = nccScoreFast(imgGray, imgW, integral, sqIntegral,
+                                                   tmplCentered, tmplNorm, tw, th, x, y);
+                        if (score > scaleScore) {
+                            scaleScore = score;
+                            hitX = x;
+                            hitY = y;
+                        }
+                    }
+                }
+            }
+            if (scaleScore > bestScore) {
+                bestScore = scaleScore;
+                best = CGRectMake(hitX, hitY, tw, th);
             }
         }
 
@@ -240,30 +373,9 @@ static float nccScoreFast(const float *img, size_t imgW,
         if (bestScore >= _acceptableValue) break;
     }
 
-    if (bestScore >= _acceptableValue) {
-        size_t rx = (best.origin.x > 4) ? (size_t)best.origin.x - 4 : 0;
-        size_t ry = (best.origin.y > 4) ? (size_t)best.origin.y - 4 : 0;
-        size_t rxMax = MIN(rx + bestTW + 8, imgW - bestTW);
-        size_t ryMax = MIN(ry + bestTH + 8, imgH - bestTH);
-
-        float *tmplRefine = (bestTW == tmplW && bestTH == tmplH) ? tmplGray : resizeFloat(tmplGray, tmplW, tmplH, bestTW, bestTH);
-        float tmplNorm = 0.0f;
-        float *tmplCentered = tmplRefine ? centeredTemplate(tmplRefine, bestTW, bestTH, &tmplNorm) : NULL;
-        if (tmplCentered && tmplNorm > 1e-6f) {
-            for (size_t y = ry; y <= ryMax; y++) {
-                for (size_t x = rx; x <= rxMax; x++) {
-                    float score = nccScoreFast(imgGray, imgW, integral, sqIntegral, tmplCentered, tmplNorm, bestTW, bestTH, x, y);
-                    if (score > bestScore) {
-                        bestScore = score;
-                        best = CGRectMake(x, y, bestTW, bestTH);
-                    }
-                }
-            }
-        }
-        if (tmplCentered) free(tmplCentered);
-        if (tmplRefine && tmplRefine != tmplGray) free(tmplRefine);
-    }
-
+    free(coarseIntegral);
+    free(coarseSqIntegral);
+    free(coarseGray);
     free(integral);
     free(sqIntegral);
     free(imgGray);
