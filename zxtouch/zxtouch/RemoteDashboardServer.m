@@ -534,7 +534,7 @@ static void ZXVNCStartServerDirectly(void)
     ZXVNCSystem([NSString stringWithFormat:
         @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
          @"(launchctl load -w %@ >/dev/null 2>&1); "
-         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 >>%@ 2>&1 </dev/null &",
+         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 -I off >>%@ 2>&1 </dev/null &",
         ZXVNCLaunchDaemonPath(), ZXVNCLaunchDaemonPath(),
         @"/var/jb/usr/bin/trollvncserver", ZXVNCScale(),
         @"/var/mobile/Library/ZXTouch/trollvnc.log"]);

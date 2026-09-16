@@ -141,7 +141,7 @@ No login or token is required: opening `http://&lt;iphone-ip&gt;:8688/` from the
 The same `.deb` ships TrollVNC (`owngoal-dev/TrollVNC` v3.2-272 submodule,
 GPLv2 — see `tools/trollvnc/README.md`), compiled with Theos in CI and
 started at boot via `com.zjx.trollvnc.plist`: VNC on `5901`, browser client
-on `5801` (`-s 0.3 -F 30:60:120 -O on -B off -A 15`). No separate install.
+on `5801` (`-s 0.3 -F 30:60:120 -O on -B off -A 15 -I off`). No separate install.
 Stream quality on the dashboard switches the framebuffer scale (`0.3` saver
 default, `0.5`, `0.6`, `0.7`, `1.0` pixel-perfect) via `POST /api/vnc/scale`,
 which restarts the server with the new scale.

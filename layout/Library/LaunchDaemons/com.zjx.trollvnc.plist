@@ -19,6 +19,8 @@
         <string>-O</string><string>on</string>
         <string>-B</string><string>off</string>
         <string>-A</string><string>15</string>
+        <!-- No iOS system banner on client connect/disconnect. -->
+        <string>-I</string><string>off</string>
     </array>
     <key>RunAtLoad</key><true/>
     <!-- Deliberately no KeepAlive: the only way to stop launchd from respawning
