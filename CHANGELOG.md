@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.33] — 2026-09-16
+
 ### Đã thay đổi
 - Cổng HTTP của dashboard đổi từ `:8080` sang `:8688`. Cả daemon `zxtouch-dashboardd`, server fallback trong SpringBoard, URL hiện trong Settings lẫn giá trị mặc định trên giao diện web đều lấy từ một hằng số duy nhất `ZXDashboardPort`, nên không còn tình trạng lệch cổng. Địa chỉ mới: `http://<iphone-ip>:8688/`.
 - `KeepAlive` của `com.zjx.dashboard` đổi từ `true` sang `SuccessfulExit=false`: daemon tự thoát khi đã có bản khác giữ khoá sẽ không bị launchd dựng lại mỗi 30 giây, nhưng crash (tín hiệu/thoát khác 0) vẫn được restart như cũ.
@@ -17,6 +19,9 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 ### Đã sửa
 - Daemon dashboard chạy trùng: trước đây một instance sống sót ngoài launchd (khởi động lại qua respring, hoặc job load thất bại rồi được chạy tay) vẫn nằm mãi trong `for (;;)`, mỗi 30 giây lại bind thất bại và ghi `Address already in use` — log ghi nhận liên tục suốt 8 giờ với hai PID cùng lúc, và cả hai cùng điều khiển VNC. Nay `zxtouch-dashboardd` giữ khoá `flock()` trên `/var/mobile/Library/ZXTouch/dashboardd.lock` và thoát ngay nếu đã có instance khác; `postinst`/`postinst-roothide` `killall` bản cũ trước khi `launchctl load`, và thêm `prerm` dừng daemon khi nâng cấp/gỡ.
 - Log 500 `"(invalid request)"` sai trên server đang giữ cổng: nguyên nhân là `ZXVNCProbePort()` mở TCP connect rồi `close()` mà không gửi HTTP, khiến GCDWebServer đọc được EOF trước khi có header và ghi 500. Cổng dashboard giờ được kiểm tra bằng `bind()` (`ZXDashboardPortIsTaken`), không tạo kết nối nên không đụng tới server đang chạy; ở đường start thì đọc thẳng `NSPOSIXErrorDomain`/`EADDRINUSE` từ lỗi bind. Cũng nhờ vậy watchdog 3 giây không còn sinh log 500 mỗi lần dò cổng.
+- VNC không tự khởi động lại sau khi server đã thoát: `ZXVNCStartServerDirectly` chỉ spawn `trollvncserver` khi `ps -ax | grep -q '[t]rollvncserver'` không khớp, nhưng chính chuỗi lệnh lại mang đường dẫn binary không có ngoặc nên grep khớp luôn tiến trình `sh -c` đang chạy nó, và bản `nohup` vì thế không bao giờ được chạy. Khi launchctl không load nổi job bằng `mobile`, không còn cách nào dựng lại `:5901` sau khi server thoát — recover chỉ chờ hết 8 giây rồi báo `Unable to start VNC server.` trong lúc cổng vẫn đóng. Nay kiểm bằng `ZXVNCServerProcessRunning()` (so khớp `p_comm`) ngay trong C, không thể khớp nhầm shell đang chạy lệnh spawn.
+- TrollVNC không còn bắn banner hệ thống mỗi lần client VNC kết nối/ngắt kết nối: truyền `-I off` ở cả hai đường khởi chạy server để `trollvncserver` không gọi `UNUserNotification` (`popBanner`) nữa.
+- Upload asset trên dashboard báo `parameter 1 is not of type 'HTMLFormElement'`: `uploadAsset()` là hàm async nên phải chờ hộp thoại xác nhận trước khi dựng body, và `event.currentTarget` đã là `null` khi `new FormData()` chạy. Nay dùng tham chiếu `elements.assetForm` đã lưu thay vì `event.currentTarget`.
 
 ## [0.3.32] — 2026-09-16
 
@@ -387,6 +392,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.33]: https://github.com/chiconghvan/utouch/compare/v0.3.32...v0.3.33
 [0.3.32]: https://github.com/chiconghvan/utouch/compare/v0.3.31...v0.3.32
 [0.3.31]: https://github.com/chiconghvan/utouch/compare/v0.3.30...v0.3.31
 [0.3.30]: https://github.com/chiconghvan/utouch/compare/v0.3.29...v0.3.30
