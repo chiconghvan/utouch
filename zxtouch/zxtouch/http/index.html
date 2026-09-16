@@ -1709,21 +1709,51 @@
     assetPreview.setAttribute('role', 'tooltip');
     assetPreview.hidden = true;
     document.body.appendChild(assetPreview);
-    function hideAssetPreview() { assetPreview.hidden = true; assetPreview.innerHTML = ''; }
-    function showAssetPreview(anchor, bundlePath, name) {
-      const source = `/api/scripts/asset?path=${encodeURIComponent(bundlePath)}&name=${encodeURIComponent(name)}`;
-      assetPreview.innerHTML = `<img src="${source}" alt="${escapeHTML(name)}">`;
-      assetPreview.hidden = false;
+    let assetPreviewToken = 0;
+    function hideAssetPreview() { assetPreviewToken += 1; assetPreview.hidden = true; assetPreview.innerHTML = ''; }
+    function positionAssetPreview(anchor) {
+      const gap = 8;
       const anchorRect = anchor.getBoundingClientRect();
       const previewRect = assetPreview.getBoundingClientRect();
-      const gap = 8;
-      // The pane sits on the right, so the preview flips to its left by default.
-      const left = anchorRect.left - gap - previewRect.width >= gap
-        ? anchorRect.left - gap - previewRect.width
-        : Math.min(innerWidth - gap - previewRect.width, anchorRect.right + gap);
-      const top = Math.min(Math.max(gap, anchorRect.top), Math.max(gap, innerHeight - previewRect.height - gap));
-      assetPreview.style.left = `${Math.max(gap, left)}px`;
-      assetPreview.style.top = `${top}px`;
+      const maxLeft = Math.max(gap, innerWidth - gap - previewRect.width);
+      const maxTop = Math.max(gap, innerHeight - gap - previewRect.height);
+      const clamp = (value, max) => Math.min(Math.max(gap, value), max);
+      // The pane sits on the right, so the space to its left is tried first, then
+      // the other side, then above or below the row: the preview must never be
+      // laid over the hovered file name, where the pointer is resting.
+      const placements = [
+        { left: anchorRect.left - gap - previewRect.width, top: anchorRect.top },
+        { left: anchorRect.right + gap, top: anchorRect.top },
+        { left: anchorRect.left, top: anchorRect.top - gap - previewRect.height },
+        { left: anchorRect.left, top: anchorRect.bottom + gap },
+      ];
+      const fits = placement => placement.left >= gap && placement.left + previewRect.width <= innerWidth - gap
+        && placement.top >= gap && placement.top + previewRect.height <= innerHeight - gap;
+      const clear = placement => placement.left + previewRect.width <= anchorRect.left
+        || placement.left >= anchorRect.right || placement.top + previewRect.height <= anchorRect.top
+        || placement.top >= anchorRect.bottom;
+      const chosen = placements.find(fits)
+        || placements.map(placement => ({ left: clamp(placement.left, maxLeft), top: clamp(placement.top, maxTop) })).find(clear)
+        || placements[0];
+      assetPreview.style.left = `${clamp(chosen.left, maxLeft)}px`;
+      assetPreview.style.top = `${clamp(chosen.top, maxTop)}px`;
+    }
+    function showAssetPreview(anchor, bundlePath, name) {
+      const source = `/api/scripts/asset?path=${encodeURIComponent(bundlePath)}&name=${encodeURIComponent(name)}`;
+      const token = assetPreviewToken + 1;
+      assetPreviewToken = token;
+      assetPreview.innerHTML = `<img src="${source}" alt="${escapeHTML(name)}">`;
+      assetPreview.hidden = false;
+      const image = assetPreview.querySelector('img');
+      // The box must only be measured once the bitmap has its final size: a
+      // preview positioned while the image is still loading grows afterwards and
+      // ends up covering the hovered file name and the pointer.
+      if (image && !image.complete) {
+        image.addEventListener('load', () => { if (token === assetPreviewToken) positionAssetPreview(anchor); }, { once: true });
+        image.addEventListener('error', hideAssetPreview, { once: true });
+      } else {
+        positionAssetPreview(anchor);
+      }
     }
     function activeBundlePath() {
       const doc = activeEditorDocument();
