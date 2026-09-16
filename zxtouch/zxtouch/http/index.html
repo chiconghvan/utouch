@@ -242,6 +242,9 @@
     .func-item:hover, .func-item:focus-visible { border-color: var(--blue); color: var(--text); }
     .func-tooltip { position: fixed; z-index: 1000; max-width: min(360px, calc(100vw - 24px)); padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 6px; color: var(--text); background: var(--panel); box-shadow: 0 8px 24px rgba(0,0,0,.35); font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; text-align: left; pointer-events: none; }
     .func-tooltip[hidden] { display: none; }
+    .funcpane-search { flex: 0 0 auto; padding: 9px 13px; border-bottom: 1px solid var(--line); }
+    .funcpane-search .search { width: 100%; min-height: 32px; padding: 6px 9px; font-size: 12px; }
+    .func-empty { padding: 18px 13px; color: var(--muted); font-size: 12px; text-align: center; }
     .runlog .panel-head { min-height: 56px; }
      .runlog-output { height: 30vh; min-height: 180px; max-height: calc(100vh - 320px); margin: 0; overflow: auto; overscroll-behavior: contain; padding: 13px 15px; color: #d5dbe3; background: #090b0e; font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
      .runlog-sep { color: var(--blue); }
@@ -401,7 +404,7 @@
             <div hidden><details id="transpiledWrap"><pre id="transpiledView"></pre></details><span id="editorStatus"></span></div>
             <section class="panel runlog"><div class="panel-head"><div class="panel-title"><h3>Run Log</h3><p id="runLogSummary">Script output only — accumulates across runs</p></div><div class="log-tools"><label class="toggle"><input id="runLogFollow" type="checkbox" checked>Follow</label><button class="button ghost" id="runLogClear">Clear</button></div></div><pre class="runlog-output" id="runLogOut">Run a script to see its output here.</pre></section>
           </div>
-          <aside class="funcpane panel" aria-label="Function palette"><div class="panel-head"><div class="panel-title"><h3>Functions</h3><p>Click to insert at cursor</p></div></div><div class="funcpane-body" id="funcPane"></div></aside>
+          <aside class="funcpane panel" aria-label="Function palette"><div class="panel-head"><div class="panel-title"><h3>Functions</h3><p id="funcPaneSummary">Click to insert at cursor</p></div></div><div class="funcpane-search"><input class="search" id="funcSearch" type="search" placeholder="Search functions" aria-label="Search functions" autocomplete="off"></div><div class="funcpane-body" id="funcPane"></div></aside>
         </div>
       </div>
     </section>
@@ -1611,9 +1614,23 @@
         });
       });
     }
+    function funcPaneQuery() { return (elements.funcSearch?.value || '').trim(); }
+    function functionMatches(item, group, query) {
+      const haystack = `${functionLabel(item)} ${functionKey(item)} ${group.g}`.toLowerCase();
+      return haystack.includes(query);
+    }
     function renderFuncPane() {      const lang = editorLang();
+      const query = funcPaneQuery().toLowerCase();
+      let total = 0;
+      let shown = 0;
       elements.funcPane.innerHTML = '';
       FUNC_GROUPS.forEach(group => {
+        const items = group.items.filter(item => {
+          total++;
+          return !query || functionMatches(item, group, query);
+        });
+        if (!items.length) return;
+        shown += items.length;
         const div = document.createElement('div');
         div.className = 'func-group';
         const h = document.createElement('h4');
@@ -1621,7 +1638,7 @@
         div.appendChild(h);
         const list = document.createElement('div');
         list.className = 'func-list';
-        group.items.forEach(item => {
+        items.forEach(item => {
           const name = functionLabel(item);
           const template = functionTemplate(item, lang);
           const signature = functionNote(item);
@@ -1639,6 +1656,22 @@
         });
         div.appendChild(list);
         elements.funcPane.appendChild(div);
+      });
+      if (query && !shown) {
+        const empty = document.createElement('div');
+        empty.className = 'func-empty';
+        empty.textContent = `No functions match “${funcPaneQuery()}”`;
+        elements.funcPane.appendChild(empty);
+      }
+      if (elements.funcPaneSummary) elements.funcPaneSummary.textContent = query ? `${shown} of ${total} functions` : 'Click to insert at cursor';
+    }
+    if (elements.funcSearch) {
+      elements.funcSearch.addEventListener('input', renderFuncPane);
+      elements.funcSearch.addEventListener('keydown', event => {
+        if (event.key !== 'Escape' || !elements.funcSearch.value) return;
+        event.stopPropagation();
+        elements.funcSearch.value = '';
+        renderFuncPane();
       });
     }
     // Run Log pane: script output only (sliced by server offset), accumulated

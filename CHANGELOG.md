@@ -9,6 +9,9 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thêm
+- Ô tìm nhanh trong bảng `Functions` của dashboard (Monaco): lọc theo tên hàm, tên hàm không kèm tham số và tên nhóm, không phân biệt hoa thường; dòng phụ đề hiện `N of M functions` khi đang lọc và `No functions match "…"` khi không có kết quả; `Esc` xoá nhanh từ khoá.
+
 ## [0.3.30] — 2026-09-16
 
 ### Đã thêm
