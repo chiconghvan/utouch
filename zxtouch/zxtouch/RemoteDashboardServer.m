@@ -1416,23 +1416,41 @@ static NSArray *ZXEditorFunctionCatalog(void)
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
         NSString *relativePath = [[request firstArgumentForControlName:@"script"] string];
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:relativePath];
-        GCDWebServerMultiPartFile *upload = [request firstFileForControlName:@"asset"];
-        NSString *fileName = upload.fileName.lastPathComponent;
-        NSDictionary *attributes = upload.temporaryPath.length ? [[NSFileManager defaultManager] attributesOfItemAtPath:upload.temporaryPath error:nil] : nil;
-        unsigned long long size = [attributes fileSize];
-        if (!bundlePath || upload == nil || ![strongSelf isSafeAssetFileName:fileName]) {
-            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Choose a script and an asset file." } status:400];
+        // One request may carry several "asset" parts (the dashboard's file
+        // input is a multi-select), so collect them all instead of the first.
+        NSMutableArray<GCDWebServerMultiPartFile *> *uploads = [NSMutableArray array];
+        for (GCDWebServerMultiPartFile *file in request.files) {
+            if ([file.controlName isEqualToString:@"asset"]) [uploads addObject:file];
         }
-        if (size > ZXDashboardMaximumAssetSize) {
-            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Assets must be 25 MB or smaller." } status:413];
+        if (!bundlePath || uploads.count == 0) {
+            return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Choose a script and at least one asset file." } status:400];
         }
-        NSString *destination = [bundlePath stringByAppendingPathComponent:fileName];
-        [[NSFileManager defaultManager] removeItemAtPath:destination error:nil];
-        NSError *error = nil;
-        BOOL copied = [[NSFileManager defaultManager] copyItemAtPath:upload.temporaryPath toPath:destination error:&error];
-        if (!copied) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to save asset." } status:500];
-        strongSelf.lastAction = [NSString stringWithFormat:@"Upload %@", fileName];
-        return [strongSelf jsonResponse:@{ @"ok": @YES, @"file": fileName } status:200];
+        NSFileManager *fileManager = [NSFileManager defaultManager];
+        NSMutableArray<NSString *> *fileNames = [NSMutableArray array];
+        // Validate the whole batch before copying anything: a rejected file
+        // must not leave the rest of the selection half-uploaded.
+        for (GCDWebServerMultiPartFile *upload in uploads) {
+            NSString *fileName = upload.fileName.lastPathComponent;
+            NSDictionary *attributes = upload.temporaryPath.length ? [fileManager attributesOfItemAtPath:upload.temporaryPath error:nil] : nil;
+            unsigned long long size = [attributes fileSize];
+            if (![strongSelf isSafeAssetFileName:fileName]) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": [NSString stringWithFormat:@"%@ cannot be added to a bundle.", fileName.length ? fileName : @"That file"] } status:400];
+            }
+            if (size > ZXDashboardMaximumAssetSize) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": [NSString stringWithFormat:@"%@ is larger than 25 MB.", fileName] } status:413];
+            }
+            [fileNames addObject:fileName];
+        }
+        for (NSUInteger index = 0; index < uploads.count; index++) {
+            NSString *destination = [bundlePath stringByAppendingPathComponent:fileNames[index]];
+            [fileManager removeItemAtPath:destination error:nil];
+            NSError *error = nil;
+            if (![fileManager copyItemAtPath:uploads[index].temporaryPath toPath:destination error:&error]) {
+                return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: [NSString stringWithFormat:@"Unable to save %@.", fileNames[index]] } status:500];
+            }
+        }
+        strongSelf.lastAction = fileNames.count == 1 ? [NSString stringWithFormat:@"Upload %@", fileNames[0]] : [NSString stringWithFormat:@"Upload %lu assets", (unsigned long)fileNames.count];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"files": fileNames } status:200];
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/download" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {

@@ -120,6 +120,11 @@
     .note-row:last-child { border-bottom: 0; }
     .note-mark { color: var(--green); }
 
+    /* Log Files card (Device view): the download buttons share the title row,
+       so the card is a single band without a body or trailing border. */
+    .log-files-panel { margin-top: 14px; }
+    .log-files-panel .panel-head { border-bottom: 0; }
+
     /* Installed apps card: vertical list, app name + bundle id per row. */
     .apps-panel { margin-top: 14px; }
     .apps-list { max-height: 460px; overflow: auto; overscroll-behavior: contain; }
@@ -370,11 +375,11 @@
         <section class="panel">
           <form class="asset-form" id="assetForm">
             <label class="field"><span class="field-label">Destination script</span><select id="assetScript" name="script"></select></label>
-            <label class="dropzone" for="assetFile"><input class="asset-input" id="assetFile" name="asset" type="file" required><span><span class="drop-icon">&#8593;</span><strong class="drop-title" id="assetFileName">Choose an asset</strong><span class="drop-detail">Tap to browse files, up to 25 MB</span></span></label>
-            <button class="button primary" id="uploadButton" type="submit"><span class="button-symbol">&#8593;</span>Upload asset</button>
+            <label class="dropzone" for="assetFile"><input class="asset-input" id="assetFile" name="asset" type="file" multiple required><span><span class="drop-icon">&#8593;</span><strong class="drop-title" id="assetFileName">Choose assets</strong><span class="drop-detail" id="assetDetail">Tap to browse files, up to 25 MB each</span></span></label>
+            <button class="button primary" id="uploadButton" type="submit"><span class="button-symbol">&#8593;</span>Upload assets</button>
           </form>
         </section>
-        <aside class="asset-notes"><h3>Upload safeguards</h3><div class="note-row"><span class="note-mark">&#10003;</span><span>Files stay inside the selected script bundle.</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>Bundle metadata cannot be overwritten.</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>Uploads larger than 25 MB are rejected.</span></div></aside>
+        <aside class="asset-notes"><h3>Upload safeguards</h3><div class="note-row"><span class="note-mark">&#10003;</span><span>Files stay inside the selected script bundle.</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>Bundle metadata cannot be overwritten.</span></div><div class="note-row"><span class="note-mark">&#10003;</span><span>Each file must be 25 MB or smaller.</span></div></aside>
       </div>
     </section>
 
@@ -390,6 +395,9 @@
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Current Status</h3></div></div><div class="data-grid"><div class="data-row"><div class="data-label">Service</div><div class="data-value" id="service">Checking</div></div><div class="data-row"><div class="data-label">Activity</div><div class="data-value" id="deviceActivity">Idle</div></div><div class="data-row"><div class="data-label">Display</div><div class="data-value" id="screen">-</div></div><div class="data-row"><div class="data-label">Orientation</div><div class="data-value" id="orientation">-</div></div><div class="data-row"><div class="data-label">Battery</div><div class="data-value" id="battery">-</div></div><div class="data-row"><div class="data-label">Foreground app</div><div class="data-value" id="foreground">-</div></div></div></section>
         <section class="panel"><div class="panel-head"><div class="panel-title"><h3>Diagnostics</h3></div></div><div class="diagnostics"><div class="diagnostic"><span class="diagnostic-label">Socket</span><span class="diagnostic-value" id="socketState">Checking</span></div><div class="diagnostic"><span class="diagnostic-label">HTTP port</span><span class="diagnostic-value" id="port">8688</span></div><div class="diagnostic"><span class="diagnostic-label">Scripts indexed</span><span class="diagnostic-value" id="scriptCount">-</span></div><div class="diagnostic"><span class="diagnostic-label">Access</span><span class="diagnostic-value">Open · LAN only</span></div><div class="diagnostic"><span class="diagnostic-label">Last error</span><span class="diagnostic-value" id="lastError">None</span></div></div></section>
       </div>
+      <section class="panel log-files-panel">
+        <div class="panel-head"><div class="panel-title"><h3>Log Files</h3></div><div class="panel-tools"><button class="button ghost download-log" id="downloadDashboarddLog" type="button" data-log="dashboardd" data-file="dashboardd.log"><span class="button-symbol">&#8595;</span>dashboardd.log</button><button class="button ghost download-log" id="downloadTrollvncLog" type="button" data-log="trollvnc" data-file="trollvnc.log"><span class="button-symbol">&#8595;</span>trollvnc.log</button><button class="button ghost download-log" id="downloadDebugLog" type="button" data-log="debug" data-file="dashboard-debug.log"><span class="button-symbol">&#8595;</span>dashboard-debug.log</button></div></div>
+      </section>
       <section class="panel apps-panel"><div class="panel-head"><div class="panel-title"><h3>Installed Apps</h3><p id="appsSummary">Loading apps</p></div><div class="panel-tools"><input class="search" id="appsSearch" type="search" placeholder="Search name or bundle id" aria-label="Search installed apps"><button class="button ghost" id="appsRefresh">Reload</button></div></div><div class="apps-list" id="apps"><div class="empty-state">Loading installed apps...</div></div></section>
     </section>
 
@@ -543,6 +551,30 @@
     }
     if (elements.appsSearch) elements.appsSearch.addEventListener('input', renderApps);
     if (elements.appsRefresh) elements.appsRefresh.addEventListener('click', () => loadApps(true));
+
+    // ── Log file downloads (Device view) ────────────────────────────────
+    // Fetched as a blob rather than navigated to, so a missing log (404)
+    // surfaces as a toast instead of replacing the dashboard with the error.
+    async function downloadLog(button) {
+      const file = button.dataset.file;
+      setButtonBusy(button, true, '&#8230;');
+      try {
+        const response = await fetch(`/api/logs/download?name=${encodeURIComponent(button.dataset.log)}`);
+        if (!response.ok) { let payload = null; try { payload = await response.json(); } catch (_) {} throw new Error((payload && payload.error) || `Dashboard returned HTTP ${response.status}.`); }
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        showToast(`Saved ${file}.`);
+      } catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(button, false); }
+    }
+    document.querySelectorAll('.download-log').forEach(button => button.addEventListener('click', () => downloadLog(button)));
+
     function renderLogs() { const filter = elements.logFilter.value.trim().toLowerCase(); const lines = state.rawLogs ? state.rawLogs.split(/\r?\n/) : []; const visible = filter ? lines.filter(line => line.toLowerCase().includes(filter)) : lines; const stick = elements.autoFollow.checked || elements.logs.scrollTop + elements.logs.clientHeight >= elements.logs.scrollHeight - 16; elements.logs.textContent = visible.join('\n') || 'No runtime log output yet.'; elements.logSummary.textContent = `${visible.length} visible line${visible.length === 1 ? '' : 's'}`; if (stick) elements.logs.scrollTop = elements.logs.scrollHeight; }
     async function loadLogs() { const payload = await api('/api/logs'); state.rawLogs = payload.logs || ''; renderLogs(); }
 
@@ -550,13 +582,43 @@
     async function stopScript() { if (!await ask('Stop active script?', 'The current script will stop immediately.', 'Stop script', true)) return; setButtonBusy(elements.stop, true, 'Stopping...'); try { await api('/api/stop', { method: 'POST' }); showToast('Stop requested.'); await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.stop, false); if (state.status) renderStatus(state.status); } }
     async function changeRecording(start) { const title = start ? 'Start touch recording?' : 'Stop and save recording?'; const message = start ? 'ZXTouch will record touch input until you stop it.' : 'The current recording will be saved to your script library.'; if (!await ask(title, message, start ? 'Start recording' : 'Stop and save', !start)) return; const button = start ? elements.recordStart : elements.recordStop; setButtonBusy(button, true, start ? 'Starting...' : 'Saving...'); try { await api(start ? '/api/record/start' : '/api/record/stop', { method: 'POST' }); showToast(start ? 'Recording started.' : 'Recording saved.'); await Promise.all([loadStatus(), start ? Promise.resolve() : loadScripts()]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(button, false); if (state.status) renderStatus(state.status); } }
 
-    async function uploadAsset(event) { event.preventDefault(); const file = elements.assetFile.files[0]; const scriptName = elements.assetScript.options[elements.assetScript.selectedIndex]?.textContent || 'selected script'; if (!file) { showToast('Choose an asset file first.', true); return; } if (file.size > 25 * 1024 * 1024) { showToast('Assets must be 25 MB or smaller.', true); return; } if (file.name.toLowerCase() === 'info.plist') { showToast('info.plist cannot be overwritten.', true); return; } if (!await ask('Upload asset?', `${file.name} will be added to ${scriptName}.`, 'Upload asset')) return; setButtonBusy(elements.uploadButton, true, 'Uploading...'); try { const payload = await api('/api/assets', { method: 'POST', body: new FormData(elements.assetForm) }); showToast(`${payload.file} uploaded.`); elements.assetFile.value = ''; elements.assetFileName.textContent = 'Choose an asset'; await loadStatus(); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.uploadButton, false); } }
+    // The dropzone reflects the whole selection: a count as the title and up
+    // to three names as the detail, so a large batch still fits on one line.
+    function setAssetSelection(files) {
+      if (!files.length) { elements.assetFileName.textContent = 'Choose assets'; elements.assetDetail.textContent = 'Tap to browse files, up to 25 MB each'; return; }
+      elements.assetFileName.textContent = files.length === 1 ? '1 asset selected' : `${files.length} assets selected`;
+      const names = files.map(file => file.name);
+      elements.assetDetail.textContent = names.length > 3 ? `${names.slice(0, 3).join(', ')} +${names.length - 3} more` : names.join(', ');
+    }
+    async function uploadAsset(event) {
+      event.preventDefault();
+      const files = Array.from(elements.assetFile.files);
+      const scriptName = elements.assetScript.options[elements.assetScript.selectedIndex]?.textContent || 'selected script';
+      if (!files.length) { showToast('Choose at least one asset file first.', true); return; }
+      const oversized = files.find(file => file.size > 25 * 1024 * 1024);
+      if (oversized) { showToast(`${oversized.name} is larger than 25 MB.`, true); return; }
+      const reserved = files.find(file => file.name.toLowerCase() === 'info.plist');
+      if (reserved) { showToast('info.plist cannot be overwritten.', true); return; }
+      const single = files.length === 1;
+      const what = single ? files[0].name : `${files.length} assets`;
+      if (!await ask(single ? 'Upload asset?' : 'Upload assets?', `${what} will be added to ${scriptName}.`, single ? 'Upload asset' : 'Upload assets')) return;
+      setButtonBusy(elements.uploadButton, true, 'Uploading...');
+      try {
+        const payload = await api('/api/assets', { method: 'POST', body: new FormData(elements.assetForm) });
+        const uploaded = payload.files || [];
+        showToast(uploaded.length === 1 ? `${uploaded[0]} uploaded.` : `${uploaded.length} assets uploaded.`);
+        elements.assetFile.value = '';
+        setAssetSelection([]);
+        await loadStatus();
+      } catch (error) { showToast(error.message, true); }
+      finally { setButtonBusy(elements.uploadButton, false); }
+    }
     function copyText(text) { if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text); const area = document.createElement('textarea'); area.value = text; area.style.position = 'fixed'; area.style.opacity = '0'; document.body.appendChild(area); area.select(); document.execCommand('copy'); area.remove(); return Promise.resolve(); }
     async function clearLogs() { if (!await ask('Clear runtime logs?', 'This removes the current log output from the device.', 'Clear logs', true)) return; try { await api('/api/logs/clear', { method: 'POST' }); state.rawLogs = ''; renderLogs(); showToast('Runtime logs cleared.'); await loadStatus(); } catch (error) { showToast(error.message, true); } }
     async function refreshAll() { setButtonBusy(elements.refresh, true, '&#8230;'); try { await Promise.all([loadScripts(), loadStatus(), loadLogs(), loadApps(true)]); } catch (error) { showToast(error.message, true); } finally { setButtonBusy(elements.refresh, false); } }
 
     elements.confirmCancel.addEventListener('click', () => closeConfirmation(false)); elements.confirmSecondary.addEventListener('click', () => closeConfirmation('secondary')); elements.confirmAccept.addEventListener('click', () => closeConfirmation(true)); elements.confirmModal.addEventListener('click', event => { if (event.target === elements.confirmModal) closeConfirmation(false); }); document.addEventListener('keydown', event => { if (event.key === 'Escape' && !elements.confirmModal.hidden) closeConfirmation(false); });
-    elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => { elements.assetFileName.textContent = elements.assetFile.files[0]?.name || 'Choose an asset'; }); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
+    elements.refresh.addEventListener('click', refreshAll); elements.stop.addEventListener('click', stopScript); elements.recordStart.addEventListener('click', () => changeRecording(true)); elements.recordStop.addEventListener('click', () => changeRecording(false)); elements.assetForm.addEventListener('submit', uploadAsset); elements.assetFile.addEventListener('change', () => setAssetSelection(Array.from(elements.assetFile.files))); elements.scriptSearch.addEventListener('input', renderScripts); elements.logFilter.addEventListener('input', renderLogs);
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => selectView(tab.dataset.view)));
     document.querySelectorAll('.segment').forEach(button => button.addEventListener('click', () => { state.scriptFilter = button.dataset.filter; document.querySelectorAll('.segment').forEach(segment => segment.classList.toggle('active', segment === button)); renderScripts(); }));
     elements.copyLogs.addEventListener('click', async () => { try { await copyText(state.rawLogs); showToast('Logs copied.'); } catch (_) { showToast('Unable to copy logs.', true); } });
