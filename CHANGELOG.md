@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.31] — 2026-09-16
+
 ### Đã thêm
 - Ô tìm nhanh trong bảng `Functions` của dashboard (Monaco): nằm cùng hàng, bên phải tiêu đề panel; lọc theo tên hàm, tên hàm không kèm tham số và tên nhóm, không phân biệt hoa thường; hiện `No functions match "…"` khi không có kết quả; `Esc` xoá nhanh từ khoá.
 - Tooltip trong bảng `Functions` có thêm một dòng mô tả ngắn cho từng hàm (lấy từ `docs/IDE/ioscontrol.md`), trước đây chỉ có chữ ký và kiểu trả về. Mô tả do daemon gửi vẫn được ưu tiên nếu có.
@@ -364,6 +366,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.31]: https://github.com/chiconghvan/utouch/compare/v0.3.30...v0.3.31
 [0.3.30]: https://github.com/chiconghvan/utouch/compare/v0.3.29...v0.3.30
 [0.3.29]: https://github.com/chiconghvan/utouch/compare/v0.3.28...v0.3.29
 [0.3.28]: https://github.com/chiconghvan/utouch/compare/v0.3.27...v0.3.28
