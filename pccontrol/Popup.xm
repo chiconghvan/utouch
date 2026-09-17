@@ -287,7 +287,9 @@ void applyPanelDarkMode(BOOL dark) {
                         [self saveSettings:_repeatCount speed:_speed interval:_interval];
                         dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                             NSError *err = nil;
-                            playScriptWithSettings((UInt8*)[fullPath UTF8String], repeat, sp, intv, &err);
+                            // Floating panel always runs in place: immediately on
+                            // the currently displayed screen, no app switch.
+                            playScriptWithSettingsInPlace((UInt8*)[fullPath UTF8String], repeat, sp, intv, &err);
                             if (err) showAlertBox(@"Error", [err localizedDescription], 999);
                         });
                     }]];
@@ -301,7 +303,9 @@ void applyPanelDarkMode(BOOL dark) {
                     [self saveSettings:_repeatCount speed:_speed interval:_interval enabled:NO];
                     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
                         NSError *err = nil;
-                        playScriptWithSettings((UInt8*)[fullPath UTF8String], 0, 1.0f, 0.0f, &err);
+                        // Floating panel always runs in place: immediately on
+                        // the currently displayed screen, no app switch.
+                        playScriptWithSettingsInPlace((UInt8*)[fullPath UTF8String], 0, 1.0f, 0.0f, &err);
                         if (err) showAlertBox(@"Error", [err localizedDescription], 999);
                     });
                 }

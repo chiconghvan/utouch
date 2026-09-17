@@ -1739,7 +1739,9 @@ static NSArray *ZXEditorFunctionCatalog(void)
         NSDictionary *body = [request.jsonObject isKindOfClass:[NSDictionary class]] ? request.jsonObject : @{};
         NSString *bundlePath = [strongSelf bundlePathForRelativePath:body[@"path"]];
         if (!bundlePath) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script was not found." } status:404];
-        NSString *result = [strongSelf sendSocketCommand:[@"19" stringByAppendingString:bundlePath] expectsReply:YES];
+        // Task 50 = in-place play: run immediately on the currently displayed
+        // screen without switching apps first (never yanks to ZXTouch).
+        NSString *result = [strongSelf sendSocketCommand:[@"50" stringByAppendingString:bundlePath] expectsReply:YES];
         strongSelf.lastAction = [NSString stringWithFormat:@"Run %@", bundlePath.lastPathComponent];
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"" } status:200];
     }];
@@ -1876,8 +1878,9 @@ static NSArray *ZXEditorFunctionCatalog(void)
     // ── Editor tab: ad-hoc write/run/save/load ──────────────────────
     // POST /api/editor/run {code, path?} — writes a hidden __editor__.bdl bundle
     // (outside SCRIPTS_PATH so quick runs don't pollute the library) and
-    // plays it immediately. FrontApp is pinned to the currently frontmost
-    // app so the run doesn't yank the user elsewhere. `path` is the library
+    // plays it immediately via task 50 (in-place: no app switch, runs on the
+    // currently displayed screen). FrontApp is still pinned to the currently
+    // frontmost app so the run doesn't yank the user elsewhere. `path` is the library
     // bundle the tab was opened from; its folder holds the assets the code
     // refers to by relative name, so the runtime resolves them there.
     [self.server addHandlerForMethod:@"POST" path:@"/api/editor/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
@@ -1902,7 +1905,9 @@ static NSArray *ZXEditorFunctionCatalog(void)
         // Byte offset BEFORE the run so the Editor tab can poll ONLY this
         // run's output (script prints, not older system/log lines).
         unsigned long long logOffset = [[[NSFileManager defaultManager] attributesOfItemAtPath:RUNTIME_OUTPUT_PATH error:nil] fileSize];
-        NSString *result = [strongSelf sendSocketCommand:[@"19" stringByAppendingString:bundlePath] expectsReply:YES];
+        // Task 50 = in-place play: run immediately on the currently displayed
+        // screen without switching apps first.
+        NSString *result = [strongSelf sendSocketCommand:[@"50" stringByAppendingString:bundlePath] expectsReply:YES];
         strongSelf.lastAction = @"Editor run";
         return [strongSelf jsonResponse:@{ @"ok": @([result hasPrefix:@"0"]), @"result": result ?: @"", @"logOffset": @(logOffset) } status:200];
     }];

@@ -201,7 +201,9 @@ static void runConfiguredTriggerAction(NSString *action, NSString *scriptPath)
         if (scriptPath && [scriptPath length] > 0)
         {
             NSError *err = nil;
-            playScript((UInt8*)[scriptPath UTF8String], &err);
+            // Hardware-button trigger runs in place: immediately on the
+            // currently displayed screen, no app switch.
+            playScriptInPlace((UInt8*)[scriptPath UTF8String], &err);
             if (err) showAlertBox(@"Error", [err localizedDescription], 999);
         }
         else

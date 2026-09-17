@@ -19,6 +19,18 @@ static NSString *ZXShellQuote(NSString *value)
     return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"]];
 }
 
+static BOOL ZXShouldSwitchToApp(NSString *bundleId)
+{
+    // Safety net: never yank the user into the ZXTouch app itself (or
+    // SpringBoard) when a stale info.plist records FrontApp as zxtouch.
+    // An empty FrontApp also means "stay where you are".
+    if (![bundleId isKindOfClass:[NSString class]] || bundleId.length == 0) return NO;
+    NSString *lower = [bundleId lowercaseString];
+    if ([lower isEqualToString:@"com.apple.springboard"]) return NO;
+    if ([lower containsString:@"zxtouch"]) return NO;
+    return YES;
+}
+
 static NSString *ZXFirstExecutablePath(NSArray<NSString *> *candidates)
 {
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -403,7 +415,7 @@ static NSString *ZXPythonModulePath(void)
 -(void)playFromRawFile:(NSString*) filePath foregroundApp:(NSString*)foregroundApp err:(NSError**)err
 {
     isPlaying = true;
-    if (switchAppBeforePlaying)
+    if (switchAppBeforePlaying && ZXShouldSwitchToApp(foregroundApp))
     {
         bringAppForeground(foregroundApp);
     }
@@ -488,7 +500,7 @@ static NSString *ZXPythonModulePath(void)
 {
     isPlaying = true;
 
-    if (switchAppBeforePlaying)
+    if (switchAppBeforePlaying && ZXShouldSwitchToApp(foregroundApp))
     {
         bringAppForeground(foregroundApp);
     }

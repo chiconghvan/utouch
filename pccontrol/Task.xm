@@ -153,6 +153,24 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_PLAY_SCRIPT_IN_PLACE)
+    {
+        // In-place play: floating panel + dashboard entry points. Runs
+        // immediately on the currently displayed screen without switching
+        // apps first (ignores the FrontApp stored in the bundle).
+        @autoreleasepool {
+            NSError *err = nil;
+            playScriptInPlace((UInt8*)eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)"0\r\n", writeStreamRef);
+            }
+        }
+    }
     else if (taskType == TASK_VALIDATE_SCRIPT)
     {
         @autoreleasepool {

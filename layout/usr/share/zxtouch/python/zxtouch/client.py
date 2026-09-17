@@ -145,6 +145,16 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PLAY_SCRIPT, script_absolute_path))
         return datahandler.decode_socket_data(self.s.recv(1024))
 
+    def play_script_in_place(self, script_absolute_path):
+        """Play a script immediately on the currently displayed screen,
+        without switching apps first (floating panel / dashboard behavior).
+
+        :param script_absolute_path: the absolute path of the script
+        :return: Result tuple: (success?, error_message/return value)
+        """
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_PLAY_SCRIPT_IN_PLACE, script_absolute_path))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
     def force_stop_script_play(self):
         """Force stopping playing current script"""
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PLAY_SCRIPT_FORCE_STOP))

@@ -38,3 +38,6 @@ TASK_PING = 46
 TASK_CRANE = 47
 TASK_DEBUG_MARK = 48
 TASK_VALIDATE_SCRIPT = 49
+# Run immediately on the currently displayed screen without switching apps
+# first (floating panel / dashboard entry points).
+TASK_PLAY_SCRIPT_IN_PLACE = 50
