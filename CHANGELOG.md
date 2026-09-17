@@ -9,6 +9,14 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.37] — 2026-09-17
+
+### Đã thay đổi
+- `findImage(path, count, threshold, region)` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py` luôn trả về danh sách các kết quả thay vì một dict đơn/`None`: mỗi kết quả là `{x, y, width, height, threshold}` (`threshold` phản ánh đúng ngưỡng đã yêu cầu, vì daemon chỉ trả hình học qua `TASK_IMAGE_MULTI`/`TASK_TEMPLATE_MATCH`). Không truyền `count` trả toàn bộ kết quả (tối đa `_FIND_IMAGE_DEFAULT_MAX = 20`) nên `len(...)` đếm được số vị trí khớp trên màn hình; truyền `count` giới hạn tối đa `count` kết quả ngay ở phía daemon; không khớp trả `[]`. Trước đây mặc định `count=1`, chỉ trả một dict/`None`, và multi-match bị rút gọn im lặng về kết quả đầu. `waitForImage`/`swipeUntilImage` giờ lấy phần tử đầu của danh sách (`matches[0]`, `None` khi rỗng), `zxUnpackMatch` hiểu match dạng dict để `tapImage` vẫn tap đúng tâm. Kiểu trả về trong `apispec.py`, dashboard web (`layout/Applications/zxtouch.app/index.html`, `zxtouch/zxtouch/http/index.html`) và gợi ý editor (`ZXPythonEditorSupport.m`) đổi từ `object | null` sang `object[]`; tài liệu `docs/IDE/ioscontrol.md` cập nhật chữ ký, ví dụ Lua và mặc định `count` (toàn bộ thay vì 1).
+
+### Đã sửa
+- VNC không dựng lại được trên rootless/roothide vì mọi lệnh khôi phục đi qua `system()` — vốn luôn exec `/bin/sh`, thứ không tồn tại trên rootless (chỉ có `/var/jb/bin/sh`) nên luôn trả `127<<8 = 32512` mà không để lại log. Nay `zxtouch/zxtouch/RemoteDashboardServer.m` spawn không qua shell bằng `posix_spawn` với đường dẫn tuyệt đối (không shell, không PATH, không `nohup`): `launchctl` qua `ZXVNCLaunchctl`/`ZXSpawnAndWait`, binary `trollvncserver` qua `ZXVNCServerBinaryPath()` (đọc `ProgramArguments[0]` từ plist đã cài, stdout/stderr append vào `trollvnc.log`), và kill VNC trong Settings qua `sysctl` + `kill()` trực tiếp (fallback spawn `killall` tuyệt đối) thay cho `system("killall ...")`. Kèm dò tiền tố jbroot sống trên roothide qua `ZXJbrootPrefix()` (`/var/jb` → `realpath` → helper `jbroot`) cho cả đường plist lẫn binary/`launchctl`, nên bản roothide không còn trỏ nhầm `/var/jb` cố định.
+
 ## [0.3.36] — 2026-09-17
 
 ### Đã thay đổi
@@ -426,6 +434,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.37]: https://github.com/chiconghvan/utouch/compare/v0.3.36...v0.3.37
 [0.3.36]: https://github.com/chiconghvan/utouch/compare/v0.3.35...v0.3.36
 [0.3.35]: https://github.com/chiconghvan/utouch/compare/v0.3.34...v0.3.35
 [0.3.34]: https://github.com/chiconghvan/utouch/compare/v0.3.33...v0.3.34
