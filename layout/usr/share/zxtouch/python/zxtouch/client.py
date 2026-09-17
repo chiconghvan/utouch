@@ -44,8 +44,6 @@ class zxtouch:
         py = int(y * 10)
         if event_type > 19:
             print("Touch index should not be greater than 19.")
-        print("[touch-wire] send type=%d finger=%d x=%s y=%s payload=1%d%02d%05d%05d" %
-              (event_type, finger, x, y, event_type, finger, px, py))
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_PERFORM_TOUCH,
                                                    '1{}{:02d}{:05d}{:05d}'.format(event_type, finger, px, py)))
 
