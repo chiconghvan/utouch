@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.36] — 2026-09-17
+
 ### Đã thay đổi
 - Hai host dashboard tách sang hai cổng: daemon `zxtouch-dashboardd` giữ `:8688`, server fallback trong SpringBoard chuyển sang `:8689`. Trước đây cả hai cùng nhắm `:8688` nên bên thua bind thất bại `Address already in use` mỗi 30 giây suốt nhiều giờ trong `dashboardd.log` và ở lại vòng lặp chết, trong khi API lại do bên thắng phục vụ. Cổng được chọn lúc biên dịch (`-DZX_DASHBOARD_DAEMON=1` cho tool; tweak SpringBoard dùng cổng fallback) và URL trong Settings tự dò cổng nào đang thật sự lắng nghe, nên fallback vẫn dùng được khi daemon chết.
 
@@ -17,6 +19,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 - VNC không dựng lại được sau khi server nhận TERM giữa lúc đang tắt: `ZXVNCStartServerDirectly` coi "đang chạy" là "có tiến trình tên `trollvncserver`", nên khi tiến trình cũ còn tên nhưng đã đóng hết listener (dòng cuối `trollvnc.log` là `listenerRun: error in select: Bad file descriptor`) thì mọi lần recover lẫn vòng quét 30 giây của daemon đều thoát im lặng — `POST /api/vnc/recover` trả 503 kèm `started:true` mà không có tiến trình mới nào được exec. Nay điều kiện là cổng `:5901` có trả lời; tiến trình còn sống mà cổng đóng bị SIGKILL trước khi spawn, và nhánh OFF ghi log khi có tiến trình sống sót qua cả SIGKILL.
 - Lệnh spawn TrollVNC im lặng khi thất bại: `nohup` cùng các lời gọi `launchctl` trần không có trong PATH của daemon do launchd khởi động, còn lỗi của shell thì không được chuyển đi đâu. Nay lệnh tự đặt `PATH` gồm các thư mục rootless và cả nhóm lệnh được chuyển vào `trollvnc.log`, kèm log mã trả về của `system()`; `kill()` bị từ chối (EPERM) cũng được ghi kèm `errno` thay vì bỏ qua.
 - `Disabled` của LaunchDaemon TrollVNC không bao giờ được ghi: đường cũ dựa vào `plutil`, thứ không có trên bản cài rootless, nên việc tắt VNC trông như đã áp dụng trong khi job vẫn loadable. Nay plist được sửa ngay trong tiến trình bằng `NSPropertyListSerialization` và ghi log khi không ghi được (file thuộc root).
+- Chạy code từ tab Editor của dashboard làm `findImage("home-activ.png")` trả `None` dù ảnh có trong script: tab Editor dàn code vào bundle tạm `__editor__.bdl` chỉ chứa `info.plist` và `entry.py`, nên tên trần tới daemon không trỏ vào thư mục asset nào và template không load được — ngay cả `threshold=0.1` (vốn trả vị trí tốt nhất khi template load được) cũng vẫn `None`. Nay bundle tạm ghi lại bundle thư viện mà tab được mở từ đó vào `AssetDir` trong `info.plist`, `POST /api/editor/run` nhận `path` qua `bundlePathForRelativePath:`; `ScriptPlayer` đọc `AssetDir` đặt làm thư mục làm việc và xuất `ZX_ASSET_DIR`, `zxtouch.runner` ưu tiên `ZX_ASSET_DIR` khi là thư mục tồn tại, còn `prelude.setAssetDir(directory)` thành khái niệm chung (đường dẫn tương đối giải trong đó, kể cả thư mục con như `img/btn.png`) và `setScriptDir(path)` giữ vai trò tiện ích cho trường hợp asset nằm cạnh file entry. Tài liệu `docs/IDE/ioscontrol.md` nêu quy tắc thư mục asset cho mọi tham số `path` của `findImage`/`waitForImage`/`tapImage`/`swipeUntilImage`.
 
 ## [0.3.35] — 2026-09-16
 
@@ -423,6 +426,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.36]: https://github.com/chiconghvan/utouch/compare/v0.3.35...v0.3.36
 [0.3.35]: https://github.com/chiconghvan/utouch/compare/v0.3.34...v0.3.35
 [0.3.34]: https://github.com/chiconghvan/utouch/compare/v0.3.33...v0.3.34
 [0.3.33]: https://github.com/chiconghvan/utouch/compare/v0.3.32...v0.3.33
