@@ -317,7 +317,8 @@ def test_tap_text_index_is_one_based():
 def test_tap_image_taps_center():
     d = use_fake()
     m = prelude.tapImage("a.png", timeout=1)
-    assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
+    assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
+                 "threshold": 0.8}
     assert any(c[0] == "touch" for c in d.calls)
 
 
@@ -375,7 +376,8 @@ def test_type_text_rejects_non_string():
 def test_fallbacks_against_old_daemon():
     d = use_fake()  # FakeDevice raises for multi/region/record-device paths
     assert prelude.findColor(0xFF0000) == [(10, 20)]  # legacy single-point
-    assert prelude.findImage("a.png") == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
+    assert prelude.findImage("a.png") == [{"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
+                                           "threshold": 0.8}]  # old daemon: single fallback, wrapped
     evs = [{"type": "tap", "x": 1, "y": 2}]
     prelude.recordPlay(evs)  # local replay
     assert any(c[0] == "touch" for c in d.calls)
@@ -999,8 +1001,10 @@ def test_screen_size_and_matches_are_lua_tables():
     m = prelude.findText("Files")[0]
     assert m.x == "1" and m["text"] == "Files"       # attr + subscript alike
     im = prelude.findImage("a.png")
-    assert im.x == "5.00" and im["y"] == "6.00"
-    assert im == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
+    assert len(im) == 1                                # no count: all matches
+    assert im[0].x == "5.00" and im[0]["y"] == "6.00"
+    assert im == [{"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
+                   "threshold": 0.8}]
 
 
 def test_lua_helpers_are_exported():
@@ -1080,10 +1084,19 @@ def test_find_image_multi_reports_count(capsys):
     prelude.set_device(MultiDev())
     try:
         m = prelude.findImage("a.png", count=4)
-        assert m == {"x": "1", "y": "2", "width": "4", "height": "4"}  # one-match contract
-        assert m.x == "1"                                             # Lua-style access
+        assert m == [{"x": "1", "y": "2", "width": "4", "height": "4", "threshold": 0.8},
+                      {"x": "5", "y": "6", "width": "4", "height": "4", "threshold": 0.8}]
+        assert m[0].x == "1"                                        # Lua-style access
+        assert prelude.zxUnpackMatch(m) == (True, 3, 4)             # unpack takes first
         out = capsys.readouterr().out
         assert "2/4" in out                                  # no silent discard of extra matches
+        # No count: all matches, so len() counts hits on screen.
+        all_m = prelude.findImage("a.png")
+        assert len(all_m) == 2 and all_m[1]["x"] == "5"
+        assert all_m[0]["threshold"] == 0.8
+        # Explicit count caps the daemon-side search.
+        one = prelude.findImage("a.png", 1)
+        assert len(one) == 1 and one[0]["x"] == "1"
     finally:
         prelude.disconnect()
 
@@ -1144,7 +1157,8 @@ def test_tap_image_resolves_in_bundle(tmp_path):
     prelude.setScriptDir(str(bundle / "home.py"))
     try:
         m = prelude.tapImage("btn.png", timeout=0.1)
-        assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"}
+        assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
+                     "threshold": 0.8}
         assert ("image", (str(bundle / "btn.png"), 0.8, 2, 0.8)) in d.calls
     finally:
         prelude.setScriptDir(None)

@@ -447,6 +447,12 @@ def zxUnpackMatch(value):
         if not value:
             return (False, None, None)
         first = value[0]
+        if isinstance(first, dict):
+            if "x" in first or "y" in first:
+                cx = _num(first.get("x", 0)) + _num(first.get("width", 0)) // 2
+                cy = _num(first.get("y", 0)) + _num(first.get("height", 0)) // 2
+                return (True, cx, cy)
+            return (True, None, None)
         if isinstance(first, (list, tuple)) and len(first) >= 2:
             return (True, _num(first[0]), _num(first[1]))
         if len(value) >= 2 and value[1] is not None and not isinstance(value[1], (list, dict, str)):
@@ -612,62 +618,98 @@ def _resolve_image_path(path):
     return path
 
 
-def findImage(path, count=1, threshold=0.8, region=None):
-    """Find template image. Returns dict {x,y,width,height} or None.
+def _attach_threshold(match, threshold):
+    """Expose the requested threshold on a match dict.
+
+    The daemon's TASK_IMAGE_MULTI / TASK_TEMPLATE_MATCH answers carry only
+    x,y,width,height (no per-hit score), so the only honest per-match number
+    we can report without a protocol change is the threshold the caller asked
+    for. A daemon-provided score/threshold is preserved when present.
+    """
+    if isinstance(match, dict):
+        if "threshold" not in match and "score" not in match:
+            try:
+                match["threshold"] = float(threshold)
+            except (TypeError, ValueError):
+                match["threshold"] = threshold
+    return match
+
+
+def _dbg_match(m):
+    _dbg_rect(_num(m.get("x", 0)), _num(m.get("y", 0)),
+              _num(m.get("width", 0)), _num(m.get("height", 0)))
+
+
+# Cap used when findImage() is called without an explicit count ("give me
+# everything"). The daemon's TASK_IMAGE_MULTI answers with at most one hit
+# per 2x2 tile (<= 4 today), so 20 is generous without stressing the 8192
+# recv buffer.
+_FIND_IMAGE_DEFAULT_MAX = 20
+
+
+def findImage(path, count=None, threshold=0.8, region=None):
+    """Find template image. Always returns a list of matches.
 
     ``path`` may be an absolute device path or a file name next to the script
     (see _resolve_image_path).
 
-    Uses native TASK_IMAGE_REGION / TASK_IMAGE_MULTI when a region or
-    count>1 is requested; falls back to full-screen single match. The
-    contract is one match (the docs' ``count`` caps the device-side search),
-    so when multi-match answers with more hits than the caller asked for, or
-    an older daemon lacks the task, that shows up in the log instead of
-    silently changing what comes back.
+    * ``findImage("a.png")`` — no ``count``: returns ALL matches (up to
+      ``_FIND_IMAGE_DEFAULT_MAX``), so ``len(...)`` counts hits on screen.
+    * ``findImage("a.png", 5, 0.85)``: returns up to 5 matches (fewer when
+      the screen holds fewer).
+    * ``[]`` when nothing matches.
+
+    Each match is ``{x, y, width, height, threshold}``. ``threshold`` echoes
+    the requested threshold — the daemon answers with geometry only, no
+    per-hit score.
     """
     path = _resolve_image_path(path)
-    want = max(1, int(count))
+    want = _FIND_IMAGE_DEFAULT_MAX if count is None else max(1, int(count))
     if region is not None:
         try:
             ok, res = get_device().find_image_in_region(path, region, threshold)
             if ok:
-                res = _match_result(res)
-                _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
-                          _num(res.get("width", 0)), _num(res.get("height", 0)))
-                return res
+                # The region task answers with a single hit; wrap it so the
+                # return shape stays a list whatever the caller asked for.
+                res = _attach_threshold(_match_result(res), threshold)
+                _dbg_match(res)
+                return [res]
             log("findImage: region search failed (%s), trying full screen" % (res,))
         except Exception as e:
             log("findImage: daemon khong ho tro region search (%s), mui lon man hinh" % (e,))
-    if want > 1:
-        try:
-            ok, res = get_device().image_match_multi(path, threshold, want)
-            if ok and res:
-                if len(res) < want:
-                    log("findImage: daemon tra %d/%d match" % (len(res), want))
-                res = _match_result(res[0])
-                _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
-                          _num(res.get("width", 0)), _num(res.get("height", 0)))
-                return res
-            if ok:
-                log("findImage: multi-match khong thay match nao")
-                return None
-        except Exception as e:
-            log("findImage: daemon khong ho tro multi-match (%s)" % (e,))
+    try:
+        ok, res = get_device().image_match_multi(path, threshold, want)
+        if ok and res:
+            if len(res) < want:
+                log("findImage: daemon tra %d/%d match" % (len(res), want))
+            out = [_attach_threshold(_match_result(m), threshold)
+                   for m in list(res)[:want]]
+            for m in out:
+                _dbg_match(m)
+            return out
+        if ok:
+            log("findImage: multi-match khong thay match nao")
+            return []
+    except Exception as e:
+        log("findImage: daemon khong ho tro multi-match (%s)" % (e,))
+    # Old daemon without TASK_IMAGE_MULTI: single-match fallback, wrapped.
     ok, res = get_device().image_match(path, threshold, 2, 0.8)
     if not ok:
-        return None
-    res = _match_result(res)
-    _dbg_rect(_num(res.get("x", 0)), _num(res.get("y", 0)),
-              _num(res.get("width", 0)), _num(res.get("height", 0)))
-    return res
+        return []
+    res = _attach_threshold(_match_result(res), threshold)
+    _dbg_match(res)
+    if want > 1:
+        log("findImage: daemon cu khong ho tro multi-match, tra 1/%d ket qua" % (want,))
+    return [res]
 
 
 def waitForImage(path, timeout=10.0, threshold=0.8, interval=0.5):
+    """Wait for image to appear. Returns the first match dict or None."""
     end = time.time() + timeout
     while time.time() <= end:
-        m = findImage(path, threshold=threshold)
-        if m:
-            return m
+        matches = findImage(path, threshold=threshold)
+        if matches:
+            return matches[0]
         time.sleep(interval)
     return None
 
@@ -852,7 +894,7 @@ def tapText(text, timeout=10.0, index=1, region=None, lang=None):
 
 
 def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5):
-    """Swipe until image found. Returns match dict or None."""
+    """Swipe until image found. Returns the first match dict or None."""
     dirs = {
         "up": (200, 600, 200, 200),
         "down": (200, 200, 200, 600),
@@ -861,12 +903,13 @@ def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5)
     }
     x1, y1, x2, y2 = dirs.get(direction, dirs["up"])
     for _ in range(maxSwipes):
-        m = findImage(path, threshold=threshold)
-        if m:
-            return m
+        matches = findImage(path, threshold=threshold)
+        if matches:
+            return matches[0]
         swipe(x1, y1, x2, y2, speed)
         time.sleep(0.5)
-    return findImage(path, threshold=threshold)
+    matches = findImage(path, threshold=threshold)
+    return matches[0] if matches else None
 
 
 def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5, lang=None):

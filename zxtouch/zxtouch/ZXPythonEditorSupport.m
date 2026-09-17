@@ -69,7 +69,7 @@ static NSArray<NSDictionary *> *ZXFallbackCompletions(void)
             ZXCompletion(@"longPress", @"longPress(x: number, y: number, duration: number)", @"void", @"function"),
             ZXCompletion(@"getColor", @"getColor(x: number, y: number)", @"number", @"function"),
             ZXCompletion(@"findColor", @"findColor(color: number, region: table)", @"[number, number][]", @"function"),
-            ZXCompletion(@"findImage", @"findImage(path: text, region: table = None)", @"object | null", @"function"),
+            ZXCompletion(@"findImage", @"findImage(path: text, count: number = None, threshold: number = 0.8, region: table = None)", @"object[]", @"function"),
             ZXCompletion(@"ocrText", @"ocrText(region: table = None)", @"string", @"function"),
             ZXCompletion(@"findText", @"findText(text: string, region: table = None)", @"object[]", @"function"),
             ZXCompletion(@"tapImage", @"tapImage(path: text, region: table = None)", @"object | null", @"function"),

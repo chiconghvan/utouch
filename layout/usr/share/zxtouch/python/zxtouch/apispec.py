@@ -65,7 +65,7 @@ RETURN_TYPES: Dict[str, str] = {
     "findColor": "[number, number][]",
     "findColors": "[number, number][]",
     "waitForColor": "boolean",
-    "findImage": "object | null",
+    "findImage": "object[]",
     "waitForImage": "object | null",
     "screenshot": "string",
     "deleteScreenshot": "boolean",

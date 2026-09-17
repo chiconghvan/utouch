@@ -505,8 +505,8 @@ _Mọi `path` bên dưới được giải theo **thư mục asset** của scrip
 ### `findImage(path, count, threshold, region)`
 
 - Type: `func`
-- EN: Find template image on screen. When count=1: returns x, y (two values). When count>1: returns table of {{x,y}, ...}
-- VI: Tìm hình ảnh mẫu trên màn hình. Khi count=1: trả về x, y (hai giá trị). Khi count>1: trả về bảng {{x,y}, ...}
+- EN: Find template image on screen. Always returns a list of matches; each match is {x, y, width, height, threshold}. No count: returns all matches (so #matches counts hits). With count: returns up to count matches.
+- VI: Tìm hình ảnh mẫu trên màn hình. Luôn trả về danh sách các kết quả; mỗi kết quả là {x, y, width, height, threshold}. Không truyền count: trả toàn bộ kết quả (đếm qua #matches). Có count: trả tối đa count kết quả.
 - Return: `[object Object]`
 
 **Params:**
@@ -514,32 +514,32 @@ _Mọi `path` bên dưới được giải theo **thư mục asset** của scrip
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
 | `path` | `string` | yes | Image path — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Đường dẫn ảnh — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
-| `count` | `number` | no | Max matches (default: 1) | Số kết quả tối đa (mặc định: 1) |
+| `count` | `number` | no | Max matches (default: all matches) | Số kết quả tối đa (mặc định: toàn bộ) |
 | `threshold` | `number` | no | Match threshold 0-1 (default: 0.8) | Ngưỡng khớp 0-1 (mặc định: 0.8) |
 | `region` | `table` | no | {x, y, w, h} search region (POINT) | Vùng tìm {x, y, w, h} (POINT) |
 
 **Example (Lua/cURL):**
 
 ```lua
--- count=1 (default): returns x, y
-local x, y = findImage("play_btn.png")
-if x then
-  tap(x, y)
-  log("Found at " .. x .. "," .. y)
+-- no count: all matches, #matches counts hits on screen
+local matches = findImage("play_btn.png")
+if #matches > 0 then
+  tap(matches[1].x + matches[1].width // 2, matches[1].y + matches[1].height // 2)
+  log("Found " .. #matches .. " matches")
 else
   log("Not found")
 end
 
--- count>1: returns table
+-- count: up to 5 matches (fewer when the screen holds fewer)
 local matches = findImage("star.png", 5, 0.85)
 log("Found " .. #matches .. " matches")
 for i, m in ipairs(matches) do
-  tap(m[1], m[2])  -- m[1]=x, m[2]=y
+  tap(m.x + m.width // 2, m.y + m.height // 2)  -- each m has x,y,width,height,threshold
   sleep(0.3)
 end
 
 -- With region (search only bottom half)
-local x, y = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
+local matches = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
 ```
 ---
 
