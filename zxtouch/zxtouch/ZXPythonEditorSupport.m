@@ -392,7 +392,19 @@ static NSString *ZXTrimTrailingWhitespace(NSString *line)
     NSString *prefix = match ? [before substringWithRange:[match rangeAtIndex:1]] : @"";
     NSMutableArray *items = [NSMutableArray arrayWithArray:ZXFallbackCompletions()];
     [items addObjectsFromArray:ZXKeywordCompletions()];
-    NSArray *paths = @[@"/var/jb/usr/share/zxtouch/python/zxtouch/prelude.py", @"/usr/share/zxtouch/python/zxtouch/prelude.py"];
+    // Resolve the jbroot prefix from our own bundle path so this also works
+    // under roothide's randomized prefix (no libroothide in the Xcode app
+    // target): $JBROOT/Applications/zxtouch.app -> $JBROOT. Rootless keeps
+    // working via the /var/jb fallback below.
+    NSMutableArray *paths = [NSMutableArray array];
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    NSString *suffix = @"/Applications/zxtouch.app";
+    if ([bundlePath hasSuffix:suffix]) {
+        NSString *prefix = [bundlePath substringToIndex:bundlePath.length - suffix.length];
+        if (prefix.length == 0) prefix = @"/";
+        [paths addObject:[prefix stringByAppendingPathComponent:@"usr/share/zxtouch/python/zxtouch/prelude.py"]];
+    }
+    [paths addObjectsFromArray:@[@"/var/jb/usr/share/zxtouch/python/zxtouch/prelude.py", @"/usr/share/zxtouch/python/zxtouch/prelude.py"]];
     NSString *prelude = nil;
     for (NSString *path in paths) {
         prelude = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil];

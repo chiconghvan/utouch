@@ -30,5 +30,6 @@ zxtouch-dashboardd_CFLAGS = -Wno-error -Wno-module-import-in-extern-c -fobjc-arc
 	-I../zxtouch/zxtouch/GCDWebServer/Requests
 zxtouch-dashboardd_FRAMEWORKS = Foundation UIKit
 zxtouch-dashboardd_ARCHS = arm64 arm64e
+zxtouch-dashboardd_CODESIGN_FLAGS = -Sdashboardd.entitlements
 
 include $(THEOS_MAKE_PATH)/tool.mk

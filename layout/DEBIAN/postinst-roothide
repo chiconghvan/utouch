@@ -174,9 +174,17 @@ if [ -n "$DASH_BIN" ] && [ -x "$DASH_BIN" ]; then
         # session-close marker and the upgrade does not look like a crash in
         # dashboard-debug.log; SIGKILL then guarantees a wedged copy cannot
         # survive next to the new instance.
-        /usr/bin/killall zxtouch-dashboardd 2>/dev/null || killall zxtouch-dashboardd 2>/dev/null || true
-        sleep 1
-        /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
+        # killall via jbroot first (randomized prefix); stock fallback stays.
+        KILLALL_BIN=$(jbroot /usr/bin/killall 2>/dev/null)
+        if [ -n "$KILLALL_BIN" ] && [ -x "$KILLALL_BIN" ]; then
+            "$KILLALL_BIN" zxtouch-dashboardd 2>/dev/null || true
+            sleep 1
+            "$KILLALL_BIN" -9 zxtouch-dashboardd 2>/dev/null || true
+        else
+            /usr/bin/killall zxtouch-dashboardd 2>/dev/null || killall zxtouch-dashboardd 2>/dev/null || true
+            sleep 1
+            /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
+        fi
         if ! launchctl load "$DASH_PLIST" 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
             echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8689." >> /var/mobile/Library/ZXTouch/dashboardd.log
         fi

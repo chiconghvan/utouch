@@ -1,0 +1,28 @@
+#!/bin/sh
+# roothide prerm — mirrors prerm (rootless) but resolves every path through
+# `jbroot` because the prefix is randomized per install (no fixed /var/jb).
+# Stops all three daemons before an upgrade or removal so no copy of the
+# previous build can end up running next to the new one. SIGTERM first so
+# daemons write their session-close markers, then SIGKILL for wedged copies.
+
+DASH_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null)
+TVNC_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null)
+OCR_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.ocr.plist 2>/dev/null)
+KILLALL=$(jbroot /usr/bin/killall 2>/dev/null)
+
+for PLIST in "$DASH_PLIST" "$TVNC_PLIST" "$OCR_PLIST"; do
+    [ -n "$PLIST" ] || continue
+    launchctl unload "$PLIST" 2>/dev/null || true
+done
+
+if [ -n "$KILLALL" ] && [ -x "$KILLALL" ]; then
+    "$KILLALL" zxtouch-dashboardd 2>/dev/null || true
+    sleep 1
+    "$KILLALL" -9 zxtouch-dashboardd 2>/dev/null || true
+else
+    /usr/bin/killall zxtouch-dashboardd 2>/dev/null || killall zxtouch-dashboardd 2>/dev/null || true
+    sleep 1
+    /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
+fi
+
+exit 0

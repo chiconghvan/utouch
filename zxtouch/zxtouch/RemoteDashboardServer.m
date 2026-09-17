@@ -44,6 +44,42 @@ extern char **environ;
 #import "GCDWebServerFileResponse.h"
 #import "GCDWebServerMultiPartFormRequest.h"
 
+// Roothide prefix resolution. This file is compiled into three targets:
+// pccontrol (theos tweak), zxtouch-dashboardd (theos tool) and the Xcode
+// zxtouch app — the last one has no <roothide.h>, so the import is guarded.
+// Helpers below always prefer jbroot()/bundle-derived live prefix first and
+// keep /var/jb as the rootless fallback, so both schemes keep working.
+#if __has_include(<roothide.h>)
+#include <roothide.h>
+#define ZX_HAS_JBROOT 1
+#else
+#define ZX_HAS_JBROOT 0
+#endif
+
+static NSString *ZXJbrootResolve(NSString *path)
+{
+#if ZX_HAS_JBROOT
+    NSString *r = jbroot(path);
+    if (r.length) return r;
+#endif
+    return nil;
+}
+
+// Derive the jbroot prefix from our own app bundle path without libroothide:
+// $JBROOT/Applications/zxtouch.app -> $JBROOT. Works in the Xcode app process
+// on both schemes (rootless: /var/jb). Returns nil when not inside zxtouch.app.
+static NSString *ZXBundleJbPrefix(void)
+{
+    NSString *bundlePath = [[NSBundle mainBundle] bundlePath];
+    NSString *suffix = @"/Applications/zxtouch.app";
+    if ([bundlePath hasSuffix:suffix]) {
+        NSString *prefix = [bundlePath substringToIndex:bundlePath.length - suffix.length];
+        if (prefix.length == 0) prefix = @"/";
+        return prefix;
+    }
+    return nil;
+}
+
 static NSString *const ZXDashboardConfigPath = @"/var/mobile/Library/ZXTouch/config/tweak/remote_dashboard.plist";
 static NSString *const ZXDashboardEnabledKey = @"enabled";
 static const char *ZXDashboardConfigurationNotification = "com.zjx.zxtouch.remote-dashboard-changed";
@@ -469,6 +505,29 @@ static NSString *ZXJbrootPrefix(void)
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSFileManager *fm = [NSFileManager defaultManager];
+        // Fast path 1 (direct C API): when compiled with libroothide, resolve
+        // a known installed path and strip the suffix to get the live prefix.
+        // Works on roothide (randomized) and rootless (/var/jb) alike.
+        NSString *probed = ZXJbrootResolve(@"/Library/LaunchDaemons/com.zjx.trollvnc.plist");
+        if (probed) {
+            // probed = $JBROOT/Library/LaunchDaemons/com.zjx.trollvnc.plist:
+            // strip file + LaunchDaemons + Library to get $JBROOT.
+            NSString *prefix = [[[probed stringByDeletingLastPathComponent]
+                stringByDeletingLastPathComponent]
+                stringByDeletingLastPathComponent];
+            if (prefix.length > 1 &&
+                [fm fileExistsAtPath:[prefix stringByAppendingPathComponent:@"Library/LaunchDaemons/com.zjx.trollvnc.plist"]]) {
+                cached = [prefix copy];
+                return;
+            }
+        }
+        // Fast path 2 (header-less): own app bundle reveals the live prefix.
+        NSString *bundlePrefix = ZXBundleJbPrefix();
+        if (bundlePrefix &&
+            [fm fileExistsAtPath:[bundlePrefix stringByAppendingPathComponent:@"Library/LaunchDaemons/com.zjx.trollvnc.plist"]]) {
+            cached = [bundlePrefix copy];
+            return;
+        }
         // Fast path rootless: stock /var/jb layout.
         if ([fm fileExistsAtPath:@"/var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist"] ||
             [fm fileExistsAtPath:@"/var/jb/usr/bin/trollvncserver"]) {
@@ -567,7 +626,13 @@ static NSString *ZXVNCServerBinaryPath(void)
         return args[0];
     }
     NSFileManager *fm = [NSFileManager defaultManager];
-    for (NSString *p in @[@"/var/jb/usr/bin/trollvncserver", @"/usr/bin/trollvncserver"]) {
+    NSMutableArray<NSString *> *serverCandidates = [NSMutableArray array];
+    NSString *jbServer = ZXJbrootResolve(@"/usr/bin/trollvncserver");
+    if (jbServer.length) [serverCandidates addObject:jbServer];
+    NSString *bundlePrefix = ZXBundleJbPrefix();
+    if (bundlePrefix.length) [serverCandidates addObject:[bundlePrefix stringByAppendingPathComponent:@"usr/bin/trollvncserver"]];
+    [serverCandidates addObjectsFromArray:@[@"/var/jb/usr/bin/trollvncserver", @"/usr/bin/trollvncserver"]];
+    for (NSString *p in serverCandidates) {
         if ([fm isExecutableFileAtPath:p]) return p;
     }
     NSString *prefix = ZXJbrootPrefix();
@@ -640,8 +705,14 @@ static void ZXVNCLaunchctl(NSString *verb, BOOL withW, NSString *daemonPath)
     const char *daemon = daemonPath.UTF8String;
     if (!daemon || !daemon[0]) return;
     // Fixed candidates (rootless + stock) plus the live roothide prefix.
-    NSMutableArray<NSString *> *list = [NSMutableArray arrayWithObjects:
-        @"/var/jb/bin/launchctl", @"/bin/launchctl", @"/usr/bin/launchctl", nil];
+    // jbroot()/bundle-derived entries go first so the randomized roothide
+    // prefix wins; /var/jb stays as the rootless fallback.
+    NSMutableArray<NSString *> *list = [NSMutableArray array];
+    NSString *jbCtl = ZXJbrootResolve(@"/bin/launchctl");
+    if (jbCtl.length) [list addObject:jbCtl];
+    NSString *bundlePrefix = ZXBundleJbPrefix();
+    if (bundlePrefix.length) [list addObject:[bundlePrefix stringByAppendingPathComponent:@"bin/launchctl"]];
+    [list addObjectsFromArray:@[@"/var/jb/bin/launchctl", @"/bin/launchctl", @"/usr/bin/launchctl"]];
     NSString *prefix = ZXJbrootPrefix();
     if (prefix && ![prefix isEqualToString:@"/var/jb"]) {
         [list insertObject:[prefix stringByAppendingPathComponent:@"bin/launchctl"] atIndex:0];
@@ -977,10 +1048,15 @@ static NSString *ZXDashboardIPAddress(void)
 
 static NSString *ZXPreludePath(void)
 {
-    NSArray *paths = @[
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    NSString *jbPrelude = ZXJbrootResolve(@"/usr/share/zxtouch/python/zxtouch/prelude.py");
+    if (jbPrelude.length) [paths addObject:jbPrelude];
+    NSString *bundlePrefix = ZXBundleJbPrefix();
+    if (bundlePrefix.length) [paths addObject:[bundlePrefix stringByAppendingPathComponent:@"usr/share/zxtouch/python/zxtouch/prelude.py"]];
+    [paths addObjectsFromArray:@[
         @"/var/jb/usr/share/zxtouch/python/zxtouch/prelude.py",
         @"/usr/share/zxtouch/python/zxtouch/prelude.py"
-    ];
+    ]];
     for (NSString *path in paths) {
         if ([[NSFileManager defaultManager] fileExistsAtPath:path]) return path;
     }
@@ -1451,11 +1527,23 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
 - (NSString *)dashboardBasePath
 {
-    // Rootless SpringBoard server. Roothide variant is resolved by the OS
-    // jbroot; the dashboard HTML lives next to the bundled noVNC assets at
+    // Own bundle first (Xcode app process, both schemes incl. roothide's
+    // randomized prefix), then jbroot-resolved, then rootless stock. The
+    // dashboard HTML lives next to the bundled noVNC assets at
     // <app>/index.html + <app>/novnc/... so a single .deb carries everything.
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *own = [[NSBundle mainBundle] bundlePath];
+    if ([own hasSuffix:@"zxtouch.app"] &&
+        [fm fileExistsAtPath:[own stringByAppendingPathComponent:@"index.html"]]) return own;
+    NSString *jbApp = ZXJbrootResolve(@"/Applications/zxtouch.app");
+    if (jbApp.length &&
+        [fm fileExistsAtPath:[jbApp stringByAppendingPathComponent:@"index.html"]]) return jbApp;
+    NSString *bundlePrefix = ZXBundleJbPrefix();
+    NSString *bundleApp = bundlePrefix.length ? [bundlePrefix stringByAppendingPathComponent:@"Applications/zxtouch.app"] : nil;
+    if (bundleApp.length &&
+        [fm fileExistsAtPath:[bundleApp stringByAppendingPathComponent:@"index.html"]]) return bundleApp;
     NSString *rootless = @"/var/jb/Applications/zxtouch.app";
-    if ([[NSFileManager defaultManager] fileExistsAtPath:[rootless stringByAppendingPathComponent:@"index.html"]]) return rootless;
+    if ([fm fileExistsAtPath:[rootless stringByAppendingPathComponent:@"index.html"]]) return rootless;
     return nil;
 }
 
@@ -2131,7 +2219,11 @@ void ZXDashboardReloadConfiguration(void)
     ZXDashboardCrashHandlersInstall();
     NSDictionary *configuration = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
     if (![configuration isKindOfClass:[NSDictionary class]]) {
-        NSDictionary *legacy = [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.zjx.zxtouch.plist"];
+        // Legacy prefs: try jbroot-resolved location first (roothide), then
+        // the historical rootless path. Missing file just means fresh install.
+        NSString *jbLegacy = ZXJbrootResolve(@"/var/mobile/Library/Preferences/com.zjx.zxtouch.plist");
+        NSDictionary *legacy = jbLegacy ? [NSDictionary dictionaryWithContentsOfFile:jbLegacy] : nil;
+        if (!legacy) legacy = [NSDictionary dictionaryWithContentsOfFile:@"/var/jb/var/mobile/Library/Preferences/com.zjx.zxtouch.plist"];
         NSMutableDictionary *migrated = [NSMutableDictionary dictionary];
         id legacyEnabled = legacy[@"zxtouch_remote_dashboard_enabled"];
         if (legacyEnabled) migrated[ZXDashboardEnabledKey] = legacyEnabled;
@@ -2335,13 +2427,17 @@ static void ZXSettingsKillVNCBestEffort(void)
     free(procs);
 #else
     // Fallback khi không có sysctl: spawn killall bằng đường dẫn tuyệt đối.
-    static const char * const killallCandidates[] = {
-        "/var/jb/usr/bin/killall",
-        "/usr/bin/killall",
-        NULL
-    };
-    for (int i = 0; killallCandidates[i]; i++) {
-        if (access(killallCandidates[i], X_OK) != 0) continue;
+    // jbroot()/bundle-derived trước (roothide prefix random), /var/jb + stock
+    // giữ làm fallback rootless.
+    NSMutableArray<NSString *> *killallList = [NSMutableArray array];
+    NSString *jbKill = ZXJbrootResolve(@"/usr/bin/killall");
+    if (jbKill.length) [killallList addObject:jbKill];
+    NSString *bundlePrefix = ZXBundleJbPrefix();
+    if (bundlePrefix.length) [killallList addObject:[bundlePrefix stringByAppendingPathComponent:@"usr/bin/killall"]];
+    [killallList addObjectsFromArray:@[@"/var/jb/usr/bin/killall", @"/usr/bin/killall"]];
+    for (NSString *candidate in killallList) {
+        const char *killallPath = candidate.UTF8String;
+        if (access(killallPath, X_OK) != 0) continue;
         pid_t pid = 0;
         char * const argv[] = {
             (char *)"killall", (char *)"-9",
@@ -2354,7 +2450,7 @@ static void ZXSettingsKillVNCBestEffort(void)
         posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
         posix_spawnattr_t attrs;
         posix_spawnattr_init(&attrs);
-        if (posix_spawn(&pid, killallCandidates[i], &actions, &attrs, argv, environ) == 0) {
+        if (posix_spawn(&pid, killallPath, &actions, &attrs, argv, environ) == 0) {
             int status = 0;
             for (int t = 0; t < 50; t++) {
                 if (waitpid(pid, &status, WNOHANG) == pid) break;

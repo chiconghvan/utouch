@@ -517,7 +517,17 @@ static NSString *ZXPythonModulePath(void)
     NSString *dateWrapper = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/add_datetime.sh";
     NSString *shellPath = ZXShellPath();
     if (![[NSFileManager defaultManager] fileExistsAtPath:dateWrapper]) {
-        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=/var/jb/usr/bin/date\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Start running script. Script path: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Finish running script. Script path: $1\" >> \"$OUTPUT\"\n", shellPath];
+        // Resolve date through jbroot() first so the wrapper works under the
+        // randomized roothide prefix; rootless/static fallbacks stay for safety.
+        NSString *datePath = ZXFirstExecutablePath(@[
+            jbroot(@"/usr/bin/date"),
+            jbroot(@"/bin/date"),
+            @"/var/jb/usr/bin/date",
+            @"/var/jb/bin/date",
+            @"/usr/bin/date",
+            @"/bin/date"
+        ]) ?: @"/usr/bin/date";
+        NSString *wrapper = [NSString stringWithFormat:@"#!%@\nOUTPUT=/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/output\nDATE=%@\nif [ ! -x \"$DATE\" ]; then DATE=/usr/bin/date; fi\nif [ ! -x \"$DATE\" ]; then DATE=/bin/date; fi\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Start running script. Script path: $1\" >> \"$OUTPUT\"\nwhile IFS= read -r line; do\n    echo \"$($DATE '+%%m-%%d-%%Y %%T'): $line\" >> \"$OUTPUT\"\ndone\necho \"$($DATE '+%%m-%%d-%%Y %%T'): Finish running script. Script path: $1\" >> \"$OUTPUT\"\n", shellPath, datePath];
         [wrapper writeToFile:dateWrapper atomically:YES encoding:NSUTF8StringEncoding error:nil];
         chmod(dateWrapper.UTF8String, 0755);
     }
