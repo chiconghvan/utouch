@@ -505,8 +505,8 @@ _Mọi `path` bên dưới được giải theo **thư mục asset** của scrip
 ### `findImage(path, count, threshold, region)`
 
 - Type: `func`
-- EN: Find template image on screen. Always returns a list of matches; each match is {x, y, width, height, threshold}. No count: returns all matches (so #matches counts hits). With count: returns up to count matches.
-- VI: Tìm hình ảnh mẫu trên màn hình. Luôn trả về danh sách các kết quả; mỗi kết quả là {x, y, width, height, threshold}. Không truyền count: trả toàn bộ kết quả (đếm qua #matches). Có count: trả tối đa count kết quả.
+- EN: Find template image on screen. Always returns a list of matches; each match is {x, y, width, height, confidence}. No count: returns all matches (so #matches counts hits). With count: returns up to count matches.
+- VI: Tìm hình ảnh mẫu trên màn hình. Luôn trả về danh sách các kết quả; mỗi kết quả là {x, y, width, height, confidence}. Không truyền count: trả toàn bộ kết quả (đếm qua #matches). Có count: trả tối đa count kết quả.
 - Return: `[object Object]`
 
 **Params:**
@@ -530,11 +530,11 @@ else
   log("Not found")
 end
 
--- count: up to 5 matches (fewer when the screen holds fewer)
+-- count: up to 5 matches (fewer when the screen holds fewer), best first
 local matches = findImage("star.png", 5, 0.85)
-log("Found " .. #matches .. " matches")
+log("Found " .. #matches .. " matches, best=" .. matches[1].confidence)
 for i, m in ipairs(matches) do
-  tap(m.x + m.width // 2, m.y + m.height // 2)  -- each m has x,y,width,height,threshold
+  tap(m.x + m.width // 2, m.y + m.height // 2)  -- each m has x,y,width,height,confidence
   sleep(0.3)
 end
 

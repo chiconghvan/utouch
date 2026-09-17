@@ -8,6 +8,21 @@ from zxtouch import deviceinfotasktypes
 from zxtouch import colorsearchtasktypes
 
 
+def _optional_confidence(values):
+    """Parse the trailing NCC confidence from a daemon image reply.
+
+    New daemons append one confidence field per hit; old daemons send
+    geometry only. Returns the float score, or None when absent/unparseable
+    so callers keep working against either side.
+    """
+    if not values:
+        return None
+    try:
+        return float(values[0])
+    except (TypeError, ValueError):
+        return None
+
+
 class zxtouch:
     def __init__(self, ip):
         self.s = socket.socket()
@@ -151,7 +166,9 @@ class zxtouch:
         if not result[0]:
             return False, result[1]
 
-        return True, {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3]}
+        out = {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3],
+               "confidence": _optional_confidence(result[1][4:5])}
+        return True, out
 
     def show_toast(self, toast_type, content, duration, position=0, fontSize=0):
         """Show toast on ios device
@@ -586,7 +603,8 @@ class zxtouch:
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
             return False, result[1]
-        return True, {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3]}
+        return True, {"x": result[1][0], "y": result[1][1], "width": result[1][2], "height": result[1][3],
+                      "confidence": _optional_confidence(result[1][4:5])}
 
     def image_match_multi(self, template_path, threshold=0.8, max_count=5):
         """Find up to max_count matches (Phase 2: TASK_IMAGE_MULTI=45)."""
@@ -596,8 +614,10 @@ class zxtouch:
             return False, result[1]
         out = []
         for item in result[1]:
-            x, y, w, h = item.split(",")
-            out.append({"x": x, "y": y, "width": w, "height": h})
+            parts = item.split(",")
+            x, y, w, h = parts[0:4]
+            out.append({"x": x, "y": y, "width": w, "height": h,
+                        "confidence": _optional_confidence(parts[4:5])})
         return True, out
 
     def record_play_events(self, events):

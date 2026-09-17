@@ -47,7 +47,8 @@ class FakeDevice:
 
     def image_match(self, *a):
         self.calls.append(("image", a))
-        return (True, {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00"})
+        return (True, {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
+                       "confidence": 0.95})
 
     def ocr(self, region, **kwargs):
         self.calls.append(("ocr", region, kwargs))
@@ -318,7 +319,7 @@ def test_tap_image_taps_center():
     d = use_fake()
     m = prelude.tapImage("a.png", timeout=1)
     assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
-                 "threshold": 0.8}
+                 "confidence": 0.95}
     assert any(c[0] == "touch" for c in d.calls)
 
 
@@ -377,7 +378,7 @@ def test_fallbacks_against_old_daemon():
     d = use_fake()  # FakeDevice raises for multi/region/record-device paths
     assert prelude.findColor(0xFF0000) == [(10, 20)]  # legacy single-point
     assert prelude.findImage("a.png") == [{"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
-                                           "threshold": 0.8}]  # old daemon: single fallback, wrapped
+                                           "confidence": 0.95}]  # old daemon: single fallback, wrapped
     evs = [{"type": "tap", "x": 1, "y": 2}]
     prelude.recordPlay(evs)  # local replay
     assert any(c[0] == "touch" for c in d.calls)
@@ -1004,7 +1005,7 @@ def test_screen_size_and_matches_are_lua_tables():
     assert len(im) == 1                                # no count: all matches
     assert im[0].x == "5.00" and im[0]["y"] == "6.00"
     assert im == [{"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
-                   "threshold": 0.8}]
+                   "confidence": 0.95}]
 
 
 def test_lua_helpers_are_exported():
@@ -1075,8 +1076,9 @@ def test_find_image_multi_reports_count(capsys):
             return (True, {"width": "750", "height": "1334"})
 
         def image_match_multi(self, path, threshold, count):
-            return (True, [{"x": "1", "y": "2", "width": "4", "height": "4"},
-                           {"x": "5", "y": "6", "width": "4", "height": "4"}])
+            # Deliberately worst-first: prelude must sort best-first.
+            return (True, [{"x": "1", "y": "2", "width": "4", "height": "4", "confidence": 0.88},
+                           {"x": "5", "y": "6", "width": "4", "height": "4", "confidence": 0.97}])
 
         def debug_mark(self, *a, **k):
             return (True, "")
@@ -1084,21 +1086,79 @@ def test_find_image_multi_reports_count(capsys):
     prelude.set_device(MultiDev())
     try:
         m = prelude.findImage("a.png", count=4)
-        assert m == [{"x": "1", "y": "2", "width": "4", "height": "4", "threshold": 0.8},
-                      {"x": "5", "y": "6", "width": "4", "height": "4", "threshold": 0.8}]
-        assert m[0].x == "1"                                        # Lua-style access
-        assert prelude.zxUnpackMatch(m) == (True, 3, 4)             # unpack takes first
+        assert [d["confidence"] for d in m] == [0.97, 0.88]  # sorted best-first
+        assert m == [{"x": "5", "y": "6", "width": "4", "height": "4", "confidence": 0.97},
+                      {"x": "1", "y": "2", "width": "4", "height": "4", "confidence": 0.88}]
+        assert m[0].x == "5"                                        # Lua-style access
+        assert m[0].confidence == 0.97
+        assert prelude.zxUnpackMatch(m) == (True, 7, 8)             # unpack takes best
         out = capsys.readouterr().out
         assert "2/4" in out                                  # no silent discard of extra matches
         # No count: all matches, so len() counts hits on screen.
         all_m = prelude.findImage("a.png")
-        assert len(all_m) == 2 and all_m[1]["x"] == "5"
-        assert all_m[0]["threshold"] == 0.8
+        assert len(all_m) == 2 and all_m[0]["x"] == "5"
         # Explicit count caps the daemon-side search.
         one = prelude.findImage("a.png", 1)
-        assert len(one) == 1 and one[0]["x"] == "1"
+        assert len(one) == 1 and one[0]["confidence"] == 0.97
     finally:
         prelude.disconnect()
+
+
+def test_find_image_without_scores_sorts_stable(capsys):
+    class OldDev:
+        def get_screen_size(self):
+            return (True, {"width": "750", "height": "1334"})
+
+        def image_match_multi(self, path, threshold, count):
+            # Old daemon: geometry only, no confidence.
+            return (True, [{"x": "1", "y": "2", "width": "4", "height": "4"},
+                           {"x": "5", "y": "6", "width": "4", "height": "4"}])
+
+        def debug_mark(self, *a, **k):
+            return (True, "")
+
+    prelude.set_device(OldDev())
+    try:
+        m = prelude.findImage("a.png")
+        assert [d["x"] for d in m] == ["1", "5"]       # stable order kept
+        assert all(d["confidence"] is None for d in m)
+    finally:
+        prelude.disconnect()
+
+
+def test_client_parses_confidence_old_and_new_daemons():
+    from zxtouch.client import zxtouch
+
+    class FakeSock:
+        def __init__(self, reply):
+            self.reply = reply
+            self.sent = []
+        def send(self, data):
+            self.sent.append(data)
+            return len(data)
+        def recv(self, n):
+            return self.reply
+
+    def call(method, reply, *args):
+        dev = zxtouch.__new__(zxtouch)
+        dev.s = FakeSock(reply)
+        return getattr(dev, method)(*args)
+
+    # New daemon: trailing confidence per hit.
+    ok, hits = call("image_match_multi", b"0;;1.00,2.00,4.00,4.00,0.912;;5.00,6.00,4.00,4.00\r\n",
+                    "a.png", 0.8, 5)
+    assert ok and [h["confidence"] for h in hits] == [0.912, None]  # mixed kinds
+    ok, m = call("image_match", b"0;;1;;2;;3;;4;;0.876\r\n", "a.png")
+    assert ok and m["confidence"] == 0.876
+    ok, m = call("find_image_in_region", b"0;;1;;2;;3;;4;;0.901\r\n",
+                 "a.png", (0, 0, 10, 10), 0.8)
+    assert ok and m["confidence"] == 0.901
+    # Old daemon: geometry only -> None, never raises.
+    ok, m = call("image_match", b"0;;1;;2;;3;;4\r\n", "a.png")
+    assert ok and m["confidence"] is None
+    ok, m = call("find_image_in_region", b"0;;1;;2;;3;;4\r\n",
+                 "a.png", (0, 0, 10, 10), 0.8)
+    assert ok and m["confidence"] is None
 
 
 # ---------------------------------------------------------------- .bdl image paths
@@ -1158,7 +1218,7 @@ def test_tap_image_resolves_in_bundle(tmp_path):
     try:
         m = prelude.tapImage("btn.png", timeout=0.1)
         assert m == {"x": "5.00", "y": "6.00", "width": "10.00", "height": "10.00",
-                     "threshold": 0.8}
+                     "confidence": 0.95}
         assert ("image", (str(bundle / "btn.png"), 0.8, 2, 0.8)) in d.calls
     finally:
         prelude.setScriptDir(None)

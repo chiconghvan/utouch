@@ -188,15 +188,17 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
     {
         @autoreleasepool {
             NSError *err = nil;
-            CGRect result = screenMatchFromRawData(eventData, &err);
+            float confidence = -1.0f;
+            CGRect result = screenMatchFromRawDataWithScore(eventData, &confidence, &err);
             if (err)
             {
                 notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
             }
             else
             {
-                notifyClient((UInt8*)[[NSString stringWithFormat:@"0;;%.2f;;%.2f;;%.2f;;%.2f\r\n",
-                    result.origin.x, result.origin.y, result.size.width, result.size.height] UTF8String], writeStreamRef);
+                // Trailing confidence is additive: old clients read fields 0-3 and ignore it.
+                notifyClient((UInt8*)[[NSString stringWithFormat:@"0;;%.2f;;%.2f;;%.2f;;%.2f;;%.3f\r\n",
+                    result.origin.x, result.origin.y, result.size.width, result.size.height, confidence] UTF8String], writeStreamRef);
             }
         }
     }

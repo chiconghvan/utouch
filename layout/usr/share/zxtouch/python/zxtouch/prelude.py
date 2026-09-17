@@ -618,21 +618,36 @@ def _resolve_image_path(path):
     return path
 
 
-def _attach_threshold(match, threshold):
-    """Expose the requested threshold on a match dict.
+def _with_confidence(match):
+    """Normalise an image match dict to always carry ``confidence``.
 
-    The daemon's TASK_IMAGE_MULTI / TASK_TEMPLATE_MATCH answers carry only
-    x,y,width,height (no per-hit score), so the only honest per-match number
-    we can report without a protocol change is the threshold the caller asked
-    for. A daemon-provided score/threshold is preserved when present.
+    New daemons report the NCC score per hit (parsed to float by the
+    client); old daemons send geometry only, which normalises to None so
+    callers can still tell matches apart when scores exist and degrade
+    gracefully when they do not.
     """
     if isinstance(match, dict):
-        if "threshold" not in match and "score" not in match:
+        if "confidence" not in match:
+            match["confidence"] = None
+        elif match["confidence"] is not None:
             try:
-                match["threshold"] = float(threshold)
+                match["confidence"] = float(match["confidence"])
             except (TypeError, ValueError):
-                match["threshold"] = threshold
+                match["confidence"] = None
     return match
+
+
+def _sort_by_confidence(matches):
+    """Best match first (confidence desc); unscored hits keep tail order."""
+    def key(m):
+        c = m.get("confidence")
+        if c is None:
+            return (1, 0.0)
+        try:
+            return (0, -float(c))
+        except (TypeError, ValueError):
+            return (1, 0.0)
+    return sorted(matches, key=key)
 
 
 def _dbg_match(m):
@@ -659,9 +674,10 @@ def findImage(path, count=None, threshold=0.8, region=None):
       the screen holds fewer).
     * ``[]`` when nothing matches.
 
-    Each match is ``{x, y, width, height, threshold}``. ``threshold`` echoes
-    the requested threshold — the daemon answers with geometry only, no
-    per-hit score.
+    Each match is ``{x, y, width, height, confidence}`` with ``confidence``
+    the NCC score (0-1, higher = closer) so hits can be told apart and the
+    best match comes first. Old daemons send geometry only — those hits
+    carry ``confidence = None`` and sort last.
     """
     path = _resolve_image_path(path)
     want = _FIND_IMAGE_DEFAULT_MAX if count is None else max(1, int(count))
@@ -671,7 +687,7 @@ def findImage(path, count=None, threshold=0.8, region=None):
             if ok:
                 # The region task answers with a single hit; wrap it so the
                 # return shape stays a list whatever the caller asked for.
-                res = _attach_threshold(_match_result(res), threshold)
+                res = _with_confidence(_match_result(res))
                 _dbg_match(res)
                 return [res]
             log("findImage: region search failed (%s), trying full screen" % (res,))
@@ -682,8 +698,8 @@ def findImage(path, count=None, threshold=0.8, region=None):
         if ok and res:
             if len(res) < want:
                 log("findImage: daemon tra %d/%d match" % (len(res), want))
-            out = [_attach_threshold(_match_result(m), threshold)
-                   for m in list(res)[:want]]
+            out = _sort_by_confidence([_with_confidence(_match_result(m))
+                                       for m in list(res)])[:want]
             for m in out:
                 _dbg_match(m)
             return out
@@ -696,7 +712,7 @@ def findImage(path, count=None, threshold=0.8, region=None):
     ok, res = get_device().image_match(path, threshold, 2, 0.8)
     if not ok:
         return []
-    res = _attach_threshold(_match_result(res), threshold)
+    res = _with_confidence(_match_result(res))
     _dbg_match(res)
     if want > 1:
         log("findImage: daemon cu khong ho tro multi-match, tra 1/%d ket qua" % (want,))

@@ -4,6 +4,11 @@
 
 CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error)
 {
+    return screenMatchFromRawDataWithScore(eventData, NULL, error);
+}
+
+CGRect screenMatchFromRawDataWithScore(UInt8 *eventData, float *outScore, NSError **error)
+{
     NSArray *data = [[NSString stringWithFormat:@"%s", eventData] componentsSeparatedByString:@";;"];
     NSString *templatePath = data[0];
     int maxTryTimes = 2;
@@ -20,12 +25,16 @@ CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error)
         *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:@"-1;;The data format should be \"template_path[;;max_try_times;;acceptable_value;;scaleRation]\"\r\n"}];
         return CGRect();
     }
-    return [ScreenMatch matchCurrentScreenWithTemplate:templatePath maxTryTimes:maxTryTimes acceptableValue:acceptableValue scaleRation:scaleRation error:error];
+    return [ScreenMatch matchCurrentScreenWithTemplate:templatePath maxTryTimes:maxTryTimes acceptableValue:acceptableValue scaleRation:scaleRation score:outScore error:error];
 }
 
 @implementation ScreenMatch
 
 + (CGRect)matchCurrentScreenWithTemplate:(NSString*)templatePath maxTryTimes:(int)mtt acceptableValue:(float)av scaleRation:(float)sr error:(NSError**)err {
+    return [ScreenMatch matchCurrentScreenWithTemplate:templatePath maxTryTimes:mtt acceptableValue:av scaleRation:sr score:NULL error:err];
+}
+
++ (CGRect)matchCurrentScreenWithTemplate:(NSString*)templatePath maxTryTimes:(int)mtt acceptableValue:(float)av scaleRation:(float)sr score:(float*)outScore error:(NSError**)err {
     if (![[NSFileManager defaultManager] fileExistsAtPath:templatePath])
     {
         *err = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999 userInfo:@{NSLocalizedDescriptionKey:[NSString stringWithFormat:@"-1;;Template image not found for image matching. Template path: %@\r\n", templatePath]}];
@@ -44,6 +53,7 @@ CGRect screenMatchFromRawData(UInt8 *eventData, NSError **error)
     }
 
     CGRect result = [templateMatch templateMatchWithCGImage:screen templatePath:templatePath error:err];
+    if (outScore) *outScore = [templateMatch lastScore];
     CGImageRelease(screen);
     return result;
 }

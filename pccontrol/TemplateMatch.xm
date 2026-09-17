@@ -180,6 +180,7 @@ static void zxAddCandidate(float *scores, size_t *xs, size_t *ys, int *count,
     int _maxTryTimes;
     float _acceptableValue;
     float _scaleRation;
+    float _lastScore;
 }
 @end
 
@@ -190,12 +191,14 @@ static void zxAddCandidate(float *scores, size_t *xs, size_t *ys, int *count,
     _maxTryTimes = 4;
     _acceptableValue = 0.8f;
     _scaleRation = 0.8f;
+    _lastScore = -1.0f;
     return self;
 }
 
 - (void)setAcceptableValue:(float)av { _acceptableValue = av; }
 - (void)setMaxTryTimes:(int)mtt     { _maxTryTimes = MAX(0, MIN(mtt, 8)); }
 - (void)setScaleRation:(float)sr    { _scaleRation = (sr > 0.05f && sr < 1.0f) ? sr : 0.8f; }
+- (float)lastScore { return _lastScore; }
 
 - (CGRect)templateMatchWithCGImage:(CGImageRef)img templatePath:(NSString*)templatePath error:(NSError**)err {
     CFAbsoluteTime startedAt = CFAbsoluteTimeGetCurrent();
@@ -382,6 +385,7 @@ static void zxAddCandidate(float *scores, size_t *xs, size_t *ys, int *count,
     free(tmplGray);
 
     CFTimeInterval elapsed = CFAbsoluteTimeGetCurrent() - startedAt;
+    _lastScore = bestScore;
     if (bestScore >= _acceptableValue) {
         NSLog(@"com.zjx.springboard: image_match success. x:%.0f y:%.0f w:%.0f h:%.0f score:%.3f elapsed:%.3fs",
               best.origin.x, best.origin.y, best.size.width, best.size.height, bestScore, elapsed);

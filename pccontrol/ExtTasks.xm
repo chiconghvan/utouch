@@ -567,7 +567,7 @@ NSString *colorPatternFromRawData(UInt8 *eventData, NSError **error) {
 // ---------------------------------------------------------------- 41/45 image region & multi
 
 static CGRect ZXMatchOnImage(CGImageRef screen, NSString *templatePath,
-        float threshold, int maxTry, float scale, CGRect region, NSError **error) {
+        float threshold, int maxTry, float scale, CGRect region, float *outScore, NSError **error) {
     TemplateMatch *m = [[TemplateMatch alloc] init];
     [m setAcceptableValue:threshold];
     [m setMaxTryTimes:maxTry];
@@ -579,6 +579,7 @@ static CGRect ZXMatchOnImage(CGImageRef screen, NSString *templatePath,
         if (crop) target = crop;
     }
     CGRect r = [m templateMatchWithCGImage:target templatePath:templatePath error:error];
+    if (outScore) *outScore = [m lastScore];
     if (crop) CGImageRelease(crop);
     if (!CGRectIsEmpty(region) && !CGRectIsNull(region) && !CGRectIsEmpty(r)) {
         r.origin.x += region.origin.x;
@@ -600,6 +601,7 @@ NSString *imageRegionFromRawData(UInt8 *eventData, NSError **error) {
     CGRect region = ZXRectFromString([parts objectAtIndex:2], CGRectZero);
     int maxTry = [parts count] > 3 ? [[parts objectAtIndex:3] intValue] : 2;
     float scale = [parts count] > 4 ? [[parts objectAtIndex:4] floatValue] : 0.8;
+    float confidence = -1.0f;
     if (![[NSFileManager defaultManager] fileExistsAtPath:tpl]) {
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Template image not found.")}];
@@ -611,7 +613,7 @@ NSString *imageRegionFromRawData(UInt8 *eventData, NSError **error) {
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Screenshot is nil.")}];
         return nil;
     }
-    CGRect r = ZXMatchOnImage(screen, tpl, thr, maxTry, scale, region, error);
+    CGRect r = ZXMatchOnImage(screen, tpl, thr, maxTry, scale, region, &confidence, error);
     CGImageRelease(screen);
     if (error && *error) return nil;
     if (CGRectIsEmpty(r)) {
@@ -619,8 +621,9 @@ NSString *imageRegionFromRawData(UInt8 *eventData, NSError **error) {
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"-1;;no match in region.")}];
         return nil;
     }
-    return [NSString stringWithFormat:@"0;;%.2f;;%.2f;;%.2f;;%.2f\r\n",
-        r.origin.x, r.origin.y, r.size.width, r.size.height];
+    // Trailing confidence is additive: old clients read fields 0-3 and ignore it.
+    return [NSString stringWithFormat:@"0;;%.2f;;%.2f;;%.2f;;%.2f;;%.3f\r\n",
+        r.origin.x, r.origin.y, r.size.width, r.size.height, confidence];
 }
 
 NSString *imageMultiFromRawData(UInt8 *eventData, NSError **error) {
@@ -649,6 +652,7 @@ NSString *imageMultiFromRawData(UInt8 *eventData, NSError **error) {
         return nil;
     }
     NSMutableArray *hits = [NSMutableArray array];
+    NSMutableArray *scores = [NSMutableArray array];
     // 2x2 overlapping tiles keep per-match cost bounded.
     for (int ty = 0; ty < 2 && [hits count] < maxN; ty++) {
         for (int tx = 0; tx < 2 && [hits count] < maxN; tx++) {
@@ -657,7 +661,8 @@ NSString *imageMultiFromRawData(UInt8 *eventData, NSError **error) {
             tile = CGRectIntersection(tile, CGRectMake(0, 0, sw, sh));
             if (CGRectIsEmpty(tile) || CGRectIsNull(tile)) continue;
             NSError *e = nil;
-            CGRect r = ZXMatchOnImage(screen, tpl, thr, 1, 0.8, tile, &e);
+            float confidence = -1.0f;
+            CGRect r = ZXMatchOnImage(screen, tpl, thr, 1, 0.8, tile, &confidence, &e);
             if (e || CGRectIsEmpty(r)) continue;
             BOOL dup = NO;
             for (NSValue *v in hits) {
@@ -666,7 +671,10 @@ NSString *imageMultiFromRawData(UInt8 *eventData, NSError **error) {
                     dup = YES; break;
                 }
             }
-            if (!dup) [hits addObject:[NSValue valueWithCGRect:r]];
+            if (!dup) {
+                [hits addObject:[NSValue valueWithCGRect:r]];
+                [scores addObject:@(confidence)];
+            }
         }
     }
     CGImageRelease(screen);
@@ -676,9 +684,13 @@ NSString *imageMultiFromRawData(UInt8 *eventData, NSError **error) {
         return nil;
     }
     NSMutableString *out = [NSMutableString stringWithString:@"0"];
-    for (NSValue *v in hits) {
-        CGRect r = [v CGRectValue];
-        [out appendFormat:@";;%.2f,%.2f,%.2f,%.2f", r.origin.x, r.origin.y, r.size.width, r.size.height];
+    for (NSUInteger i = 0; i < [hits count]; i++) {
+        CGRect r = [[hits objectAtIndex:i] CGRectValue];
+        float confidence = [[scores objectAtIndex:i] floatValue];
+        // Trailing per-hit confidence is additive: old clients split 4 fields
+        // and fail closed into the single-match fallback instead of misreading.
+        [out appendFormat:@";;%.2f,%.2f,%.2f,%.2f,%.3f",
+            r.origin.x, r.origin.y, r.size.width, r.size.height, confidence];
     }
     [out appendString:@"\r\n"];
     return out;

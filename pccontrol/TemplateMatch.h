@@ -10,6 +10,8 @@
 - (void)setMaxTryTimes:(int)mtt;
 - (void)setScaleRation:(float)sr;
 - (CGRect)templateMatchWithCGImage:(CGImageRef)img templatePath:(NSString*)templatePath error:(NSError**)err;
+// NCC score of the best candidate from the last match run (-1 when no run yet).
+- (float)lastScore;
 
 @end
 
