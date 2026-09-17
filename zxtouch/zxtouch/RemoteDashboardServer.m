@@ -858,12 +858,10 @@ static void ZXVNCStartServerDirectly(void)
     sigset_t empty;
     sigemptyset(&empty);
     posix_spawnattr_setsigmask(&attrs, &empty);
-    short spawnFlags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP;
-    posix_spawnattr_setpgroup(&attrs, 0);
-#ifdef POSIX_SPAWN_SETSID
-    spawnFlags |= POSIX_SPAWN_SETSID;
-#endif
-    posix_spawnattr_setflags(&attrs, spawnFlags);
+    // Minimal flags only: SETPGROUP/SETSID need privileges a mobile daemon
+    // does not have and posix_spawn then fails with EPERM (1). Inheriting
+    // the parent process group is fine — SIGCHLD is ignored so no zombie.
+    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSIGMASK);
 
     char * const argv[] = {
         (char *)"trollvncserver",
@@ -2140,12 +2138,9 @@ void ZXDashboardReloadConfiguration(void)
     }
     BOOL dashboardEnabled = [configuration[ZXDashboardEnabledKey] boolValue];
     if (!dashboardEnabled) {
-        // Order matters: kill VNC FIRST while the dashboard still answers (so
-        // the open web page receives enabled=false), then stop the dashboard.
-        // Stopping the dashboard alone would orphan :5901 with the browser still
-        // connected.
-        ZXDashboardForceVNCDisabledInConfig();
-        ZXVNCApplyEnabledState(NO);
+        // Dashboard và VNC độc lập: OFF dashboard chỉ dừng HTTP :8688,
+        // để nguyên :5901. Bản cũ kill VNC ở đây rồi spawn lại bị EPERM
+        // vì mobile không được spawn daemon system.
         [ZXDashboardServer stop];
         ZXDashboardServer = nil;
         return;
@@ -2233,12 +2228,9 @@ int ZXDashboardDaemonMain(void)
         // The Settings app writes the shared plist and posts this notification.
         // Apply the VNC switch here as well as in the SpringBoard path so a
         // running standalone dashboard cannot leave the old server alive.
-        // Dashboard OFF forces VNC OFF (persisted) and kills VNC BEFORE
-        // stopping the dashboard so the browser learns enabled=false first.
+        // Dashboard OFF chỉ dừng HTTP, để nguyên VNC (độc lập).
         if (!ZXDashboardDaemonEnabled()) {
-            ZXDashboardForceVNCDisabledInConfig();
-            ZXVNCApplyEnabledState(NO);
-            lastVNCEnabled = NO;
+            lastVNCEnabled = ZXVNCIsEnabled();
             vncStateKnown = YES;
             [server stop];
             return;
@@ -2252,13 +2244,10 @@ int ZXDashboardDaemonMain(void)
     for (;;) {
         @autoreleasepool {
             if (!ZXDashboardDaemonEnabled()) {
-                // Poll fallback if the notify was missed: same OFF-means-OFF.
-                if (!vncStateKnown || lastVNCEnabled != NO) {
-                    ZXDashboardForceVNCDisabledInConfig();
-                    ZXVNCApplyEnabledState(NO);
-                    lastVNCEnabled = NO;
-                    vncStateKnown = YES;
-                }
+                // Poll fallback if the notify was missed: dashboard OFF chỉ
+                // dừng HTTP, không động tới VNC.
+                vncStateKnown = YES;
+                lastVNCEnabled = ZXVNCIsEnabled();
                 if (server.server.running) [server stop];
             } else {
             ZXVNCRestoreParkedChoice();
@@ -2372,21 +2361,16 @@ BOOL ZXRemoteDashboardSetEnabled(BOOL enabled)
 {
     NSMutableDictionary *configuration = ZXDashboardConfiguration();
     configuration[ZXDashboardEnabledKey] = @(enabled);
-    if (!enabled) {
-        // Tắt server kéo theo tắt VNC trong cùng một lần ghi plist: một notify
-        // duy nhất, không có cửa sổ VNC còn ON trong lúc dashboard đã OFF. Lựa
-        // chọn thật của người dùng được park lại để lần bật sau khôi phục, thay
-        // vì để VNC chết cho tới khi mở Settings lần nữa.
-        ZXVNCParkAndForceDisabledIn(configuration);
-    } else {
-        // Bật lại dashboard: trả VNC về đúng trạng thái trước khi tắt.
+    if (enabled) {
+        // Migration một lần cho bản cũ đã park VNC khi OFF dashboard.
+        // Từ nay dashboard và VNC độc lập: OFF dashboard chỉ dừng :8688,
+        // không kill :5901 nữa (mobile spawn daemon system bị EPERM).
         ZXVNCRestoreParkedIn(configuration);
     }
     NSError *directoryError = nil;
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:&directoryError];
     BOOL saved = directoryError == nil && [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
     ZXDashboardSettingsLastError = saved ? @"" : (directoryError.localizedDescription ?: @"Unable to save Remote Dashboard settings.");
-    if (saved && !enabled) ZXSettingsKillVNCBestEffort();
     if (saved) notify_post(ZXDashboardConfigurationNotification);
     return saved;
 }
