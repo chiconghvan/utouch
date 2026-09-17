@@ -142,7 +142,8 @@ else
 fi
 
 # Standalone dashboard daemon (crash-isolated HTTP :8688). SpringBoard keeps a
-# fallback until this daemon binds after respring/reboot.
+# fallback on :8689 until this daemon binds after respring/reboot — the two hosts
+# sit on separate ports so they can never fight over one.
 if [ -x /var/jb/usr/bin/zxtouch-dashboardd ]; then
     mkdir -p /var/mobile/Library/ZXTouch
     chown mobile:mobile /var/mobile/Library/ZXTouch 2>/dev/null || true
@@ -159,7 +160,7 @@ if [ -x /var/jb/usr/bin/zxtouch-dashboardd ]; then
         sleep 1
         /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
         if ! /var/jb/bin/launchctl load /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
-            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8688." >> /var/mobile/Library/ZXTouch/dashboardd.log
+            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8689." >> /var/mobile/Library/ZXTouch/dashboardd.log
         fi
     elif command -v launchctl >/dev/null 2>&1; then
         launchctl unload /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null || true
@@ -167,7 +168,7 @@ if [ -x /var/jb/usr/bin/zxtouch-dashboardd ]; then
         sleep 1
         /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
         if ! launchctl load /var/jb/Library/LaunchDaemons/com.zjx.dashboard.plist 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
-            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8688." >> /var/mobile/Library/ZXTouch/dashboardd.log
+            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8689." >> /var/mobile/Library/ZXTouch/dashboardd.log
         fi
     fi
 else

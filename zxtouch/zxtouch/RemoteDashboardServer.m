@@ -10,7 +10,9 @@
 #endif
 
 #import <arpa/inet.h>
+#import <errno.h>
 #import <ifaddrs.h>
+#import <sys/socket.h>
 #import <notify.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
@@ -46,15 +48,91 @@ static const NSUInteger ZXEditorMaximumCodeLength = 256 * 1024;
 static NSString *const ZXVNCEnabledKey = @"vnc_server_enabled";
 static const NSTimeInterval ZXDashboardStatusCacheTTL = 2.0;
 static const NSTimeInterval ZXVNCRecoverCooldown = 30.0;
-// Single source of truth for the dashboard port: the standalone daemon, the
-// SpringBoard fallback server and the URL shown in Settings all read it.
-static const uint16_t ZXDashboardPort = 8688;
+// Two hosts serve the same dashboard, so they must never share a port: the
+// standalone daemon (zxtouch-dashboardd, the intended owner and the address
+// Settings advertises) and the SpringBoard-embedded fallback. ZX_DASHBOARD_DAEMON
+// selects the host at compile time, so every ZXDashboardPort call site below
+// stays correct per binary while the Settings build can still name both.
+enum { ZXDashboardDaemonPort = 8688, ZXDashboardFallbackPort = 8689 };
+#if ZX_DASHBOARD_DAEMON
+#define ZXDashboardPort ZXDashboardDaemonPort
+#else
+#define ZXDashboardPort ZXDashboardFallbackPort
+#endif
+
+// Liveness check for an HTTP port that does NOT open a connection. A bare
+// connect+close (what ZXVNCProbePort does, which is fine for the VNC ports)
+// makes the server that owns the port read EOF before any header arrived, and
+// it logs that as a 500 "(invalid request)" — once per probe. bind() instead
+// never touches the owner: it fails with EADDRINUSE as soon as a live listener
+// holds the port.
+//
+// SO_REUSEADDR mirrors what GCDWebServer itself passes before its own bind
+// (GCDWebServer.m `_createListeningSocket:`), so this answer is exactly the one
+// our server would get: leftover TIME_WAIT sockets from previous connections do
+// not count as taken, while a second live listener can never bind.
+static BOOL ZXDashboardPortIsTaken(uint16_t port)
+{
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return NO;
+    int reuse = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+    struct sockaddr_in address;
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = htons(port);
+    address.sin_addr.s_addr = htonl(INADDR_ANY);
+    BOOL bound = bind(fd, (struct sockaddr *)&address, sizeof(address)) == 0;
+    close(fd);
+    return !bound;
+}
+
+// ── VNC choice parking ───────────────────────────────────────────────────
+// Dashboard OFF forces vnc_server_enabled=NO so an open web page cannot keep
+// streaming the screen. The user's real choice is parked on that ON→OFF edge,
+// so turning the dashboard back on restores it instead of leaving VNC dead
+// until Settings is opened again.
+static NSString *const ZXVNCParkedKey = @"vnc_server_enabled_parked";
+
+static void ZXVNCWriteDashboardConfiguration(NSDictionary *configuration)
+{
+    [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent]
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
+}
+
+// Returns YES when the dictionary changed, so callers write only on a real edge.
+static BOOL ZXVNCParkAndForceDisabledIn(NSMutableDictionary *configuration)
+{
+    if (configuration[ZXVNCEnabledKey] != nil && [configuration[ZXVNCEnabledKey] boolValue] == NO) return NO;
+    configuration[ZXVNCParkedKey] = configuration[ZXVNCEnabledKey] == nil ? @YES : configuration[ZXVNCEnabledKey];
+    configuration[ZXVNCEnabledKey] = @NO;
+    return YES;
+}
+
+static void ZXVNCRestoreParkedIn(NSMutableDictionary *configuration)
+{
+    id parked = configuration[ZXVNCParkedKey];
+    if (parked == nil) return;
+    configuration[ZXVNCEnabledKey] = @([parked boolValue]);
+    [configuration removeObjectForKey:ZXVNCParkedKey];
+}
+
+// Used by the two supervised hosts right before they read the VNC switch.
+static BOOL ZXVNCRestoreParkedChoice(void)
+{
+    NSDictionary *stored = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
+    if (stored[ZXVNCParkedKey] == nil) return NO;
+    NSMutableDictionary *configuration = [stored mutableCopy];
+    ZXVNCRestoreParkedIn(configuration);
+    ZXVNCWriteDashboardConfiguration(configuration);
+    return YES;
+}
 
 #if ZX_DASHBOARD_SPRINGBOARD_SERVER
 static void ZXVNCkillServer(void);
 static void ZXVNCStartServerDirectly(void);
 static BOOL ZXVNCProbePort(uint16_t port);
-static BOOL ZXDashboardPortIsTaken(uint16_t port);
 static BOOL ZXDashboardDaemonEnabled(void);
 
 // ── Dashboard debug log ───────────────────────────────────────────────────
@@ -386,11 +464,12 @@ static NSString *ZXVNCLaunchDaemonPath(void)
     return @"/Library/LaunchDaemons/com.zjx.trollvnc.plist";
 }
 
-static void ZXVNCSystem(NSString *command)
+static int ZXVNCSystem(NSString *command)
 {
-    if (!command.length) return;
+    if (!command.length) return -1;
     int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
-    if (systemFunction) systemFunction(command.UTF8String);
+    if (!systemFunction) return -1;
+    return systemFunction(command.UTF8String);
 }
 
 static BOOL ZXVNCServerProcessRunning(void)
@@ -424,7 +503,13 @@ static void ZXVNCkillServerSignal(int sig)
     for (size_t i = 0; i < count; i++) {
         const char *name = procs[i].kp_proc.p_comm;
         if (name && strcmp(name, "trollvncserver") == 0) {
-            kill(procs[i].kp_proc.p_pid, sig);
+            pid_t pid = procs[i].kp_proc.p_pid;
+            // A rejected kill (EPERM when the server runs under another uid) used
+            // to vanish without a trace — which is exactly the case where the
+            // switch looks applied while the server keeps running.
+            if (kill(pid, sig) != 0) {
+                ZXDashboardDebugLog(@"[vnc] kill(%d, %d) failed: %s", pid, sig, strerror(errno));
+            }
         }
     }
     free(procs);
@@ -433,21 +518,34 @@ static void ZXVNCkillServerSignal(int sig)
 static void ZXVNCSetDaemonDisabled(BOOL disabled)
 {
     NSString *daemonPath = ZXVNCLaunchDaemonPath();
-    NSString *value = disabled ? @"YES" : @"NO";
-    // Try every known plutil/launchctl location: SpringBoard, dashboardd and
-    // postinst may each see a different PATH/bootstrap namespace.
+    // Set the flag in-process. The shell route this replaced needed `plutil`,
+    // which a rootless install does not ship at all — the write then did nothing
+    // while looking successful, so a job that should have been disabled stayed
+    // loadable.
+    NSMutableDictionary *job = [[NSDictionary dictionaryWithContentsOfFile:daemonPath] mutableCopy];
+    if (job) {
+        job[@"Disabled"] = @(disabled);
+        NSData *data = [NSPropertyListSerialization dataWithPropertyList:job
+                                                                  format:NSPropertyListXMLFormat_v1_0
+                                                                 options:0
+                                                                   error:nil];
+        if (!data || ![data writeToFile:daemonPath atomically:YES]) {
+            // Expected as mobile against a root-owned LaunchDaemon: report it
+            // instead of letting the OFF look fully applied.
+            ZXDashboardDebugLog(@"[vnc] could not set Disabled=%@ on %@",
+                                disabled ? @"YES" : @"NO", daemonPath.lastPathComponent);
+        }
+    }
+    // Try every known launchctl location: SpringBoard, dashboardd and postinst
+    // may each see a different PATH/bootstrap namespace.
+    NSString *verb = disabled ? @"unload" : @"load";
     NSString *command = [NSString stringWithFormat:
-        @"(test -x /var/jb/usr/bin/plutil && /var/jb/usr/bin/plutil -replace Disabled -bool %@ \"%@\") >/dev/null 2>&1 || "
-         @"(/usr/bin/plutil -replace Disabled -bool %@ \"%@\" || /usr/bin/plutil -insert Disabled -bool %@ \"%@\") >/dev/null 2>&1; "
+        @"PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin; "
          @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl %@ -w \"%@\" >/dev/null 2>&1); "
          @"(launchctl %@ -w \"%@\" >/dev/null 2>&1); "
          @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl %@ \"%@\" >/dev/null 2>&1); "
          @"(launchctl %@ \"%@\" >/dev/null 2>&1)",
-        value, daemonPath, value, daemonPath, value, daemonPath,
-        disabled ? @"unload" : @"load", daemonPath,
-        disabled ? @"unload" : @"load", daemonPath,
-        disabled ? @"unload" : @"load", daemonPath,
-        disabled ? @"unload" : @"load", daemonPath];
+        verb, daemonPath, verb, daemonPath, verb, daemonPath, verb, daemonPath];
     ZXVNCSystem(command);
 }
 
@@ -481,6 +579,14 @@ static void ZXVNCApplyEnabledState(BOOL enabled)
     if (ZXVNCServerProcessRunning() || ZXVNCProbePort(5901) || ZXVNCProbePort(5801)) {
         ZXVNCSetDaemonDisabled(YES);
         ZXVNCkillServerSignal(SIGKILL);
+    }
+    // A process that survives even SIGKILL (stuck in a kernel call) keeps its
+    // name, and the port-first recovery in ZXVNCStartServerDirectly() then reads
+    // it as "alive" — say so here instead of leaving the next recovery to look
+    // like a silent failure.
+    if (ZXVNCServerProcessRunning()) {
+        ZXDashboardDebugLog(@"[vnc] trollvncserver survived the OFF sweep (ports %d/%d)",
+                            ZXVNCProbePort(5901), ZXVNCProbePort(5801));
     }
 }
 
@@ -524,20 +630,38 @@ static void ZXVNCSetScale(double scale)
 // routes end up with the identical process.
 static void ZXVNCStartServerDirectly(void)
 {
-    // The "already running?" check has to happen here in C, never inside the
-    // command string: that string carries the binary path in its own argv, so a
+    // "Already running?" must mean the PORT answers, never "a process with the
+    // right name exists". A server that takes a TERM while it is already tearing
+    // down keeps its name after its listeners are closed, and the old
+    // process-name test then answered YES forever: every recovery and the
+    // daemon's 30 s sweep turned into a silent no-op and VNC could not come back
+    // at all. The check still has to happen here in C, never inside the command
+    // string: that string carries the binary path in its own argv, so a
     // `ps -ax | grep '[t]rollvncserver'` run from within it matches the spawning
-    // `sh -c` itself and the nohup copy was skipped even with no server alive.
-    // `sh` also has no coreutils in its PATH on a rootless jailbreak, so the
-    // grep could not be relied on anyway.
-    if (ZXVNCServerProcessRunning()) return;
-    ZXVNCSystem([NSString stringWithFormat:
-        @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
-         @"(launchctl load -w %@ >/dev/null 2>&1); "
-         @"nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 -I off >>%@ 2>&1 </dev/null &",
+    // `sh -c` itself, and `sh` has no coreutils in its PATH on a rootless
+    // jailbreak anyway.
+    if (ZXVNCProbePort(5901)) return;
+    if (ZXVNCServerProcessRunning()) {
+        ZXDashboardDebugLog(@"[vnc] trollvncserver alive while :5901 is closed — killing the wedged copy");
+        ZXVNCkillServerSignal(SIGKILL);
+        [NSThread sleepForTimeInterval:0.5];
+        if (ZXVNCProbePort(5901)) return;
+    }
+    // PATH is set explicitly: a launchd daemon gets none of the rootless /var/jb
+    // directories, so a bare `nohup` (like the bare `launchctl` below) would
+    // simply not be found. The whole group is redirected into the TrollVNC log so
+    // a spawn that fails can never be silent again — that silence is what made
+    // the wedged-process case above invisible for so long.
+    NSString *command = [NSString stringWithFormat:
+        @"{ PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin; "
+          "(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
+          "(launchctl load -w %@ >/dev/null 2>&1); "
+          "nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 -I off >>%@ 2>&1 </dev/null & } >>%@ 2>&1",
         ZXVNCLaunchDaemonPath(), ZXVNCLaunchDaemonPath(),
         @"/var/jb/usr/bin/trollvncserver", ZXVNCScale(),
-        ZX_TROLLVNC_LOG_PATH]);
+        ZX_TROLLVNC_LOG_PATH, ZX_TROLLVNC_LOG_PATH];
+    int status = ZXVNCSystem(command);
+    ZXDashboardDebugLog(@"[vnc] spawn trollvncserver (system rc=%d)", status);
 }
 
 static void ZXVNCkillServer(void)
@@ -568,33 +692,6 @@ static BOOL ZXVNCProbePort(uint16_t port)
     BOOL open = connect(fd, (struct sockaddr *)&address, sizeof(address)) == 0;
     close(fd);
     return open;
-}
-
-// Liveness check for our own HTTP port that does NOT open a connection. A bare
-// connect+close (what ZXVNCProbePort does, which is fine for the VNC ports)
-// makes the server that owns the port read EOF before any header arrived, and
-// it logs that as a 500 "(invalid request)" — once per probe. bind() instead
-// never touches the owner: it fails with EADDRINUSE as soon as a live listener
-// holds the port.
-//
-// SO_REUSEADDR mirrors what GCDWebServer itself passes before its own bind
-// (GCDWebServer.m `_createListeningSocket:`), so this answer is exactly the one
-// our server would get: leftover TIME_WAIT sockets from previous connections do
-// not count as taken, while a second live listener can never bind.
-static BOOL ZXDashboardPortIsTaken(uint16_t port)
-{
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return NO;
-    int reuse = 1;
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
-    struct sockaddr_in address;
-    memset(&address, 0, sizeof(address));
-    address.sin_family = AF_INET;
-    address.sin_port = htons(port);
-    address.sin_addr.s_addr = htonl(INADDR_ANY);
-    BOOL bound = bind(fd, (struct sockaddr *)&address, sizeof(address)) == 0;
-    close(fd);
-    return !bound;
 }
 #endif
 
@@ -1790,17 +1887,16 @@ static NSArray *ZXEditorFunctionCatalog(void)
 
 static ZXRemoteDashboardServer *ZXDashboardServer;
 
-// Tắt server zxtouch kéo theo tắt VNC: persist vnc_server_enabled=NO vào cùng
-// plist để Settings UI, dashboardd và SpringBoard thấy một trạng thái duy nhất.
+// Tắt server zxtouch kéo theo tắt VNC: park lựa chọn thật của người dùng rồi
+// persist vnc_server_enabled=NO vào cùng plist để Settings UI, dashboardd và
+// SpringBoard thấy một trạng thái duy nhất. Bật dashboard lại sẽ khôi phục giá
+// trị đã park (xem ZXVNCRestoreParkedChoice).
 static void ZXDashboardForceVNCDisabledInConfig(void)
 {
     NSMutableDictionary *configuration = [[NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath] mutableCopy];
     if (!configuration) configuration = [NSMutableDictionary dictionary];
-    if ([configuration[ZXVNCEnabledKey] boolValue] == NO && configuration[ZXVNCEnabledKey] != nil) return;
-    configuration[ZXVNCEnabledKey] = @NO;
-    [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent]
-                              withIntermediateDirectories:YES attributes:nil error:nil];
-    [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
+    if (!ZXVNCParkAndForceDisabledIn(configuration)) return;
+    ZXVNCWriteDashboardConfiguration(configuration);
 }
 
 void ZXDashboardReloadConfiguration(void)
@@ -1827,11 +1923,18 @@ void ZXDashboardReloadConfiguration(void)
         ZXDashboardServer = nil;
         return;
     }
+    // Turning the dashboard back on restores the VNC choice the OFF path parked,
+    // so the user does not have to flip the VNC switch again just to get the
+    // stream back after an off/on cycle.
+    if (ZXVNCRestoreParkedChoice()) {
+        configuration = [NSDictionary dictionaryWithContentsOfFile:ZXDashboardConfigPath];
+    }
     ZXVNCApplyEnabledState(configuration[ZXVNCEnabledKey] == nil ? YES : [configuration[ZXVNCEnabledKey] boolValue]);
     BOOL enabled = dashboardEnabled;
-    // The standalone dashboard daemon (com.zjx.dashboard) owns the port once it
-    // has bound after install/respring. The embedded SpringBoard server must not
-    // fight it for the port — a crash here would take SpringBoard down.
+    // Each host owns its own port now (daemon :8688, this SpringBoard fallback
+    // :8689), so the two never race for one. The probe only guards against a
+    // second copy of this same host — starting one anyway would just fail the
+    // bind.
     if (!ZXDashboardServer && ZXDashboardPortIsTaken(ZXDashboardPort)) return;
     if (!ZXDashboardServer) ZXDashboardServer = [[ZXRemoteDashboardServer alloc] init];
     ZXDashboardWatchdogStart();
@@ -1913,6 +2016,7 @@ int ZXDashboardDaemonMain(void)
             [server stop];
             return;
         }
+        ZXVNCRestoreParkedChoice();
         BOOL enabled = ZXVNCIsEnabled();
         ZXVNCApplyEnabledState(enabled);
         lastVNCEnabled = enabled;
@@ -1930,6 +2034,7 @@ int ZXDashboardDaemonMain(void)
                 }
                 if (server.server.running) [server stop];
             } else {
+            ZXVNCRestoreParkedChoice();
             BOOL enabled = ZXVNCIsEnabled();
             // Re-apply not only when the switch changes but whenever the server
             // has drifted from it: this daemon is what keeps :5901 up now that
@@ -1994,8 +2099,13 @@ BOOL ZXRemoteDashboardSetEnabled(BOOL enabled)
     configuration[ZXDashboardEnabledKey] = @(enabled);
     if (!enabled) {
         // Tắt server kéo theo tắt VNC trong cùng một lần ghi plist: một notify
-        // duy nhất, không có cửa sổ VNC còn ON trong lúc dashboard đã OFF.
-        configuration[ZXVNCEnabledKey] = @NO;
+        // duy nhất, không có cửa sổ VNC còn ON trong lúc dashboard đã OFF. Lựa
+        // chọn thật của người dùng được park lại để lần bật sau khôi phục, thay
+        // vì để VNC chết cho tới khi mở Settings lần nữa.
+        ZXVNCParkAndForceDisabledIn(configuration);
+    } else {
+        // Bật lại dashboard: trả VNC về đúng trạng thái trước khi tắt.
+        ZXVNCRestoreParkedIn(configuration);
     }
     NSError *directoryError = nil;
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent] withIntermediateDirectories:YES attributes:nil error:&directoryError];
@@ -2013,9 +2123,17 @@ BOOL ZXRemoteDashboardIsEnabled(void)
 
 NSString *ZXRemoteDashboardURL(void)
 {
-    // No token: open http://<iphone-ip>:8688/ directly from the same Wi-Fi.
+    // No token: open http://<iphone-ip>:<port>/ directly from the same Wi-Fi.
+    // The two hosts sit on different ports now, so point at whichever one is
+    // actually listening — a dead daemon must not hide the SpringBoard fallback
+    // that is still serving. Bind-probe, never connect: opening a connection
+    // here would make the owner log a bogus 500.
     NSString *host = ZXDashboardIPAddress() ?: @"iPad-IP-address";
-    return [NSString stringWithFormat:@"http://%@:%d/", host, ZXDashboardPort];
+    uint16_t port = ZXDashboardDaemonPort;
+    if (!ZXDashboardPortIsTaken(ZXDashboardDaemonPort) && ZXDashboardPortIsTaken(ZXDashboardFallbackPort)) {
+        port = ZXDashboardFallbackPort;
+    }
+    return [NSString stringWithFormat:@"http://%@:%d/", host, port];
 }
 
 NSString *ZXRemoteDashboardLastError(void)
@@ -2027,6 +2145,9 @@ BOOL ZXVNCServerSetEnabled(BOOL enabled)
 {
     NSMutableDictionary *configuration = ZXDashboardConfiguration();
     configuration[ZXVNCEnabledKey] = @(enabled);
+    // Người dùng tự gạt công tắc VNC: lựa chọn này thay thế giá trị mà lần tắt
+    // dashboard đã park, nếu không lần bật dashboard sau sẽ ghi đè trở lại.
+    [configuration removeObjectForKey:ZXVNCParkedKey];
     NSError *directoryError = nil;
     [[NSFileManager defaultManager] createDirectoryAtPath:[ZXDashboardConfigPath stringByDeletingLastPathComponent]
                                 withIntermediateDirectories:YES attributes:nil error:&directoryError];

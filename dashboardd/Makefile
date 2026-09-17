@@ -23,6 +23,7 @@ zxtouch-dashboardd_CFLAGS = -Wno-error -Wno-module-import-in-extern-c -fobjc-arc
 	-Wno-unused-but-set-variable -Wno-macro-redefined -Wno-unicode-whitespace \
 	-Wno-block-capture-autoreleasing -Wno-shadow-ivar -Wno-nonnull \
 	-Wno-format-extra-args -DZX_DASHBOARD_SPRINGBOARD_SERVER=1 \
+	-DZX_DASHBOARD_DAEMON=1 \
 	-I../zxtouch/zxtouch \
 	-I../zxtouch/zxtouch/GCDWebServer/Core \
 	-I../zxtouch/zxtouch/GCDWebServer/Responses \

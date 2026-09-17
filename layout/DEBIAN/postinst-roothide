@@ -156,7 +156,8 @@ else
 fi
 
 # Standalone dashboard daemon (crash-isolated HTTP :8688). SpringBoard keeps a
-# fallback until this daemon binds after respring/reboot.
+# fallback on :8689 until this daemon binds after respring/reboot — the two hosts
+# sit on separate ports so they can never fight over one.
 DASH_BIN=$(jbroot /usr/bin/zxtouch-dashboardd 2>/dev/null)
 DASH_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null)
 if [ -n "$DASH_BIN" ] && [ -x "$DASH_BIN" ]; then
@@ -177,7 +178,7 @@ if [ -n "$DASH_BIN" ] && [ -x "$DASH_BIN" ]; then
         sleep 1
         /usr/bin/killall -9 zxtouch-dashboardd 2>/dev/null || killall -9 zxtouch-dashboardd 2>/dev/null || true
         if ! launchctl load "$DASH_PLIST" 2>>/var/mobile/Library/ZXTouch/dashboardd.log; then
-            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8688." >> /var/mobile/Library/ZXTouch/dashboardd.log
+            echo "ZXTouch: dashboard daemon load failed; SpringBoard fallback still serves :8689." >> /var/mobile/Library/ZXTouch/dashboardd.log
         fi
     fi
 else

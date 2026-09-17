@@ -5,6 +5,8 @@
     <!-- Standalone ZXTouch dashboard: same HTTP server as the SpringBoard
          fallback, but crash-isolated. If this process dies, only the dashboard
          port drops and launchd restarts it — SpringBoard stays alive.
+         This host owns :8688; the SpringBoard fallback serves :8689, so the two
+         hosts never race for one port.
          Theos rootless scheme prefixes layout/ with /var/jb on device,
          so /usr/bin below resolves to /var/jb/usr/bin/zxtouch-dashboardd. -->
     <key>Label</key><string>com.zjx.dashboard</string>
