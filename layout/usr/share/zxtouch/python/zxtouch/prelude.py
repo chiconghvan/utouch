@@ -64,7 +64,7 @@ _HTTP_USER_AGENT = (
 _DEBUG_VISUAL = True
 _DEBUG_DURATION = 1.5
 _DEBUG_TAP_RADIUS = 60
-_DEBUG_TOUCH_LOG = True
+_DEBUG_TOUCH_LOG = False
 
 
 def setDebugTouchLog(enabled=True):
@@ -897,7 +897,6 @@ def tapText(text, timeout=10.0, index=1, region=None, lang=None):
         if len(matches) > want:
             m = _sorted_matches(matches)[want]
             cx, cy = _match_center(m)
-            print("tapText: %r -> (%d, %d) [%s]" % (text, cx, cy, m.get("text", "")))
             _touch_log("tapText match text=%r x=%s y=%s bbox=(%s,%s,%s,%s)" %
                        (m.get("text", ""), cx, cy, m.get("x"), m.get("y"),
                         m.get("width"), m.get("height")))
