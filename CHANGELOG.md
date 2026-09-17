@@ -9,6 +9,15 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.38] — 2026-09-17
+
+### Đã thay đổi
+- `findImage(path, count, threshold, region)` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py` trả mỗi kết quả dạng `{x, y, width, height, confidence}` thay cho `{..., threshold}` trước đây (`threshold` cũ chỉ lặp lại ngưỡng đã yêu cầu vì daemon chỉ trả hình học). Nay daemon (`pccontrol/TemplateMatch.xm` qua `lastScore`, `pccontrol/ScreenMatch.xm` qua `screenMatchFromRawDataWithScore`, `pccontrol/Task.xm` cho `TASK_IMAGE_MATCH`, `pccontrol/ExtTasks.xm` cho image-region/multi) gắn thêm điểm NCC (0–1, càng cao càng khớp) ở cuối reply một cách cộng thêm để client cũ vẫn đọc được 4 trường đầu; `layout/usr/share/zxtouch/python/zxtouch/client.py` (`_optional_confidence`) tách điểm này thành `float`, thiếu/không parse được thì `None` để tương thích daemon cũ. `findImage` chuẩn hoá qua `_with_confidence` rồi sắp xếp tốt-nhất-trước qua `_sort_by_confidence` (hit không điểm giữ thứ tự cũ ở cuối danh sách), nên `matches[1].confidence`, `zxUnpackMatch` và `tapImage` đều lấy đúng hit tốt nhất. Tài liệu `docs/IDE/ioscontrol.md` và gợi ý dashboard (`layout/Applications/zxtouch.app/index.html`, `zxtouch/zxtouch/http/index.html`) đổi `threshold` thành `confidence` kèm ghi chú sắp xếp.
+- Tắt dashboard không còn kéo theo tắt VNC: `ZXRemoteDashboardSetEnabled(NO)`, đường SpringBoard và vòng lặp daemon trong `zxtouch/zxtouch/RemoteDashboardServer.m` giờ chỉ dừng HTTP `:8688`, để nguyên `:5901`. Trước đây cạnh ON→OFF ép `vnc_server_enabled=NO` (park lựa chọn thật) rồi kill `trollvncserver`, còn cạnh OFF→ON mới khôi phục — tắt dashboard để xem là mất luôn VNC cho tới lần bật sau. Từ nay hai công tắc độc lập; lần bật dashboard vẫn chạy migration `ZXVNCRestoreParkedIn` một lần để trả lại lựa chọn đã bị park ở bản cũ.
+
+### Đã sửa
+- Spawn `trollvncserver` hết lỗi `EPERM (1)`: `ZXVNCStartServerDirectly` trong `zxtouch/zxtouch/RemoteDashboardServer.m` chỉ đặt cờ `POSIX_SPAWN_SETSIGMASK`, bỏ `POSIX_SPAWN_SETPGROUP`/`POSIX_SPAWN_SETSID` vốn đòi quyền mà daemon mobile không có. Tiến trình con kế thừa process group của cha là đủ vì `SIGCHLD` đã bị bỏ qua nên không sinh zombie.
+
 ## [0.3.37] — 2026-09-17
 
 ### Đã thay đổi
@@ -434,6 +443,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.38]: https://github.com/chiconghvan/utouch/compare/v0.3.37...v0.3.38
 [0.3.37]: https://github.com/chiconghvan/utouch/compare/v0.3.36...v0.3.37
 [0.3.36]: https://github.com/chiconghvan/utouch/compare/v0.3.35...v0.3.36
 [0.3.35]: https://github.com/chiconghvan/utouch/compare/v0.3.34...v0.3.35
