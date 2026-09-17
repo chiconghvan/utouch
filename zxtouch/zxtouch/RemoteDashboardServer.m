@@ -22,12 +22,17 @@
 #import <mach/mach.h>
 #import <mach/vm_statistics.h>
 #import <signal.h>
+#import <spawn.h>
 #import <stdio.h>
+#import <stdlib.h>
 #import <string.h>
 #import <sys/file.h>
 #import <sys/resource.h>
 #import <sys/stat.h>
+#import <sys/sysctl.h>
+#import <sys/wait.h>
 #import <unistd.h>
+extern char **environ;
 
 #import "Config.h"
 #if !ZX_DASHBOARD_SPRINGBOARD_SERVER
@@ -456,20 +461,208 @@ static BOOL ZXVNCIsEnabled(void)
     return value == nil ? YES : [value boolValue];
 }
 
+// Roothide has no fixed /var/jb prefix: postinst rewrites the bundled plist
+// via `jbroot` to the live prefix. Resolve it shell-less (no /bin/sh).
+static NSString *ZXJbrootPrefix(void)
+{
+    static NSString *cached = nil;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSFileManager *fm = [NSFileManager defaultManager];
+        // Fast path rootless: stock /var/jb layout.
+        if ([fm fileExistsAtPath:@"/var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist"] ||
+            [fm fileExistsAtPath:@"/var/jb/usr/bin/trollvncserver"]) {
+            cached = @"/var/jb";
+            return;
+        }
+        // /var/jb is a symlink on some roothide setups — realpath() reveals it.
+        char resolved[1024];
+        if (realpath("/var/jb", resolved) != NULL) {
+            NSString *p = [NSString stringWithUTF8String:resolved];
+            if (p.length > 1 &&
+                [fm fileExistsAtPath:[p stringByAppendingPathComponent:@"Library/LaunchDaemons/com.zjx.trollvnc.plist"]]) {
+                cached = [p copy];
+                return;
+            }
+        }
+        // Ask the jbroot helper itself (roothide postinst uses `jbroot` bare).
+        // Spawn absolute candidates shell-less and capture stdout via pipe.
+        static const char * const jbBinaries[] = {
+            "/var/jb/usr/bin/jbroot",
+            "/usr/bin/jbroot",
+            "/bin/jbroot",
+            NULL
+        };
+        for (int i = 0; jbBinaries[i]; i++) {
+            if (access(jbBinaries[i], X_OK) != 0) continue;
+            int out[2] = {-1, -1};
+            if (pipe(out) != 0) continue;
+            posix_spawn_file_actions_t actions;
+            posix_spawn_file_actions_init(&actions);
+            posix_spawn_file_actions_adddup2(&actions, out[1], STDOUT_FILENO);
+            posix_spawn_file_actions_addclose(&actions, out[0]);
+            posix_spawn_file_actions_addclose(&actions, out[1]);
+            posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+            posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+            posix_spawnattr_t attrs;
+            posix_spawnattr_init(&attrs);
+            char * const argv[] = {(char *)"jbroot", NULL};
+            pid_t pid = 0;
+            int err = posix_spawn(&pid, jbBinaries[i], &actions, &attrs, argv, environ);
+            posix_spawn_file_actions_destroy(&actions);
+            posix_spawnattr_destroy(&attrs);
+            close(out[1]);
+            NSString *prefix = nil;
+            if (err == 0) {
+                char buf[1024];
+                ssize_t total = 0;
+                // Short-lived helper: blocking read then reap.
+                ssize_t n = read(out[0], buf, sizeof(buf) - 1);
+                int status = 0;
+                for (int t = 0; t < 20; t++) {
+                    if (waitpid(pid, &status, WNOHANG) == pid) break;
+                    usleep(100 * 1000);
+                }
+                if (n > 0) {
+                    total = n;
+                    buf[total] = '\0';
+                    NSString *s = [[NSString stringWithUTF8String:buf]
+                        stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+                    if ([s hasPrefix:@"/"] && [fm fileExistsAtPath:s]) prefix = s;
+                }
+            }
+            close(out[0]);
+            if (prefix) { cached = [prefix copy]; return; }
+        }
+    });
+    return cached;
+}
+
 static NSString *ZXVNCLaunchDaemonPath(void)
 {
+    NSFileManager *fm = [NSFileManager defaultManager];
     NSString *rootlessPath = @"/var/jb/Library/LaunchDaemons/com.zjx.trollvnc.plist";
-    if ([[NSFileManager defaultManager] fileExistsAtPath:rootlessPath]) return rootlessPath;
+    if ([fm fileExistsAtPath:rootlessPath]) return rootlessPath;
 
+    // Roothide: live prefix + /Library/LaunchDaemons/...
+    NSString *prefix = ZXJbrootPrefix();
+    if (prefix && ![prefix isEqualToString:@"/var/jb"]) {
+        NSString *p = [prefix stringByAppendingPathComponent:@"Library/LaunchDaemons/com.zjx.trollvnc.plist"];
+        if ([fm fileExistsAtPath:p]) return p;
+    }
     return @"/Library/LaunchDaemons/com.zjx.trollvnc.plist";
 }
 
-static int ZXVNCSystem(NSString *command)
+// Server binary: prefer ProgramArguments[0] from the installed plist because
+// postinst-roothide rewrites /var/jb -> live jbroot there. Falls back to the
+// well-known absolute candidates on both schemes.
+static NSString *ZXVNCServerBinaryPath(void)
 {
-    if (!command.length) return -1;
-    int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
-    if (!systemFunction) return -1;
-    return systemFunction(command.UTF8String);
+    NSString *daemonPath = ZXVNCLaunchDaemonPath();
+    NSDictionary *job = [NSDictionary dictionaryWithContentsOfFile:daemonPath];
+    NSArray *args = job[@"ProgramArguments"];
+    if ([args isKindOfClass:[NSArray class]] && args.count > 0 &&
+        [args[0] isKindOfClass:[NSString class]] &&
+        [[NSFileManager defaultManager] isExecutableFileAtPath:args[0]]) {
+        return args[0];
+    }
+    NSFileManager *fm = [NSFileManager defaultManager];
+    for (NSString *p in @[@"/var/jb/usr/bin/trollvncserver", @"/usr/bin/trollvncserver"]) {
+        if ([fm isExecutableFileAtPath:p]) return p;
+    }
+    NSString *prefix = ZXJbrootPrefix();
+    if (prefix) {
+        NSString *p = [prefix stringByAppendingPathComponent:@"usr/bin/trollvncserver"];
+        if ([fm isExecutableFileAtPath:p]) return p;
+    }
+    return @"/var/jb/usr/bin/trollvncserver";
+}
+
+// ── Shell-less spawn (rootless fix) ──────────────────────────────────────
+// system() always execs /bin/sh, which does not exist on rootless
+// (only /var/jb/bin/sh exists). That made every VNC recovery return
+// 127<<8 = 32512 with no log output. Everything below uses posix_spawn
+// with absolute binary paths — no shell, no PATH, no nohup.
+static void ZXVNCIgnoreSIGCHLDOnce(void)
+{
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        signal(SIGCHLD, SIG_IGN);
+    });
+}
+
+static const char *ZXFirstExecutable(const char * const *candidates)
+{
+    for (int i = 0; candidates[i]; i++) {
+        if (access(candidates[i], X_OK) == 0) return candidates[i];
+    }
+    return NULL;
+}
+
+// Spawn and wait up to timeoutMs (for short-lived helpers like launchctl).
+// Child stdout/stderr go to /dev/null to mirror the old >/dev/null 2>&1.
+static BOOL ZXSpawnAndWait(const char *path, char * const argv[], int timeoutMs)
+{
+    ZXVNCIgnoreSIGCHLDOnce();
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+
+    posix_spawnattr_t attrs;
+    posix_spawnattr_init(&attrs);
+    sigset_t empty;
+    sigemptyset(&empty);
+    posix_spawnattr_setsigmask(&attrs, &empty);
+    posix_spawnattr_setflags(&attrs, POSIX_SPAWN_SETSIGMASK);
+
+    pid_t pid = 0;
+    int err = posix_spawn(&pid, path, &actions, &attrs, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    if (err != 0) return NO;
+
+    int elapsed = 0;
+    while (elapsed < timeoutMs) {
+        int status = 0;
+        pid_t w = waitpid(pid, &status, WNOHANG);
+        if (w == pid) return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (w < 0 && errno != EINTR) return NO;
+        usleep(100 * 1000);
+        elapsed += 100;
+    }
+    return NO;
+}
+
+static void ZXVNCLaunchctl(NSString *verb, BOOL withW, NSString *daemonPath)
+{
+    const char *daemon = daemonPath.UTF8String;
+    if (!daemon || !daemon[0]) return;
+    // Fixed candidates (rootless + stock) plus the live roothide prefix.
+    NSMutableArray<NSString *> *list = [NSMutableArray arrayWithObjects:
+        @"/var/jb/bin/launchctl", @"/bin/launchctl", @"/usr/bin/launchctl", nil];
+    NSString *prefix = ZXJbrootPrefix();
+    if (prefix && ![prefix isEqualToString:@"/var/jb"]) {
+        [list insertObject:[prefix stringByAppendingPathComponent:@"bin/launchctl"] atIndex:0];
+    }
+    for (NSString *bin in list) {
+        const char *path = bin.UTF8String;
+        if (access(path, X_OK) != 0) continue;
+        if (withW) {
+            char * const argv[] = {
+                (char *)"launchctl", (char *)verb.UTF8String,
+                (char *)"-w", (char *)daemon, NULL
+            };
+            ZXSpawnAndWait(path, argv, 5000);
+        } else {
+            char * const argv[] = {
+                (char *)"launchctl", (char *)verb.UTF8String,
+                (char *)daemon, NULL
+            };
+            ZXSpawnAndWait(path, argv, 5000);
+        }
+    }
 }
 
 static BOOL ZXVNCServerProcessRunning(void)
@@ -536,17 +729,11 @@ static void ZXVNCSetDaemonDisabled(BOOL disabled)
                                 disabled ? @"YES" : @"NO", daemonPath.lastPathComponent);
         }
     }
-    // Try every known launchctl location: SpringBoard, dashboardd and postinst
-    // may each see a different PATH/bootstrap namespace.
+    // Shell-less: try every known launchctl binary directly. No PATH, no
+    // test(1), no shell — posix_spawn with absolute paths.
     NSString *verb = disabled ? @"unload" : @"load";
-    NSString *command = [NSString stringWithFormat:
-        @"PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin; "
-         @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl %@ -w \"%@\" >/dev/null 2>&1); "
-         @"(launchctl %@ -w \"%@\" >/dev/null 2>&1); "
-         @"(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl %@ \"%@\" >/dev/null 2>&1); "
-         @"(launchctl %@ \"%@\" >/dev/null 2>&1)",
-        verb, daemonPath, verb, daemonPath, verb, daemonPath, verb, daemonPath];
-    ZXVNCSystem(command);
+    ZXVNCLaunchctl(verb, YES, daemonPath);
+    ZXVNCLaunchctl(verb, NO, daemonPath);
 }
 
 static void ZXVNCApplyEnabledState(BOOL enabled)
@@ -622,24 +809,18 @@ static void ZXVNCSetScale(double scale)
     [configuration writeToFile:ZXDashboardConfigPath atomically:YES];
 }
 
-// Start the server without relying on launchd. `launchctl load -w` is a
-// root-only operation for a system daemon, and everything that flips the VNC
-// switch (app, dashboardd, SpringBoard tweak) runs as mobile — so the job stays
-// loaded and the nohup copy below is what actually brings the port up. The
-// binary drops itself to uid 501 (same as the launchd-started one), so both
-// routes end up with the identical process.
+// Start the server without relying on launchd or on any shell.
+// `launchctl load -w` on a system daemon needs root while this code runs as
+// mobile, and re-loading an already-loaded job never starts it — so the binary
+// itself is spawned directly when the port is still closed. The binary drops
+// itself to uid 501 (same as the launchd-started one), so both routes end up
+// with the identical process.
 static void ZXVNCStartServerDirectly(void)
 {
     // "Already running?" must mean the PORT answers, never "a process with the
     // right name exists". A server that takes a TERM while it is already tearing
     // down keeps its name after its listeners are closed, and the old
-    // process-name test then answered YES forever: every recovery and the
-    // daemon's 30 s sweep turned into a silent no-op and VNC could not come back
-    // at all. The check still has to happen here in C, never inside the command
-    // string: that string carries the binary path in its own argv, so a
-    // `ps -ax | grep '[t]rollvncserver'` run from within it matches the spawning
-    // `sh -c` itself, and `sh` has no coreutils in its PATH on a rootless
-    // jailbreak anyway.
+    // process-name test then answered YES forever.
     if (ZXVNCProbePort(5901)) return;
     if (ZXVNCServerProcessRunning()) {
         ZXDashboardDebugLog(@"[vnc] trollvncserver alive while :5901 is closed — killing the wedged copy");
@@ -647,21 +828,67 @@ static void ZXVNCStartServerDirectly(void)
         [NSThread sleepForTimeInterval:0.5];
         if (ZXVNCProbePort(5901)) return;
     }
-    // PATH is set explicitly: a launchd daemon gets none of the rootless /var/jb
-    // directories, so a bare `nohup` (like the bare `launchctl` below) would
-    // simply not be found. The whole group is redirected into the TrollVNC log so
-    // a spawn that fails can never be silent again — that silence is what made
-    // the wedged-process case above invisible for so long.
-    NSString *command = [NSString stringWithFormat:
-        @"{ PATH=/var/jb/usr/bin:/var/jb/bin:/usr/bin:/bin:/usr/sbin:/sbin; "
-          "(test -x /var/jb/bin/launchctl && /var/jb/bin/launchctl load -w %@ >/dev/null 2>&1); "
-          "(launchctl load -w %@ >/dev/null 2>&1); "
-          "nohup %@ -p 5901 -H 5801 -n ZXTouch -s %g -F 30:60:120 -d 0.008 -Q 1 -O on -B off -A 15 -I off >>%@ 2>&1 </dev/null & } >>%@ 2>&1",
-        ZXVNCLaunchDaemonPath(), ZXVNCLaunchDaemonPath(),
-        @"/var/jb/usr/bin/trollvncserver", ZXVNCScale(),
-        ZX_TROLLVNC_LOG_PATH, ZX_TROLLVNC_LOG_PATH];
-    int status = ZXVNCSystem(command);
-    ZXDashboardDebugLog(@"[vnc] spawn trollvncserver (system rc=%d)", status);
+    // Shell-less: best effort let launchd own it again when running as root,
+    // then spawn the binary directly with absolute paths. No /bin/sh, no PATH,
+    // no nohup — posix_spawn + append redirection into trollvnc.log.
+    ZXVNCLaunchctl(@"load", YES, ZXVNCLaunchDaemonPath());
+    if (ZXVNCIsEnabled() && ZXVNCProbePort(5901)) return;
+
+    NSString *serverPath = ZXVNCServerBinaryPath();
+    const char *server = serverPath.UTF8String;
+    if (!server || !server[0] || access(server, X_OK) != 0) {
+        ZXDashboardDebugLog(@"[vnc] trollvncserver binary not found");
+        return;
+    }
+    char scaleStr[32];
+    snprintf(scaleStr, sizeof(scaleStr), "%g", ZXVNCScale());
+    const char *logPath = ZX_TROLLVNC_LOG_PATH.fileSystemRepresentation;
+    if (!logPath || !logPath[0]) logPath = "/var/mobile/Library/ZXTouch/trollvnc.log";
+
+    ZXVNCIgnoreSIGCHLDOnce();
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, logPath,
+                                     O_WRONLY | O_CREAT | O_APPEND, 0644);
+    posix_spawn_file_actions_adddup2(&actions, STDOUT_FILENO, STDERR_FILENO);
+
+    posix_spawnattr_t attrs;
+    posix_spawnattr_init(&attrs);
+    sigset_t empty;
+    sigemptyset(&empty);
+    posix_spawnattr_setsigmask(&attrs, &empty);
+    short spawnFlags = POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETPGROUP;
+    posix_spawnattr_setpgroup(&attrs, 0);
+#ifdef POSIX_SPAWN_SETSID
+    spawnFlags |= POSIX_SPAWN_SETSID;
+#endif
+    posix_spawnattr_setflags(&attrs, spawnFlags);
+
+    char * const argv[] = {
+        (char *)"trollvncserver",
+        (char *)"-p", (char *)"5901",
+        (char *)"-H", (char *)"5801",
+        (char *)"-n", (char *)"ZXTouch",
+        (char *)"-s", scaleStr,
+        (char *)"-F", (char *)"30:60:120",
+        (char *)"-d", (char *)"0.008",
+        (char *)"-Q", (char *)"1",
+        (char *)"-O", (char *)"on",
+        (char *)"-B", (char *)"off",
+        (char *)"-A", (char *)"15",
+        (char *)"-I", (char *)"off",
+        NULL
+    };
+    pid_t pid = 0;
+    int err = posix_spawn(&pid, server, &actions, &attrs, argv, environ);
+    posix_spawn_file_actions_destroy(&actions);
+    posix_spawnattr_destroy(&attrs);
+    if (err != 0) {
+        ZXDashboardDebugLog(@"[vnc] spawn %s failed: %s (%d)", server, strerror(err), err);
+    } else {
+        ZXDashboardDebugLog(@"[vnc] spawn %s pid=%d scale=%s", server, pid, scaleStr);
+    }
 }
 
 static void ZXVNCkillServer(void)
@@ -2087,10 +2314,58 @@ static NSMutableDictionary *ZXDashboardConfiguration(void)
 // Best-effort: Settings process tự kill VNC ngay khi user OFF để không phải chờ
 // dashboardd/SpringBoard nhận notify (đóng cửa sổ 0-30s). Thất bại cũng không sao
 // vì daemon + SpringBoard sẽ kill lại khi nhận notify.
+// Shell-less: system()/killall cần /bin/sh (không có trên rootless) nên dùng
+// sysctl + kill() trực tiếp.
 static void ZXSettingsKillVNCBestEffort(void)
 {
-    int (*systemFunction)(const char *) = (int (*)(const char *))dlsym(RTLD_DEFAULT, "system");
-    if (systemFunction) systemFunction("killall -9 trollvncserver >/dev/null 2>&1");
+#if defined(CTL_KERN) && defined(KERN_PROC)
+    int mib[4] = {CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0};
+    size_t size = 0;
+    if (sysctl(mib, 4, NULL, &size, NULL, 0) != 0 || size == 0) return;
+    struct kinfo_proc *procs = malloc(size);
+    if (!procs) return;
+    if (sysctl(mib, 4, procs, &size, NULL, 0) != 0) { free(procs); return; }
+    size_t count = size / sizeof(struct kinfo_proc);
+    for (size_t i = 0; i < count; i++) {
+        const char *name = procs[i].kp_proc.p_comm;
+        if (name && strcmp(name, "trollvncserver") == 0) {
+            kill(procs[i].kp_proc.p_pid, SIGKILL);
+        }
+    }
+    free(procs);
+#else
+    // Fallback khi không có sysctl: spawn killall bằng đường dẫn tuyệt đối.
+    static const char * const killallCandidates[] = {
+        "/var/jb/usr/bin/killall",
+        "/usr/bin/killall",
+        NULL
+    };
+    for (int i = 0; killallCandidates[i]; i++) {
+        if (access(killallCandidates[i], X_OK) != 0) continue;
+        pid_t pid = 0;
+        char * const argv[] = {
+            (char *)"killall", (char *)"-9",
+            (char *)"trollvncserver", NULL
+        };
+        posix_spawn_file_actions_t actions;
+        posix_spawn_file_actions_init(&actions);
+        posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+        posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+        posix_spawnattr_t attrs;
+        posix_spawnattr_init(&attrs);
+        if (posix_spawn(&pid, killallCandidates[i], &actions, &attrs, argv, environ) == 0) {
+            int status = 0;
+            for (int t = 0; t < 50; t++) {
+                if (waitpid(pid, &status, WNOHANG) == pid) break;
+                usleep(100 * 1000);
+            }
+        }
+        posix_spawn_file_actions_destroy(&actions);
+        posix_spawnattr_destroy(&attrs);
+        break;
+    }
+#endif
 }
 
 BOOL ZXRemoteDashboardSetEnabled(BOOL enabled)
