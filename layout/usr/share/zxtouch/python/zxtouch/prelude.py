@@ -175,14 +175,28 @@ def disconnect():
 
 
 def setScriptDir(path):
-    """Announce the directory of the script being run (zxtouch.runner calls this).
+    """Announce the script being run, so its own folder becomes the asset dir.
 
-    Template images referenced by bare name — ``findImage("home-activ.png")`` —
-    are looked up in this directory, i.e. the script's own .bdl bundle. Pass
-    None to forget it (back to sending names through untouched).
+    The usual case: the assets ship next to the entry file, i.e. the script's
+    directory IS the asset directory. See setAssetDir. Pass None to forget it.
+    """
+    return setAssetDir(os.path.dirname(os.path.abspath(path)) if path else None)
+
+
+def setAssetDir(directory):
+    """Announce the asset directory that relative paths resolve against.
+
+    The folder recorded here answers "relative to what?" for the whole session:
+    ``findImage("threads.png")`` opens ``<asset dir>/threads.png`` and
+    ``findImage("img/btn.png")`` opens ``<asset dir>/img/btn.png``.
+
+    An editor run needs this to differ from the script's directory: the editor
+    stages the code in a scratch bundle of its own (see AssetDir in the bundle's
+    info.plist), so the assets stay in the bundle the tab came from. Pass None to
+    forget it (back to sending names through untouched).
     """
     global _SCRIPT_DIR
-    _SCRIPT_DIR = os.path.dirname(os.path.abspath(path)) if path else None
+    _SCRIPT_DIR = os.path.abspath(directory) if directory else None
     return _SCRIPT_DIR
 
 
@@ -578,14 +592,15 @@ def _match_result(res):
 
 
 def _resolve_image_path(path):
-    """Point a bare template name at the running script's own bundle.
+    """Resolve a relative template path against the asset directory.
 
     The daemon opens the path exactly as sent — relative to its own working
     directory (SpringBoard's), never the script's — so an image shipped next to
-    the script was unreachable by name. When zxtouch.runner has announced the
-    script directory and the name resolves to a file inside it, that absolute
-    path is sent instead. Absolute paths, and names that live nowhere in the
-    script directory, are passed through so the daemon resolves them as before.
+    the script was unreachable by name. Once the asset directory is known (see
+    setAssetDir), a relative path is turned into asset_dir/path, subdirectories
+    included, and that absolute path is sent instead. Absolute paths, and names
+    that live nowhere in the asset directory, are passed through so the daemon
+    resolves them as before.
     """
     if _SCRIPT_DIR is None or not isinstance(path, str) or not path:
         return path

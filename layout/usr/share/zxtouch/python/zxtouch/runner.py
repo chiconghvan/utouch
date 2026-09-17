@@ -9,6 +9,7 @@ Keeps SpringBoard integration intact:
 - exit code propagates (ScriptPlayer reads last_python_status)
 - SIGKILL to the process group still terminates the script
 """
+import os
 import runpy
 import sys
 
@@ -21,7 +22,15 @@ def main(argv):
     sys.argv = argv[1:]  # user script sees its own path as argv[0]
 
     from zxtouch import prelude
-    prelude.setScriptDir(script)
+    # An editor run stages the code in a scratch bundle that holds none of the
+    # script's assets, so ZX_ASSET_DIR (set from the bundle's info.plist, see
+    # ScriptPlayer) names the bundle the edited tab came from. Without it the
+    # entry file's own folder is the asset directory.
+    asset_dir = os.environ.get("ZX_ASSET_DIR")
+    if asset_dir and os.path.isdir(asset_dir):
+        prelude.setAssetDir(asset_dir)
+    else:
+        prelude.setScriptDir(script)
     # Pre-connect (with retries inside); on failure runpy still runs so the
     # traceback is visible in Logs instead of a silent exit.
     try:

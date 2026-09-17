@@ -498,6 +498,10 @@ Find images on screen with template matching, OCR text recognition.
 
 _Tìm hình ảnh trên màn hình bằng template matching, nhận dạng chữ OCR._
 
+Every `path` below is resolved inside the script's **asset folder**: a relative path is joined to it (`img/btn.png` → `<asset folder>/img/btn.png`), an absolute device path is used as-is, and a relative path that exists nowhere in the asset folder is passed through unchanged. The asset folder is the script's own `.bdl` bundle — and for code run from the dashboard Editor tab, the bundle that tab was opened from.
+
+_Mọi `path` bên dưới được giải theo **thư mục asset** của script: đường dẫn tương đối được ghép vào đó (`img/btn.png` → `<thư mục asset>/img/btn.png`), đường dẫn tuyệt đối dùng nguyên trạng, còn đường dẫn tương đối không tồn tại trong thư mục asset thì giữ nguyên. Thư mục asset là bundle `.bdl` của chính script — riêng khi chạy từ tab Editor trên dashboard thì là bundle mà tab đó được mở ra._
+
 ### `findImage(path, count, threshold, region)`
 
 - Type: `func`
@@ -509,7 +513,7 @@ _Tìm hình ảnh trên màn hình bằng template matching, nhận dạng chữ
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image filename — looked up in the script's own .bdl folder, or an absolute device path | Tên file ảnh — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
+| `path` | `string` | yes | Image path — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Đường dẫn ảnh — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
 | `count` | `number` | no | Max matches (default: 1) | Số kết quả tối đa (mặc định: 1) |
 | `threshold` | `number` | no | Match threshold 0-1 (default: 0.8) | Ngưỡng khớp 0-1 (mặc định: 0.8) |
 | `region` | `table` | no | {x, y, w, h} search region (POINT) | Vùng tìm {x, y, w, h} (POINT) |
@@ -550,7 +554,7 @@ local x, y = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image filename — looked up in the script's own .bdl folder, or an absolute device path | Tên file ảnh — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
+| `path` | `string` | yes | Image path — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Đường dẫn ảnh — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
 | `timeout` | `number` | no | Timeout in seconds (default: 10) | Thời gian chờ giây (mặc định: 10) |
 
 **Example (Lua/cURL):**
@@ -756,7 +760,7 @@ end
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image filename — looked up in the script's own .bdl folder, or an absolute device path | Tên file ảnh — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
+| `path` | `string` | yes | Image path — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Đường dẫn ảnh — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
 | `timeout` | `number` | no | Timeout seconds (default 5) | Thời gian chờ (mặc định 5) |
 | `threshold` | `number` | no | Match threshold 0-1 (default 0.8) | Ngưỡng khớp 0-1 (mặc định 0.8) |
 | `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
@@ -820,7 +824,7 @@ tapText("Continue")
 
 | Name | Type | Required | EN | VI |
 |---|---|---|---|---|
-| `path` | `string` | yes | Image to search for — looked up in the script's own .bdl folder, or an absolute device path | Hình cần tìm — tìm trong thư mục .bdl của script, hoặc đường dẫn tuyệt đối trên thiết bị |
+| `path` | `string` | yes | Image to search for — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Hình cần tìm — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
 | `direction` | `string` | no | "up", "down", "left", "right" | "up", "down", "left", "right" |
 | `maxSwipes` | `number` | no | Maximum swipe attempts (default 5) | Số lần vuốt tối đa (mặc định 5) |
 | `threshold` | `number` | no | Match threshold 0-1 (default: 0.8) | Ngưỡng khớp 0-1 (mặc định: 0.8) |

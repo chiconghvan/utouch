@@ -1164,6 +1164,52 @@ def test_runner_announces_script_dir(tmp_path):
         prelude.disconnect()
 
 
+def test_asset_dir_can_differ_from_script_dir(tmp_path):
+    # An editor run stages the code in a scratch bundle of its own, so the assets
+    # stay in the bundle the edited tab came from: relative names resolve against
+    # the announced asset dir, not against the entry file's folder.
+    bundle = tmp_path / "auto-threads.bdl"
+    (bundle / "img").mkdir(parents=True)
+    (bundle / "threads.png").write_bytes(b"\x89PNG\r\n")
+    (bundle / "img" / "btn.png").write_bytes(b"\x89PNG\r\n")
+    scratch = tmp_path / "__editor__.bdl"
+    scratch.mkdir()
+    (scratch / "entry.py").write_text("pass\n", encoding="utf-8")
+    d = use_fake()
+    try:
+        prelude.setAssetDir(str(bundle))
+        prelude.findImage("threads.png")
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == (
+            str(bundle / "threads.png"), 0.8, 2, 0.8)
+        prelude.findImage("img/btn.png")
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == (
+            os.path.join(str(bundle), "img/btn.png"), 0.8, 2, 0.8)
+        prelude.findImage("missing.png")            # nowhere in the asset dir
+        assert [c for c in d.calls if c[0] == "image"][-1][1] == ("missing.png", 0.8, 2, 0.8)
+    finally:
+        prelude.setAssetDir(None)
+    assert prelude._SCRIPT_DIR is None
+
+
+def test_runner_prefers_env_asset_dir(tmp_path, monkeypatch):
+    import zxtouch.runner as runner
+    scratch = tmp_path / "__editor__.bdl"
+    scratch.mkdir()
+    script = scratch / "entry.py"
+    script.write_text("pass\n", encoding="utf-8")
+    bundle = tmp_path / "auto-threads.bdl"
+    bundle.mkdir()
+    prelude.disconnect()
+    prelude.set_device(FakeDevice())
+    monkeypatch.setenv("ZX_ASSET_DIR", str(bundle))
+    try:
+        assert runner.main(["runner", str(script)]) == 0
+        assert prelude._SCRIPT_DIR == str(bundle)
+    finally:
+        prelude.setAssetDir(None)
+        prelude.disconnect()
+
+
 # ---------------------------------------------------------------- transpiled-Lua call shapes
 
 def test_find_colors_accepts_lua_lists():

@@ -1186,7 +1186,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
     return response;
 }
 
-- (NSString *)writeEditorBundleWithCode:(NSString *)code error:(NSError **)error
+- (NSString *)writeEditorBundleWithCode:(NSString *)code assetBundle:(NSString *)assetBundle error:(NSError **)error
 {
     // Hidden staging bundle next to the runtime log dir (NOT in the library).
     NSString *bundlePath = [[RUNTIME_OUTPUT_PATH stringByDeletingLastPathComponent]
@@ -1197,7 +1197,14 @@ static NSArray *ZXEditorFunctionCatalog(void)
     }
     // Pin FrontApp so an editor run never yanks the user to another app.
     NSString *frontmost = [self editorFrontmostApp] ?: @"";
-    NSDictionary *info = @{ @"Entry": @"entry.py", @"FrontApp": frontmost, @"Orientation": @"1" };
+    NSMutableDictionary *info = [@{ @"Entry": @"entry.py", @"FrontApp": frontmost, @"Orientation": @"1" } mutableCopy];
+    // The staging bundle holds the code and nothing else, so a script that
+    // references "home-activ.png" would have no assets beside it. Point the
+    // runtime at the bundle the tab came from instead: that folder is what
+    // relative asset names resolve against during the run.
+    if (assetBundle.length) {
+        info[@"AssetDir"] = assetBundle;
+    }
     [info writeToFile:[bundlePath stringByAppendingPathComponent:@"info.plist"] atomically:YES];
     if (![code writeToFile:[bundlePath stringByAppendingPathComponent:@"entry.py"]
                 atomically:YES encoding:NSUTF8StringEncoding error:error]) {
@@ -1545,10 +1552,12 @@ static NSArray *ZXEditorFunctionCatalog(void)
     }];
 
     // ── Editor tab: ad-hoc write/run/save/load ──────────────────────
-    // POST /api/editor/run {code} — writes a hidden __editor__.bdl bundle
+    // POST /api/editor/run {code, path?} — writes a hidden __editor__.bdl bundle
     // (outside SCRIPTS_PATH so quick runs don't pollute the library) and
     // plays it immediately. FrontApp is pinned to the currently frontmost
-    // app so the run doesn't yank the user elsewhere.
+    // app so the run doesn't yank the user elsewhere. `path` is the library
+    // bundle the tab was opened from; its folder holds the assets the code
+    // refers to by relative name, so the runtime resolves them there.
     [self.server addHandlerForMethod:@"POST" path:@"/api/editor/run" requestClass:[GCDWebServerDataRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
@@ -1561,7 +1570,10 @@ static NSArray *ZXEditorFunctionCatalog(void)
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Code is too large (256 KB max)." } status:413];
         }
         NSError *error = nil;
-        NSString *bundlePath = [strongSelf writeEditorBundleWithCode:code error:&error];
+        // An untitled tab has no bundle, and bundlePathForRelativePath: rejects
+        // anything that is not an existing bundle inside the library.
+        NSString *assetBundle = [strongSelf bundlePathForRelativePath:body[@"path"]];
+        NSString *bundlePath = [strongSelf writeEditorBundleWithCode:code assetBundle:assetBundle error:&error];
         if (!bundlePath) {
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": error.localizedDescription ?: @"Unable to stage editor script." } status:500];
         }

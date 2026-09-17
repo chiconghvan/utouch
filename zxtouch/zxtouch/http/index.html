@@ -2250,7 +2250,7 @@
       setButtonBusy(elements.editorRun, true, 'Running…');
       setEditorStatus('Running on device… output appears below.');
        try {
-         const payload = await api('/api/editor/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code }) });
+         const payload = await api('/api/editor/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code, path: activeBundlePath() || undefined }) });
          if (payload.result && !String(payload.result).startsWith('0')) throw new Error(String(payload.result).replace(/^(-1;;|\r\n)/g, ''));
          showToast(`${editorDisplayName(doc)} started.`);
          setEditorStatus('Running — run log accumulates below.');

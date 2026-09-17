@@ -522,10 +522,31 @@ static NSString *ZXPythonModulePath(void)
         chmod(dateWrapper.UTF8String, 0755);
     }
 
-    NSString *scriptDir = [filePath stringByDeletingLastPathComponent];
+    // A bundle records where the script's assets live when they are not next to
+    // the entry file (an editor run stages the code in a scratch bundle of its
+    // own). That folder then stands in for the script's own folder: the runtime
+    // resolves relative asset names against it, and it is the working directory,
+    // so relative file I/O lands beside the assets rather than in the scratch.
+    NSDictionary *assetInfo = [NSDictionary dictionaryWithContentsOfFile:
+        [[filePath stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"info.plist"]];
+    NSString *assetDir = assetInfo[@"AssetDir"];
+    BOOL assetDirIsDirectory = NO;
+    if (![assetDir isKindOfClass:[NSString class]] || assetDir.length == 0 ||
+        ![[NSFileManager defaultManager] fileExistsAtPath:assetDir isDirectory:&assetDirIsDirectory] ||
+        !assetDirIsDirectory) {
+        assetDir = nil;
+    }
+
+    NSString *scriptDir = assetDir.length ? assetDir : [filePath stringByDeletingLastPathComponent];
     NSString *statusFile = @"/var/mobile/Library/ZXTouch/coreutils/ScriptRuntime/last_python_status";
     NSString *pythonModulePath = ZXPythonModulePath();
-    NSString *envPrefix = pythonModulePath.length > 0 ? [NSString stringWithFormat:@"PYTHONPATH=%@ ", ZXShellQuote(pythonModulePath)] : @"";
+    NSMutableString *envPrefix = [NSMutableString string];
+    if (pythonModulePath.length > 0) {
+        [envPrefix appendFormat:@"PYTHONPATH=%@ ", ZXShellQuote(pythonModulePath)];
+    }
+    if (assetDir.length > 0) {
+        [envPrefix appendFormat:@"ZX_ASSET_DIR=%@ ", ZXShellQuote(assetDir)];
+    }
     NSString *commandToRun = [NSString stringWithFormat:@"rm -f %@; (cd %@ && %@%@ -u -m zxtouch.runner %@ 2>&1; echo $? > %@) | %@ %@ %@; exit $(cat %@ 2>/dev/null || echo 1)",
                               ZXShellQuote(statusFile),
                               ZXShellQuote(scriptDir),
