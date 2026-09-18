@@ -709,6 +709,8 @@ def findImage(path, count=None, threshold=0.8, region=None):
       ``_FIND_IMAGE_DEFAULT_MAX``), so ``len(...)`` counts hits on screen.
     * ``findImage("a.png", 5, 0.85)``: returns up to 5 matches (fewer when
       the screen holds fewer).
+    * ``findImage("a.png", region=[0, 207, 1242, 1847])``: same multi-match
+      behaviour, filtered to hits whose center falls inside ``region``.
     * ``[]`` when nothing matches.
 
     Each match is ``{x, y, width, height, confidence}`` with ``confidence``
@@ -720,15 +722,41 @@ def findImage(path, count=None, threshold=0.8, region=None):
     want = _FIND_IMAGE_DEFAULT_MAX if count is None else max(1, int(count))
     if region is not None:
         region = _normalize_region(region)
+        # Region + multi: the TASK_IMAGE_REGION daemon task answers with a
+        # single hit only, so multi-match inside a region goes through
+        # TASK_IMAGE_MULTI (full screen) + center-in-region filter. Fetch
+        # the full budget (not just `want`): asking want=1 must not hide a
+        # 2nd hit inside the region behind the best global hit outside it.
+        # Explicit region never falls through to unfiltered full-screen:
+        # every return below is either filtered or [].
+        fetch = max(want, _FIND_IMAGE_DEFAULT_MAX)
+        try:
+            ok, res = get_device().image_match_multi(path, threshold, fetch)
+            if ok:
+                if res:
+                    out = _sort_by_confidence([_with_confidence(_match_result(m))
+                                               for m in list(res)])
+                    out = [m for m in out if _match_in_region(m, region)][:want]
+                    for m in out:
+                        _dbg_match(m)
+                    if out:
+                        return out
+                    # Multi answered but nothing inside region: the cropped
+                    # region task tries harder (maxTry=2 vs 1 per tile), so
+                    # give it a second chance instead of returning [] now.
+                else:
+                    log("findImage: multi-match khong thay match nao")
+        except Exception as e:
+            log("findImage: daemon khong ho tro multi-match (%s)" % (e,))
         try:
             ok, res = get_device().find_image_in_region(path, region, threshold)
             if ok:
-                # The region task answers with a single hit; wrap it so the
-                # return shape stays a list whatever the caller asked for.
                 # NOTE: coordinates are already in full-screen space (the
                 # daemon offsets the crop by region origin), so no
                 # re-offsetting here — just verify the hit overlaps region.
                 res = _with_confidence(_match_result(res))
+                if not _match_in_region(res, region):
+                    return []
                 _dbg_match(res)
                 return [res][:want]
             # Explicit region + daemon answered "no match in region":
@@ -738,6 +766,18 @@ def findImage(path, count=None, threshold=0.8, region=None):
             return []
         except Exception as e:
             log("findImage: daemon khong ho tro region search (%s), mui lon man hinh" % (e,))
+        # Old daemon without TASK_IMAGE_MULTI: single-match fallback,
+        # filtered to the region so callers never see an outside hit.
+        ok, res = get_device().image_match(path, threshold, 2, 0.8)
+        if not ok:
+            return []
+        res = _with_confidence(_match_result(res))
+        if not _match_in_region(res, region):
+            return []
+        _dbg_match(res)
+        if want > 1:
+            log("findImage: daemon cu khong ho tro multi-match, tra 1/%d ket qua" % (want,))
+        return [res]
     try:
         ok, res = get_device().image_match_multi(path, threshold, want)
         if ok and res:
@@ -871,6 +911,23 @@ def _match_center(m):
     """Center point of an OCR match dict (device pixels, ints)."""
     return (_num(m.get("x", 0)) + _num(m.get("width", 0)) // 2,
             _num(m.get("y", 0)) + _num(m.get("height", 0)) // 2)
+
+
+def _match_in_region(m, region):
+    """True when a match belongs to ``region`` (x, y, w, h).
+
+    Uses the match center so a template straddling the border still
+    counts when it is mostly visible inside — same rule a cropped
+    region search would apply. All values go through _num because the
+    daemon formats numbers as float strings ('1242.000000').
+    """
+    try:
+        rx, ry, rw, rh = region
+    except (TypeError, ValueError):
+        return False
+    cx, cy = _match_center(m)
+    return (_num(rx) <= cx <= _num(rx) + _num(rw) and
+            _num(ry) <= cy <= _num(ry) + _num(rh))
 
 
 def _sorted_matches(matches):
