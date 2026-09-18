@@ -9,6 +9,16 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.39] — 2026-09-18
+
+### Đã thêm
+- Chạy script tại chỗ, không chuyển app trước: task socket mới `TASK_PLAY_SCRIPT_IN_PLACE = 50` (`pccontrol/Task.h`, `layout/usr/share/zxtouch/python/zxtouch/tasktypes.py`), API Python `zxtouch.play_script_in_place(script_absolute_path)` trong `layout/usr/share/zxtouch/python/zxtouch/client.py`, và cặp hàm `playScriptInPlace` / `playScriptWithSettingsInPlace` trong `pccontrol/Play.h` / `pccontrol/Play.xm` (luôn `setSwitchApp:NO`, bỏ qua cờ `switch_app_before_run_script`). Handler `TASK_PLAY_SCRIPT_IN_PLACE` trong `pccontrol/Task.xm` chạy ngay trên màn hình đang hiển thị. Dashboard (`POST /api/run`, `POST /api/editor/run` trong `zxtouch/zxtouch/RemoteDashboardServer.m`) gửi `"50"+bundlePath` thay cho `"19"+bundlePath`; nút Run của floating panel (`pccontrol/Popup.xm`) và trigger phím cứng (`runConfiguredTriggerAction` trong `pccontrol/Tweak.xm`) gọi bản in-place. Trước đây mọi đường này đi qua `playScript`/`playScriptWithSettings` nên giật về app ghi trong `FrontApp`; từ nay không còn kéo người dùng khỏi màn hình hiện tại.
+- Dashboard tự chuyển cổng dự phòng `8688 <-> 8689`: `RemoteDashboardServer.m` mở CORS `Access-Control-Allow-Origin: *` cho JSON (`jsonResponse`), ảnh chụp (`/api/capture-screen`), file (`/api/download`, `/api/logs/download`, assets) và thêm handler `OPTIONS /api/*` trả `204` cho preflight; `GET /api/health` trả thêm `daemonPort`/`fallbackPort`. Web (`layout/Applications/zxtouch.app/index.html`, `zxtouch/zxtouch/http/index.html`) thêm `fetchDashboard` (timeout 10 giây, chỉ failover khi lỗi mạng như `failed to fetch`/`TypeError`, lỗi HTTP 4xx/5xx không chuyển cổng), `downloadViaDashboard`, `DASHBOARD_PEER_PORT`/`dashboardPeerBase` và toast khi chuyển/về cổng chính. Trước đây fetch thẳng cổng hiện tại nên daemon crash/restart là dashboard chết cứng; nay tự thử một lần sang cổng còn lại.
+
+### Đã thay đổi
+- `ScriptPlayer` (`playFromRawFile:foregroundApp:err:`, `playFromPythonFile:...` trong `pccontrol/ScriptPlayer.xm`) chỉ `bringAppForeground` khi `ZXShouldSwitchToApp(foregroundApp)` cho phép: bỏ qua chuỗi rỗng, `com.apple.springboard` và mọi bundle-id chứa `zxtouch`. Trước đây `switchAppBeforePlaying=YES` là kéo về ZXTouch/SpringBoard khi `FrontApp` ghi stale; nay các trường hợp đó giữ nguyên màn hình hiện tại.
+- Tắt log debug khi chạm: `layout/usr/share/zxtouch/python/zxtouch/client.py` (`touch()`) bỏ `print("[touch-wire] send ...")`, `layout/usr/share/zxtouch/python/zxtouch/prelude.py` (`tapText()`) bỏ `print("tapText: ...")` và đổi mặc định `_DEBUG_TOUCH_LOG` từ `True` thành `False` (`setDebugTouchLog(True)` vẫn bật lại được). Trước đây mỗi lần chạm in một dòng ra console; nay console sạch, chỉ log khi bật debug tường minh.
+
 ## [0.3.38] — 2026-09-17
 
 ### Đã thay đổi
@@ -443,6 +453,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.39]: https://github.com/chiconghvan/utouch/compare/v0.3.38...v0.3.39
 [0.3.38]: https://github.com/chiconghvan/utouch/compare/v0.3.37...v0.3.38
 [0.3.37]: https://github.com/chiconghvan/utouch/compare/v0.3.36...v0.3.37
 [0.3.36]: https://github.com/chiconghvan/utouch/compare/v0.3.35...v0.3.36

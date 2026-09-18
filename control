@@ -1,6 +1,6 @@
 Package: com.zjx.ioscontrol
 Name: ZXTouch
-Version: 0.3.38
+Version: 0.3.39
 Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
 Recommends: com.opa334.crane
 Architecture: iphoneos-arm64
