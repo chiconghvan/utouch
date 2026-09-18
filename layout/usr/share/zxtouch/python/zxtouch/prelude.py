@@ -496,6 +496,39 @@ def _default_region():
     return (0, 0, _num(res["width"]), _num(res["height"]))
 
 
+def _normalize_region(region):
+    """Normalize a ``{x, y, w, h}`` region to a 4-tuple of numbers.
+
+    Accepts a list/tuple ``[x, y, w, h]`` (also from transpiled Lua
+    ``{0, 2058, 1242, 150}``) or a dict with ``x``/``y`` plus
+    ``w``/``h`` (or ``width``/``height``). Anything else — including a
+    ``set`` like ``{0, 2058, 1242, 150}`` in hand-written Python, whose
+    iteration order is undefined — raises ``ValueError`` instead of
+    silently searching the wrong rectangle.
+    """
+    if region is None:
+        return None
+    if isinstance(region, dict):
+        try:
+            x = region["x"]
+            y = region["y"]
+            w = region["w"] if "w" in region else region["width"]
+            h = region["h"] if "h" in region else region["height"]
+        except KeyError:
+            raise ValueError(
+                "region dict must be {x, y, w, h} (or width/height), got %r" % (region,))
+        return (x, y, w, h)
+    if isinstance(region, (list, tuple)):
+        if len(region) != 4:
+            raise ValueError(
+                "region must be {x, y, w, h} with 4 elements, got %r" % (region,))
+        return tuple(region)
+    raise ValueError(
+        "region must be [x, y, w, h] list/tuple or {x, y, w, h} dict, "
+        "got %r. NOTE: {0, 2058, 1242, 150} in Python is a set (unordered) "
+        "- use [0, 2058, 1242, 150] instead." % (region,))
+
+
 def findColor(color, count=1, region=None, tolerance=0):
     """Find pixels matching ``color``. Returns list of (x, y).
 
@@ -505,6 +538,10 @@ def findColor(color, count=1, region=None, tolerance=0):
     one point — that is now logged instead of silently under-delivering.
     """
     want = max(1, int(count))
+    if region is not None:
+        # Dict {x,y,w,h} must be unpacked to values — tuple(dict) would
+        # silently send the key names down the wire instead.
+        region = _normalize_region(region)
     if want > 1 or region is not None:
         try:
             ok, res = get_device().find_colors_multi(color, count, region, tolerance)
@@ -545,7 +582,7 @@ def findColors(pattern, count=1, region=None, tolerance=10):
     if pattern:
         pattern = [tuple(entry) for entry in pattern]
     if region is not None:
-        region = tuple(region)
+        region = _normalize_region(region)
     if not pattern:
         return []
     try:
@@ -682,15 +719,23 @@ def findImage(path, count=None, threshold=0.8, region=None):
     path = _resolve_image_path(path)
     want = _FIND_IMAGE_DEFAULT_MAX if count is None else max(1, int(count))
     if region is not None:
+        region = _normalize_region(region)
         try:
             ok, res = get_device().find_image_in_region(path, region, threshold)
             if ok:
                 # The region task answers with a single hit; wrap it so the
                 # return shape stays a list whatever the caller asked for.
+                # NOTE: coordinates are already in full-screen space (the
+                # daemon offsets the crop by region origin), so no
+                # re-offsetting here — just verify the hit overlaps region.
                 res = _with_confidence(_match_result(res))
                 _dbg_match(res)
-                return [res]
-            log("findImage: region search failed (%s), trying full screen" % (res,))
+                return [res][:want]
+            # Explicit region + daemon answered "no match in region":
+            # MUST NOT fall through to full-screen search, otherwise a hit
+            # outside the region (e.g. y=60 for region y=2058..2208) would
+            # be returned as if it were inside.
+            return []
         except Exception as e:
             log("findImage: daemon khong ho tro region search (%s), mui lon man hinh" % (e,))
     try:
@@ -719,11 +764,16 @@ def findImage(path, count=None, threshold=0.8, region=None):
     return [res]
 
 
-def waitForImage(path, timeout=10.0, threshold=0.8, interval=0.5):
-    """Wait for image to appear. Returns the first match dict or None."""
+def waitForImage(path, timeout=10.0, threshold=0.8, interval=0.5, region=None):
+    """Wait for image to appear. Returns the first match dict or None.
+
+    ``region`` is ``{x, y, w, h}`` (list/tuple or dict, like
+    :func:`findImage`); when given, only that rectangle is searched —
+    never the full screen.
+    """
     end = time.time() + timeout
     while time.time() <= end:
-        matches = findImage(path, threshold=threshold)
+        matches = findImage(path, threshold=threshold, region=region)
         if matches:
             return matches[0]
         time.sleep(interval)
@@ -731,7 +781,13 @@ def waitForImage(path, timeout=10.0, threshold=0.8, interval=0.5):
 
 
 def screenshot(name, region=None):
-    """Take a screenshot on device. Returns the device-side file path."""
+    """Take a screenshot on device. Returns the device-side file path.
+
+    ``region`` is ``{x, y, w, h}`` (list/tuple or dict); ``None`` means
+    full screen.
+    """
+    if region is not None:
+        region = _normalize_region(region)
     ok, res = get_device().screenshot(name, region)
     if not ok:
         raise RuntimeError("screenshot failed: %s" % (res,))
@@ -785,9 +841,16 @@ def findText(text, region=None, case_sensitive=False, lang=None):
     for the Lua-style ``x, y, text`` single result, or :func:`tapText` to
     tap the Nth match (top-bottom, left-right). Match dicts are
     :class:`LuaDict`, so ``m.x``/``m["x"]`` both work after transpile.
+
+    ``region`` is ``{x, y, w, h}`` (list/tuple or dict); ``None`` means
+    full screen. Coordinates in every match are full-screen device
+    pixels (the daemon already offsets by the region origin), so they
+    can be tapped directly.
     """
     if region is None:
         region = _default_region()
+    else:
+        region = _normalize_region(region)
     ok, items = get_device().ocr(region, languages=_ocr_languages(lang))
     if not ok:
         return []
@@ -861,8 +924,13 @@ def waitForText(text, timeout=10.0, interval=0.5, region=None, lang=None):
 
 
 def tapImage(path, timeout=10.0, threshold=0.8, region=None):
-    """Wait for image and tap its center. Returns match dict or None."""
-    m = waitForImage(path, timeout=timeout, threshold=threshold)
+    """Wait for image and tap its center. Returns match dict or None.
+
+    ``region`` is ``{x, y, w, h}`` (list/tuple or dict, like
+    :func:`findImage`); when given, only that rectangle is searched —
+    never the full screen.
+    """
+    m = waitForImage(path, timeout=timeout, threshold=threshold, region=region)
     if not m:
         return None
     tap(_num(m["x"]) + _num(m.get("width", 0)) // 2,
@@ -908,8 +976,14 @@ def tapText(text, timeout=10.0, index=1, region=None, lang=None):
     return None
 
 
-def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5):
-    """Swipe until image found. Returns the first match dict or None."""
+def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5,
+                    region=None):
+    """Swipe until image found. Returns the first match dict or None.
+
+    ``region`` is ``{x, y, w, h}`` (list/tuple or dict, like
+    :func:`findImage`); when given, only that rectangle is searched —
+    never the full screen.
+    """
     dirs = {
         "up": (200, 600, 200, 200),
         "down": (200, 200, 200, 600),
@@ -918,16 +992,23 @@ def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5)
     }
     x1, y1, x2, y2 = dirs.get(direction, dirs["up"])
     for _ in range(maxSwipes):
-        matches = findImage(path, threshold=threshold)
+        matches = findImage(path, threshold=threshold, region=region)
         if matches:
             return matches[0]
         swipe(x1, y1, x2, y2, speed)
         time.sleep(0.5)
-    matches = findImage(path, threshold=threshold)
+    matches = findImage(path, threshold=threshold, region=region)
     return matches[0] if matches else None
 
 
-def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5, lang=None):
+def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5, lang=None,
+                   region=None):
+    """Swipe until text is found. Returns True/False.
+
+    ``region`` is ``{x, y, w, h}`` (list/tuple or dict, like
+    :func:`findText`); when given, only that rectangle is searched —
+    never the full screen.
+    """
     dirs = {
         "up": (200, 600, 200, 200),
         "down": (200, 200, 200, 600),
@@ -936,11 +1017,11 @@ def swipeUntilText(text, direction="up", maxSwipes=5, speed=0.5, lang=None):
     }
     x1, y1, x2, y2 = dirs.get(direction, dirs["up"])
     for _ in range(maxSwipes):
-        if findText(text, lang=lang):
+        if findText(text, region=region, lang=lang):
             return True
         swipe(x1, y1, x2, y2, speed)
         time.sleep(0.5)
-    return bool(findText(text, lang=lang))
+    return bool(findText(text, region=region, lang=lang))
 
 
 # ---------------------------------------------------------------- Interaction

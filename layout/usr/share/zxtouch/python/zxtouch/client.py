@@ -23,6 +23,36 @@ def _optional_confidence(values):
         return None
 
 
+def _normalize_region(region):
+    """Normalize a ``{x, y, w, h}`` region to a 4-tuple of values.
+
+    Accepts a list/tuple ``[x, y, w, h]`` or a dict with ``x``/``y``
+    plus ``w``/``h`` (or ``width``/``height``). A plain ``tuple(dict)``
+    or ``",".join(map(str, dict))`` would silently send the key names
+    (``x,y,w,h``) down the wire instead of the numbers, so dicts are
+    unpacked explicitly here.
+    """
+    if isinstance(region, dict):
+        try:
+            x = region["x"]
+            y = region["y"]
+            w = region["w"] if "w" in region else region["width"]
+            h = region["h"] if "h" in region else region["height"]
+        except KeyError:
+            raise ValueError(
+                "region dict must be {x, y, w, h} (or width/height), got %r" % (region,))
+        return (x, y, w, h)
+    if isinstance(region, (list, tuple)):
+        if len(region) != 4:
+            raise ValueError(
+                "region must be {x, y, w, h} with 4 elements, got %r" % (region,))
+        return tuple(region)
+    raise ValueError(
+        "region must be [x, y, w, h] list/tuple or {x, y, w, h} dict, "
+        "got %r. NOTE: {0, 2058, 1242, 150} in Python is a set (unordered) "
+        "- use [0, 2058, 1242, 150] instead." % (region,))
+
+
 class zxtouch:
     def __init__(self, ip):
         self.s = socket.socket()
@@ -225,6 +255,7 @@ class zxtouch:
 
             if the operation successes, the return value will be an array of texts in the region.
         """
+        region = _normalize_region(region)
         if len(region) != 4:
             raise RuntimeError("The format of the region should be (x, y, width, height)")
             return
@@ -406,6 +437,7 @@ class zxtouch:
 
             if the operation successes, the return value will be an array of texts in the region.
         """
+        region = _normalize_region(region)
         if len(region) != 4:
             raise RuntimeError("The format of the region should be (x, y, width, height)")
             return
@@ -462,7 +494,7 @@ class zxtouch:
         :return: Result tuple (success?, device path / error)
         """
         if region is not None:
-            payload = (name, ",".join(map(str, region)))
+            payload = (name, ",".join(map(str, _normalize_region(region))))
         else:
             payload = (name,)
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_SCREENSHOT, *payload))
@@ -567,7 +599,7 @@ class zxtouch:
             else:
                 region = (0, 0, 750, 1334)
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_COLOR_MULTI, hexs, tolerance, count,
-                                                    ",".join(map(str, region)), skip))
+                                                     ",".join(map(str, _normalize_region(region))), skip))
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
             return False, result[1]
@@ -597,7 +629,7 @@ class zxtouch:
         payload = base64.b64encode(json.dumps(norm).encode()).decode()
         args = [payload, tolerance]
         if region is not None:
-            args.append(",".join(map(str, region)))
+            args.append(",".join(map(str, _normalize_region(region))))
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_COLOR_PATTERN, *args))
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
@@ -607,7 +639,7 @@ class zxtouch:
     def find_image_in_region(self, template_path, region, threshold=0.8, max_try_times=2, scale=0.8):
         """Template match inside a region (Phase 2: TASK_IMAGE_REGION=41)."""
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_IMAGE_REGION, template_path, threshold,
-                                                    ",".join(map(str, region)), max_try_times, scale))
+                                                    ",".join(map(str, _normalize_region(region))), max_try_times, scale))
         result = datahandler.decode_socket_data(self.s.recv(4096))
         if not result[0]:
             return False, result[1]
