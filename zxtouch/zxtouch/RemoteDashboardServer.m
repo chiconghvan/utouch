@@ -1096,6 +1096,11 @@ static NSArray *ZXEditorFunctionCatalog(void)
 {
     GCDWebServerDataResponse *response = [GCDWebServerDataResponse responseWithJSONObject:payload];
     response.statusCode = status;
+    // Failover 8688<->8689: cho phép trang ở cổng còn lại fetch chéo cổng.
+    // Không token/auth nên "*" an toàn trong LAN.
+    [response setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
+    [response setValue:@"GET, POST, OPTIONS" forAdditionalHeader:@"Access-Control-Allow-Methods"];
+    [response setValue:@"Content-Type" forAdditionalHeader:@"Access-Control-Allow-Headers"];
     return response;
 }
 
@@ -1505,6 +1510,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
     GCDWebServerDataResponse *response = [GCDWebServerDataResponse responseWithData:imageData contentType:@"image/png"];
     [response setValue:@"attachment; filename=\"zxtouch-screen.png\"" forAdditionalHeader:@"Content-Disposition"];
     [response setValue:@"no-store" forAdditionalHeader:@"Cache-Control"];
+    [response setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
     return response;
 }
 
@@ -1569,6 +1575,15 @@ static NSArray *ZXEditorFunctionCatalog(void)
 - (void)configureHandlers
 {
     __weak typeof(self) weakSelf = self;
+    // Failover 8688<->8689: trả lời preflight để fetch chéo cổng không bị chặn.
+    [self.server addHandlerForMethod:@"OPTIONS" pathRegex:@"^/api/.*" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
+        GCDWebServerDataResponse *response = [GCDWebServerDataResponse responseWithStatusCode:204];
+        [response setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
+        [response setValue:@"GET, POST, OPTIONS" forAdditionalHeader:@"Access-Control-Allow-Methods"];
+        [response setValue:@"Content-Type" forAdditionalHeader:@"Access-Control-Allow-Headers"];
+        return response;
+    }];
+
     [self.server addHandlerForMethod:@"GET" path:@"/" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
@@ -1615,7 +1630,8 @@ static NSArray *ZXEditorFunctionCatalog(void)
     [self.server addHandlerForMethod:@"GET" path:@"/api/health" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
         ZXRemoteDashboardServer *strongSelf = weakSelf;
         if (!strongSelf) return [GCDWebServerDataResponse responseWithStatusCode:500];
-        return [strongSelf jsonResponse:@{ @"ok": @YES, @"dashboard": @YES, @"port": @(strongSelf.server.port) } status:200];
+        return [strongSelf jsonResponse:@{ @"ok": @YES, @"dashboard": @YES, @"port": @(strongSelf.server.port),
+            @"daemonPort": @(ZXDashboardDaemonPort), @"fallbackPort": @(ZXDashboardFallbackPort) } status:200];
     }];
 
     [self.server addHandlerForMethod:@"POST" path:@"/api/vnc/recover" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
@@ -1730,6 +1746,7 @@ static NSArray *ZXEditorFunctionCatalog(void)
         GCDWebServerFileResponse *response = [GCDWebServerFileResponse responseWithFile:path isAttachment:YES];
         if (!response) return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": [NSString stringWithFormat:@"%@ could not be read.", path.lastPathComponent] } status:500];
         [response setValue:@"no-store" forAdditionalHeader:@"Cache-Control"];
+        [response setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
         return response;
     }];
 
@@ -1860,7 +1877,9 @@ static NSArray *ZXEditorFunctionCatalog(void)
         if (!filePath) {
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Asset was not found." } status:404];
         }
-        return [GCDWebServerFileResponse responseWithFile:filePath];
+        GCDWebServerResponse *assetResponse = [GCDWebServerFileResponse responseWithFile:filePath];
+        [assetResponse setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
+        return assetResponse;
     }];
 
     [self.server addHandlerForMethod:@"GET" path:@"/api/download" requestClass:[GCDWebServerRequest class] processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
@@ -1872,7 +1891,9 @@ static NSArray *ZXEditorFunctionCatalog(void)
         if (!entryPath || ![[NSFileManager defaultManager] fileExistsAtPath:entryPath]) {
             return [strongSelf jsonResponse:@{ @"ok": @NO, @"error": @"Script entry was not found." } status:404];
         }
-        return [GCDWebServerFileResponse responseWithFile:entryPath isAttachment:YES];
+        GCDWebServerResponse *downloadResponse = [GCDWebServerFileResponse responseWithFile:entryPath isAttachment:YES];
+        [downloadResponse setValue:@"*" forAdditionalHeader:@"Access-Control-Allow-Origin"];
+        return downloadResponse;
     }];
 
     // ── Editor tab: ad-hoc write/run/save/load ──────────────────────

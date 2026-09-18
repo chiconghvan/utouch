@@ -443,7 +443,41 @@
 
     function escapeHTML(value) { const span = document.createElement('span'); span.textContent = String(value || ''); return span.innerHTML; }
     function showToast(message, error = false) { elements.toast.textContent = message; elements.toast.className = `toast${error ? ' error' : ''}`; elements.toast.hidden = false; clearTimeout(showToast.timer); showToast.timer = setTimeout(() => { elements.toast.hidden = true; }, 4200); }
-    async function api(path, options = {}) { const response = await fetch(path, options); let payload; try { payload = await response.json(); } catch (_) { throw new Error(`Dashboard returned HTTP ${response.status}.`); } if (!response.ok || !payload.ok) throw new Error(payload.error || payload.result || 'Request failed.'); return payload; }
+    // ── Dashboard failover 8688 <-> 8689 ─────────────────────────────
+    // Trang đã tải từ cổng nào thì gọi API cổng đó trước; chỉ khi lỗi mạng
+    // (daemon vừa crash/restart, launchd chưa dựng lại) mới thử 1 lần sang
+    // cổng còn lại. Lỗi HTTP 4xx/5xx là lỗi nghiệp vụ, không failover.
+    // Server đã mở CORS `Access-Control-Allow-Origin: *` cho /api/* nên
+    // fetch chéo cổng đọc được JSON/blob bình thường.
+    const DASHBOARD_PEER_PORT = { '8688': '8689', '8689': '8688' };
+    function dashboardPeerBase() { const peer = DASHBOARD_PEER_PORT[location.port]; if (!peer || !location.hostname) return null; return `${location.protocol}//${location.hostname}:${peer}`; }
+    function isNetworkFailure(error) { const message = String((error && error.message) || error || '').toLowerCase(); return (error && error.name === 'AbortError') || message.includes('failed to fetch') || message.includes('load failed') || message.includes('networkerror') || message.includes('network error') || (error instanceof TypeError); }
+    async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) { const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), timeoutMs); try { return await fetch(url, { ...options, signal: controller.signal }); } finally { clearTimeout(timer); } }
+    async function fetchDashboard(path, options = {}) {
+      try {
+        const response = await fetchWithTimeout(path, options);
+        if (state.peer) { state.peer = null; showToast(`Primary port ${location.port} is back.`); }
+        return response;
+      } catch (selfError) {
+        if (!isNetworkFailure(selfError)) throw selfError;
+        const peerBase = dashboardPeerBase();
+        if (!peerBase) throw selfError;
+        try {
+          const response = await fetchWithTimeout(`${peerBase}${path}`, { ...options, mode: 'cors' });
+          if (!state.peer || state.peer !== peerBase) { state.peer = peerBase; showToast(`Port ${location.port} unreachable — using fallback ${DASHBOARD_PEER_PORT[location.port]}.`); }
+          return response;
+        } catch (_) { throw selfError; }
+      }
+    }
+    async function api(path, options = {}) { const response = await fetchDashboard(path, options); let payload; try { payload = await response.json(); } catch (_) { throw new Error(`Dashboard returned HTTP ${response.status}.`); } if (!response.ok || !payload.ok) throw new Error(payload.error || payload.result || 'Request failed.'); return payload; }
+    async function downloadViaDashboard(path, filename) {
+      const response = await fetchDashboard(path, { mode: 'cors' });
+      if (!response.ok) { let payload = null; try { payload = await response.json(); } catch (_) {} throw new Error((payload && payload.error) || `Dashboard returned HTTP ${response.status}.`); }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a'); link.href = url; link.download = filename;
+      document.body.appendChild(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
 
     function ask(title, message, actionLabel = 'Continue', danger = false, secondaryLabel = '') { if (state.confirming) state.confirming(false); elements.confirmTitle.textContent = title; elements.confirmMessage.textContent = message; elements.confirmAccept.textContent = actionLabel; elements.confirmAccept.className = `button ${danger ? 'danger' : 'primary'}`; elements.confirmSecondary.textContent = secondaryLabel; elements.confirmSecondary.hidden = !secondaryLabel; elements.confirmModal.hidden = false; return new Promise(resolve => { state.confirming = resolve; }); }
     function closeConfirmation(result) { elements.confirmModal.hidden = true; const resolve = state.confirming; state.confirming = null; if (resolve) resolve(result); }
@@ -469,7 +503,7 @@
       if (!visible.length) { elements.scripts.innerHTML = '<div class="empty-state">No scripts match this view.</div>'; return; }
       elements.scripts.innerHTML = visible.map(script => { const type = scriptType(script); const encodedPath = encodeURIComponent(script.path); const encodedName = encodeURIComponent(script.name); return `<article class="script-row"><div class="script-type ${type === 'raw' ? 'raw' : ''}">${type === 'raw' ? 'RAW' : 'PY'}</div><div class="script-copy"><div class="script-name">${escapeHTML(script.name)}</div><div class="script-path">${escapeHTML(script.entry || script.path)}</div></div><div class="script-actions"><button class="button primary run-script" data-path="${encodedPath}" data-name="${encodedName}"><span class="button-symbol">&#9654;</span>Run</button><button class="icon-button download-script" data-path="${encodedPath}" title="Download script" aria-label="Download ${escapeHTML(script.name)}">&#8595;</button></div></article>`; }).join('');
       elements.scripts.querySelectorAll('.run-script').forEach(button => button.addEventListener('click', () => confirmRun(button)));
-      elements.scripts.querySelectorAll('.download-script').forEach(button => button.addEventListener('click', () => { location.href = `/api/download?path=${encodeURIComponent(decodeURIComponent(button.dataset.path))}`; }));
+      elements.scripts.querySelectorAll('.download-script').forEach(button => button.addEventListener('click', async () => { const name = `${decodeURIComponent(button.dataset.name) || 'script'}`; try { await downloadViaDashboard(`/api/download?path=${encodeURIComponent(decodeURIComponent(button.dataset.path))}`, name); } catch (error) { showToast(error.message, true); } }));
       if (state.status) renderStatus(state.status);
     }
 
@@ -574,7 +608,7 @@
       const file = button.dataset.file;
       setButtonBusy(button, true, '&#8230;');
       try {
-        const response = await fetch(`/api/logs/download?name=${encodeURIComponent(button.dataset.log)}`);
+        const response = await fetchDashboard(`/api/logs/download?name=${encodeURIComponent(button.dataset.log)}`, { mode: 'cors' });
         if (!response.ok) { let payload = null; try { payload = await response.json(); } catch (_) {} throw new Error((payload && payload.error) || `Dashboard returned HTTP ${response.status}.`); }
         const url = URL.createObjectURL(await response.blob());
         const link = document.createElement('a');
@@ -2624,15 +2658,12 @@
     }
     async function doHome() { vncLog('button', `Home (${state.vnc.homeType}, connected=${state.vnc.connected})`); state.vnc.homeType === 'physical' ? vncClick(2) : vncSwipe(); }
     async function doSwitcher() { vncLog('button', `Switcher (${state.vnc.homeType}, connected=${state.vnc.connected})`); state.vnc.homeType === 'physical' ? (await vncClick(2), await wait(350), await vncClick(2)) : vncSwipe({ holdMs: 650 }); }
-    function doCaptureScreen() {
+    async function doCaptureScreen() {
       vncLog('button', `Capture screen (connected=${state.vnc.connected})`);
-      const link = document.createElement('a');
-      link.href = `/api/capture-screen?ts=${Date.now()}`;
-      link.download = `zxtouch-screen-${new Date().toISOString().replace(/[:.]/g, '-')}.png`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      showToast('Full-resolution screen capture download started.');
+      try {
+        await downloadViaDashboard(`/api/capture-screen?ts=${Date.now()}`, `zxtouch-screen-${new Date().toISOString().replace(/[:.]/g, '-')}.png`);
+        showToast('Full-resolution screen capture download started.');
+      } catch (error) { showToast(error.message, true); }
     }
     // ── VNC auto-connect + retry policy ─────────────────────────────────
     // Retries use a capped backoff so a device that is off / a port that is
@@ -2672,7 +2703,7 @@
         setVncStatus('Recovering VNC…', false);
         vncSetOverlay(`Live Screen is offline.<br>${escapeHTML(String(why || 'connection failed'))}<br>Restarting VNC server…`);
         vncLog('recover', 'requesting backend VNC recovery');
-        fetch('/api/vnc/recover', { method: 'POST' })
+        fetchDashboard('/api/vnc/recover', { method: 'POST', mode: 'cors' })
           .then(async response => { const payload = await response.json(); if (!response.ok || !payload.ok) throw new Error(payload.message || 'VNC server recovery failed.'); return payload; })
           .then(() => { vncRetry.attempt = 0; vncLog('recover', 'backend recovery succeeded'); vncConnect('recover'); })
           .catch(error => {
