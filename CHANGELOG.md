@@ -9,6 +9,11 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.42] — 2026-09-18
+
+### Đã sửa
+- `findImage(path, count, threshold, region)` khi vừa truyền `region` vừa lấy nhiều kết quả (`count` khác 1 hoặc bỏ `count` để lấy toàn bộ) trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: trước đây nhánh có `region` chỉ gọi task region của daemon (luôn trả tối đa 1 hit) rồi bọc thành list, nên `count > 1` trong vùng không bao giờ trả đúng nhiều kết quả, còn đường dự phòng toàn màn hình có thể lọt hit nằm ngoài vùng như thể khớp trong vùng; nay nhánh có `region` đi qua `image_match_multi` toàn màn hình rồi lọc bằng `_match_in_region` mới (giữ hit có tâm nằm trong `{x, y, w, h}`), lấy đủ ngân sách `max(want, 20)` để `want=1` không bị hit tốt nhất ngoài vùng che mất hit trong vùng, hết hit trong vùng thì thử lại một lần bằng `find_image_in_region` (task crop cố gắng hơn), kết quả đơn của task region bị ngoài vùng thì trả `[]`, và daemon cũ không có multi-match thì dự phòng `image_match` đơn nhưng vẫn lọc theo vùng nên không bao giờ trả hit ngoài vùng.
+
 ## [0.3.41] — 2026-09-18
 
 ### Đã thêm
@@ -467,6 +472,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.42]: https://github.com/chiconghvan/utouch/compare/v0.3.41...v0.3.42
 [0.3.41]: https://github.com/chiconghvan/utouch/compare/v0.3.40...v0.3.41
 [0.3.40]: https://github.com/chiconghvan/utouch/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/chiconghvan/utouch/compare/v0.3.38...v0.3.39
