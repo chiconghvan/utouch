@@ -9,6 +9,15 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.40] — 2026-09-18
+
+### Đã thêm
+- Tham số `region` cho `waitForImage(path, timeout, threshold, interval, region)`, `swipeUntilImage(path, direction, maxSwipes, threshold, speed, region)` và `swipeUntilText(text, direction, maxSwipes, speed, lang, region)` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: khi truyền `{x, y, w, h}` (list/tuple hoặc dict như `findImage`) chỉ quét đúng hình chữ nhật đó, không bao giờ quét toàn màn hình. Trước đây ba hàm này không nhận `region` nên muốn giới hạn vùng tìm phải tự lặp `findImage(..., region)` bằng tay.
+
+### Đã sửa
+- `findImage(path, count, threshold, region)` với `region` tường minh mà daemon báo không khớp trong vùng: trước đây rơi xuống tìm toàn màn hình nên có thể trả hit nằm ngoài vùng (ví dụ `y=60` cho vùng `y=2058..2208`) như thể khớp trong vùng; nay trả `[]` ngay. Kết quả region cũng tôn trọng `count` (`[res][:want]`) và giữ nguyên toạ độ daemon trả về vì đã ở không gian toàn màn hình (daemon đã bù gốc vùng), không bù trừ lần nữa.
+- Chuẩn hoá `region` qua `_normalize_region` mới trong `layout/usr/share/zxtouch/python/zxtouch/client.py` và `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: dict `{x, y, w, h}` (hoặc `width`/`height`) được bóc thành giá trị số tường minh — trước đây `tuple(dict)`/`",".join(map(str, dict))` gửi nhầm tên khoá `x,y,w,h` xuống socket thành hình chữ nhật sai; list/tuple khác 4 phần tử hoặc kiểu khác (kể cả `set` `{0, 2058, 1242, 150}` trong Python viết tay, thứ tự lặp không xác định) nay ném `ValueError` thay vì tìm nhầm vùng. Áp dụng cho `ocr`, `screenshot`, `find_image_in_region`, `find_colors_multi`, `color_pattern` (client) và `findColor`, `findColors`, `findImage`, `screenshot`, `findText` (prelude).
+
 ## [0.3.39] — 2026-09-18
 
 ### Đã thêm
@@ -453,6 +462,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.40]: https://github.com/chiconghvan/utouch/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/chiconghvan/utouch/compare/v0.3.38...v0.3.39
 [0.3.38]: https://github.com/chiconghvan/utouch/compare/v0.3.37...v0.3.38
 [0.3.37]: https://github.com/chiconghvan/utouch/compare/v0.3.36...v0.3.37

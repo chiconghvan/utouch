@@ -516,7 +516,7 @@ _Mọi `path` bên dưới được giải theo **thư mục asset** của scrip
 | `path` | `string` | yes | Image path — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Đường dẫn ảnh — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
 | `count` | `number` | no | Max matches (default: all matches) | Số kết quả tối đa (mặc định: toàn bộ) |
 | `threshold` | `number` | no | Match threshold 0-1 (default: 0.8) | Ngưỡng khớp 0-1 (mặc định: 0.8) |
-| `region` | `table` | no | {x, y, w, h} search region (POINT) | Vùng tìm {x, y, w, h} (POINT) |
+| `region` | `table` | no | {x, y, w, h} search region (POINT). No match in region returns empty — never falls back to full screen. | Vùng tìm {x, y, w, h} (POINT). Không khớp trong vùng trả về rỗng — không bao giờ tìm lan ra toàn màn hình. |
 
 **Example (Lua/cURL):**
 
@@ -543,11 +543,11 @@ local matches = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
 ```
 ---
 
-### `waitForImage(path, timeout)`
+### `waitForImage(path, timeout, threshold, interval, region)`
 
 - Type: `func`
-- EN: Wait for image to appear on screen. Polls every 500ms. Returns table {x=, y=} on success, false on timeout.
-- VI: Chờ hình ảnh xuất hiện trên màn hình. Kiểm tra mỗi 500ms. Trả về bảng {x=, y=} nếu thành công, false nếu hết thời gian.
+- EN: Wait for image to appear on screen. Polls every 500ms. Returns table {x=, y=} on success, false on timeout. With region, only that rectangle is searched — never the full screen.
+- VI: Chờ hình ảnh xuất hiện trên màn hình. Kiểm tra mỗi 500ms. Trả về bảng {x=, y=} nếu thành công, false nếu hết thời gian. Có region thì chỉ tìm trong vùng đó — không bao giờ quét toàn màn hình.
 - Return: `[object Object]`
 
 **Params:**
@@ -556,6 +556,9 @@ local matches = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
 |---|---|---|---|---|
 | `path` | `string` | yes | Image path — a relative path is resolved inside the asset folder (`img/btn.png` → `<asset folder>/img/btn.png`); absolute device paths are used as-is | Đường dẫn ảnh — đường dẫn tương đối được giải theo thư mục asset (`img/btn.png` → `<thư mục asset>/img/btn.png`); đường dẫn tuyệt đối dùng nguyên trạng |
 | `timeout` | `number` | no | Timeout in seconds (default: 10) | Thời gian chờ giây (mặc định: 10) |
+| `threshold` | `number` | no | Match threshold 0-1 (default: 0.8) | Ngưỡng khớp 0-1 (mặc định: 0.8) |
+| `interval` | `number` | no | Poll interval in seconds (default: 0.5) | Khoảng cách giữa các lần kiểm tra, tính bằng giây (mặc định: 0.5) |
+| `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
 
 **Example (Lua/cURL):**
 
@@ -720,11 +723,11 @@ local x, y = findText("OK", {0, 600, 414, 200})
 ```
 ---
 
-### `waitForText(text, timeout, lang)`
+### `waitForText(text, timeout, interval, region, lang)`
 
 - Type: `func`
-- EN: Wait for text to appear on screen (OCR). Polls every 500ms. Returns table {x=, y=, text=} on success, false on timeout.
-- VI: Chờ chữ xuất hiện trên màn hình (OCR). Kiểm tra mỗi 500ms. Trả về bảng {x=, y=, text=} nếu tìm thấy, false nếu hết giờ.
+- EN: Wait for text to appear on screen (OCR). Polls every 500ms. Returns table {x=, y=, text=} on success, false on timeout. With region, only that rectangle is searched — never the full screen.
+- VI: Chờ chữ xuất hiện trên màn hình (OCR). Kiểm tra mỗi 500ms. Trả về bảng {x=, y=, text=} nếu tìm thấy, false nếu hết giờ. Có region thì chỉ tìm trong vùng đó — không bao giờ quét toàn màn hình.
 - Return: `[object Object]`
 
 **Params:**
@@ -733,6 +736,8 @@ local x, y = findText("OK", {0, 600, 414, 200})
 |---|---|---|---|---|
 | `text` | `string` | yes | Text to wait for | Chữ cần chờ |
 | `timeout` | `number` | no | Timeout in seconds (default: 10) | Thời gian chờ giây (mặc định: 10) |
+| `interval` | `number` | no | Poll interval in seconds (default: 0.5) | Khoảng cách giữa các lần kiểm tra, tính bằng giây (mặc định: 0.5) |
+| `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
 | `lang` | `string/table` | no | OCR language code(s) | Mã ngôn ngữ OCR |
 
 **Example (Lua/cURL):**
@@ -813,11 +818,11 @@ tapText("Continue")
 ```
 ---
 
-### `swipeUntilImage(path, direction, maxSwipes, threshold, speed)`
+### `swipeUntilImage(path, direction, maxSwipes, threshold, speed, region)`
 
 - Type: `func`
-- EN: Swipe screen until image is found
-- VI: Vuốt cho đến khi tìm thấy hình
+- EN: Swipe screen until image is found. With region, only that rectangle is searched — never the full screen.
+- VI: Vuốt cho đến khi tìm thấy hình. Có region thì chỉ tìm trong vùng đó — không bao giờ quét toàn màn hình.
 - Return: `boolean, x, y`
 
 **Params:**
@@ -829,6 +834,7 @@ tapText("Continue")
 | `maxSwipes` | `number` | no | Maximum swipe attempts (default 5) | Số lần vuốt tối đa (mặc định 5) |
 | `threshold` | `number` | no | Match threshold 0-1 (default: 0.8) | Ngưỡng khớp 0-1 (mặc định: 0.8) |
 | `speed` | `number` | no | Swipe duration in seconds (default 0.5) | Tốc độ vuốt tính bằng giây (mặc định 0.5) |
+| `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
 
 **Example (Lua/cURL):**
 
@@ -845,11 +851,11 @@ swipeUntilImage("btn.png", "up", 10, 0.9, 0.2)
 ```
 ---
 
-### `swipeUntilText(text, direction, maxSwipes, speed)`
+### `swipeUntilText(text, direction, maxSwipes, speed, lang, region)`
 
 - Type: `func`
-- EN: Swipe screen until text is found (OCR)
-- VI: Vuốt cho đến khi tìm thấy chữ (OCR)
+- EN: Swipe screen until text is found (OCR). With region, only that rectangle is searched — never the full screen.
+- VI: Vuốt cho đến khi tìm thấy chữ (OCR). Có region thì chỉ tìm trong vùng đó — không bao giờ quét toàn màn hình.
 - Return: `boolean, x, y`
 
 **Params:**
@@ -858,8 +864,10 @@ swipeUntilImage("btn.png", "up", 10, 0.9, 0.2)
 |---|---|---|---|---|
 | `text` | `string` | yes | Text to search for | Chữ cần tìm |
 | `direction` | `string` | no | "up", "down", "left", "right" | "up", "down", "left", "right" |
-| `maxSwipes` | `number` | no | Maximum swipe attempts (default 10) | Số lần vuốt tối đa (mặc định 10) |
-| `speed` | `number` | no | Swipe duration in seconds (default 0.3) | Tốc độ vuốt tính bằng giây (mặc định 0.3) |
+| `maxSwipes` | `number` | no | Maximum swipe attempts (default 5) | Số lần vuốt tối đa (mặc định 5) |
+| `speed` | `number` | no | Swipe duration in seconds (default 0.5) | Tốc độ vuốt tính bằng giây (mặc định 0.5) |
+| `lang` | `string/table` | no | OCR language code(s) | Mã ngôn ngữ OCR |
+| `region` | `table` | no | {x, y, w, h} search area (POINT). Omit for full screen. | Vùng tìm {x, y, w, h} (POINT). Bỏ qua = toàn màn hình. |
 
 **Example (Lua/cURL):**
 
