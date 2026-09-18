@@ -9,6 +9,11 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.41] — 2026-09-18
+
+### Đã thêm
+- Thanh phím phụ dưới trình sửa code trên máy: trước đây gõ các ký tự như ngoặc, hai chấm, Tab hay phím mũi tên phải chuyển bàn phím nhiều lần; nay có sẵn một hàng phím ngay dưới khung soạn thảo để bấm là chèn, kèm các phím di chuyển, xóa dòng, ghi chú. Vào Cài đặt > Extra Keys để bật/tắt từng phím, kéo để đổi thứ tự, bấm Reset để về mặc định.
+
 ## [0.3.40] — 2026-09-18
 
 ### Đã thêm
@@ -462,6 +467,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.41]: https://github.com/chiconghvan/utouch/compare/v0.3.40...v0.3.41
 [0.3.40]: https://github.com/chiconghvan/utouch/compare/v0.3.39...v0.3.40
 [0.3.39]: https://github.com/chiconghvan/utouch/compare/v0.3.38...v0.3.39
 [0.3.38]: https://github.com/chiconghvan/utouch/compare/v0.3.37...v0.3.38
