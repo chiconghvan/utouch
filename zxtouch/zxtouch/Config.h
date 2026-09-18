@@ -35,6 +35,15 @@
 #define ZX_EDITOR_FONT_SIZE_MAX 28.0
 #define ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION @"ZXEditorFontSizeChangedNotification"
 
+// Extra-keys pane docked at the bottom of the native script editor.
+// Stored in the SpringBoard config as an NSArray of key identifiers in
+// display order (disabled keys are simply absent). Nil means defaults.
+#define ZX_EDITOR_EXTRA_KEYS_KEY @"editor_extra_keys"
+#define ZX_EDITOR_EXTRA_KEYS_CHANGED_NOTIFICATION @"ZXEditorExtraKeysChangedNotification"
+
+// Height of the docked extra-keys pane (0 when the user disabled all keys).
+#define ZX_EDITOR_ACCESSORY_BAR_HEIGHT 46.0
+
 // One indent level in the script editors. Monaco is configured with the same
 // width (tabSize in dashboard index.html), so both editors indent alike.
 #define ZX_EDITOR_INDENT_WIDTH 2

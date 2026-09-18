@@ -96,6 +96,9 @@
 		96EE99C925D3C67D006B1243 /* Intents.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = 96EE99C825D3C67D006B1243 /* Intents.intentdefinition */; };
 		96EE9A4225D3C787006B1243 /* Intents.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = 96EE99C825D3C67D006B1243 /* Intents.intentdefinition */; };
 		96F4696C258B24DA0052D78D /* ScriptEditorViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 96F4696B258B24DA0052D78D /* ScriptEditorViewController.m */; };
+		B0B1C2D3E4F5060708090B03 /* ZXEditorAccessoryKeys.m in Sources */ = {isa = PBXBuildFile; fileRef = B0B1C2D3E4F5060708090B02 /* ZXEditorAccessoryKeys.m */; };
+		B0B1C2D3E4F5060708090B07 /* ZXEditorAccessoryView.m in Sources */ = {isa = PBXBuildFile; fileRef = B0B1C2D3E4F5060708090B06 /* ZXEditorAccessoryView.m */; };
+		B0B1C2D3E4F5060708090B0A /* ZXEditorKeysSettingsViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = B0B1C2D3E4F5060708090B09 /* ZXEditorKeysSettingsViewController.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -313,6 +316,12 @@
 		96EE99C825D3C67D006B1243 /* Intents.intentdefinition */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.intentdefinition; path = Intents.intentdefinition; sourceTree = "<group>"; };
 		96F4696A258B24DA0052D78D /* ScriptEditorViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ScriptEditorViewController.h; sourceTree = "<group>"; };
 		96F4696B258B24DA0052D78D /* ScriptEditorViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ScriptEditorViewController.m; sourceTree = "<group>"; };
+		B0B1C2D3E4F5060708090B01 /* ZXEditorAccessoryKeys.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZXEditorAccessoryKeys.h; sourceTree = "<group>"; };
+		B0B1C2D3E4F5060708090B02 /* ZXEditorAccessoryKeys.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXEditorAccessoryKeys.m; sourceTree = "<group>"; };
+		B0B1C2D3E4F5060708090B05 /* ZXEditorAccessoryView.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZXEditorAccessoryView.h; sourceTree = "<group>"; };
+		B0B1C2D3E4F5060708090B06 /* ZXEditorAccessoryView.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXEditorAccessoryView.m; sourceTree = "<group>"; };
+		B0B1C2D3E4F5060708090B08 /* ZXEditorKeysSettingsViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZXEditorKeysSettingsViewController.h; sourceTree = "<group>"; };
+		B0B1C2D3E4F5060708090B09 /* ZXEditorKeysSettingsViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXEditorKeysSettingsViewController.m; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A0D /* ZXPythonEditorSupport.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ZXPythonEditorSupport.h; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A0E /* ZXPythonEditorSupport.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXPythonEditorSupport.m; sourceTree = "<group>"; };
 		A0B1C2D3E4F5060708090A0F /* ZXPythonEditorSupportTests.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = ZXPythonEditorSupportTests.m; sourceTree = "<group>"; };
@@ -572,6 +581,12 @@
 				96A2BC372587C20A008DE91F /* ScriptListTableCell.m */,
 				96F4696A258B24DA0052D78D /* ScriptEditorViewController.h */,
 				96F4696B258B24DA0052D78D /* ScriptEditorViewController.m */,
+				B0B1C2D3E4F5060708090B01 /* ZXEditorAccessoryKeys.h */,
+				B0B1C2D3E4F5060708090B02 /* ZXEditorAccessoryKeys.m */,
+				B0B1C2D3E4F5060708090B05 /* ZXEditorAccessoryView.h */,
+				B0B1C2D3E4F5060708090B06 /* ZXEditorAccessoryView.m */,
+				B0B1C2D3E4F5060708090B08 /* ZXEditorKeysSettingsViewController.h */,
+				B0B1C2D3E4F5060708090B09 /* ZXEditorKeysSettingsViewController.m */,
 				A0B1C2D3E4F5060708090A0D /* ZXPythonEditorSupport.h */,
 				A0B1C2D3E4F5060708090A0E /* ZXPythonEditorSupport.m */,
 				A0B1C2D3E4F5060708090A04 /* RecordingEditorViewController.h */,
@@ -874,6 +889,9 @@
 				965E8CC225B3682C00FDD35C /* LogViewController.m in Sources */,
 				964DF10C25B9D87E006061B4 /* GCDWebServerConnection.m in Sources */,
 				96F4696C258B24DA0052D78D /* ScriptEditorViewController.m in Sources */,
+				B0B1C2D3E4F5060708090B03 /* ZXEditorAccessoryKeys.m in Sources */,
+				B0B1C2D3E4F5060708090B07 /* ZXEditorAccessoryView.m in Sources */,
+				B0B1C2D3E4F5060708090B0A /* ZXEditorKeysSettingsViewController.m in Sources */,
 				A0B1C2D3E4F5060708090A10 /* ZXPythonEditorSupport.m in Sources */,
 				A0B1C2D3E4F5060708090A03 /* RemoteDashboardServer.m in Sources */,
 				A0B1C2D3E4F5060708090A06 /* RecordingEditorViewController.m in Sources */,

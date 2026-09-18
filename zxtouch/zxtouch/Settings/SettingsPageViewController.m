@@ -23,6 +23,7 @@
 #import "Config.h"
 #import "ConfigManager.h"
 #import "RemoteDashboardServer.h"
+#import "../ZXEditorKeysSettingsViewController.h"
 
 #define SETTING_CELL_SWITCH 0
 #define SETTING_CELL_ENTRY 1
@@ -144,6 +145,7 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
 }
 
 - (NSString *)iconNameForCellTitle:(NSString *)title {
+    if ([title containsString:@"Extra"]) return @"keyboard";
     if ([title containsString:@"Web"]) return @"globe";
     if ([title containsString:@"Touch"]) return @"hand.tap";
     if ([title containsString:@"Double-click"]) return @"bolt.badge.clock";
@@ -242,7 +244,8 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": NSLocalizedString(@"switchAppBeforePlaying", nil), @"switch_click_handler": NSStringFromSelector(@selector(handleSwitchAppBeforePlaying:)), @"switch_init_status": @(switchAppBeforeRunScript)},
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Script Finished Popup", @"switch_click_handler": NSStringFromSelector(@selector(handleScriptFinishedPopupToggle:)), @"switch_init_status": @(showFinishedPopup)},
-            @{@"type": @(SETTING_CELL_SLIDER), @"title": @"Editor Font Size", @"slider_min": @(ZX_EDITOR_FONT_SIZE_MIN), @"slider_max": @(ZX_EDITOR_FONT_SIZE_MAX), @"slider_value": @([self editorFontSize]), @"slider_click_handler": NSStringFromSelector(@selector(handleEditorFontSizeChanged:))}
+            @{@"type": @(SETTING_CELL_SLIDER), @"title": @"Editor Font Size", @"slider_min": @(ZX_EDITOR_FONT_SIZE_MIN), @"slider_max": @(ZX_EDITOR_FONT_SIZE_MAX), @"slider_value": @([self editorFontSize]), @"slider_click_handler": NSStringFromSelector(@selector(handleEditorFontSizeChanged:))},
+            @{@"type": @(SETTING_CELL_ENTRY), @"title": @"Extra Keys", @"secondary_title": @"Editor shortcuts bar", @"row_click_handler": NSStringFromSelector(@selector(handleExtraKeysTap:))}
         ],
         @[
             @{@"type": @(SETTING_CELL_SWITCH), @"title": @"Dark Mode", @"switch_click_handler": NSStringFromSelector(@selector(handleDarkModeToggle:)), @"switch_init_status": @(darkMode)}
@@ -563,6 +566,13 @@ static UIImage *ZXSettingsSymbol(NSString *name) {
     [socket send:@"903"];
     [socket recv:1024];
     [socket close];
+}
+
+- (void)handleExtraKeysTap:(TableViewCellWithEntry*)cell {
+    (void)cell;
+    ZXEditorKeysSettingsViewController *keysController =
+        [[ZXEditorKeysSettingsViewController alloc] initWithStyle:UITableViewStyleGrouped];
+    [self.navigationController pushViewController:keysController animated:YES];
 }
 
 - (void)handleCreditsTap:(TableViewCellWithEntry*)cell {

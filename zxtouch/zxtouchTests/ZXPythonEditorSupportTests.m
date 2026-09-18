@@ -1,5 +1,6 @@
 #import <XCTest/XCTest.h>
 #import "../zxtouch/ZXPythonEditorSupport.h"
+#import "../zxtouch/ZXEditorAccessoryKeys.h"
 
 @interface ZXPythonEditorSupportTests : XCTestCase
 @end
@@ -147,6 +148,44 @@
     XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"a\nb"], 2U);
     XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"a\n\n"], 3U);
     XCTAssertEqual([ZXPythonEditorSupport lineCountForSource:@"\n"], 2U);
+}
+
+- (void)testExtraKeysDefaultsCoverEssentials {
+    NSArray<NSString *> *defaults = [ZXEditorAccessoryKeys defaultEnabledIdentifiers];
+    XCTAssertTrue(defaults.count >= 20U);
+    for (NSString *key in @[ZXEditorKeyEsc, ZXEditorKeyTab, ZXEditorKeyLeft,
+                            ZXEditorKeyRight, ZXEditorKeyUp, ZXEditorKeyDown,
+                            ZXEditorKeyColon, ZXEditorKeyBackspace]) {
+        XCTAssertTrue([defaults containsObject:key], @"missing default key %@", key);
+    }
+    // Defaults must be a subset of the catalog.
+    NSSet<NSString *> *catalog = [NSSet setWithArray:[ZXEditorAccessoryKeys catalogIdentifiers]];
+    for (NSString *key in defaults) XCTAssertTrue([catalog containsObject:key]);
+}
+
+- (void)testExtraKeysSanitizeDropsUnknownAndDuplicates {
+    NSArray *sanitized = [ZXEditorAccessoryKeys enabledIdentifiersFromStored:
+        @[ZXEditorKeyTab, @"nope", ZXEditorKeyTab, ZXEditorKeyEsc, @42]];
+    XCTAssertEqualObjects(sanitized, (@[ZXEditorKeyTab, ZXEditorKeyEsc]));
+    XCTAssertEqualObjects([ZXEditorAccessoryKeys enabledIdentifiersFromStored:nil],
+                          [ZXEditorAccessoryKeys defaultEnabledIdentifiers]);
+}
+
+- (void)testExtraKeysDisplayOrderAppendsMissingCatalogKeys {
+    NSArray<NSString *> *display = [ZXEditorAccessoryKeys displayOrderFromStored:@[ZXEditorKeyEsc]];
+    XCTAssertEqualObjects(display.firstObject, ZXEditorKeyEsc);
+    XCTAssertEqual(display.count, [ZXEditorAccessoryKeys catalogIdentifiers].count);
+    XCTAssertTrue([display containsObject:ZXEditorKeyTab]);
+}
+
+- (void)testExtraKeysInsertMapping {
+    XCTAssertEqualObjects([ZXEditorAccessoryKeys insertTextForIdentifier:ZXEditorKeyLParen], @"(");
+    XCTAssertEqualObjects([ZXEditorAccessoryKeys insertTextForIdentifier:ZXEditorKeyTab], @"\t");
+    XCTAssertNil([ZXEditorAccessoryKeys insertTextForIdentifier:ZXEditorKeyEsc]);
+    XCTAssertNil([ZXEditorAccessoryKeys insertTextForIdentifier:ZXEditorKeyLeft]);
+    XCTAssertTrue([ZXEditorAccessoryKeys isRepeatableIdentifier:ZXEditorKeyBackspace]);
+    XCTAssertFalse([ZXEditorAccessoryKeys isRepeatableIdentifier:ZXEditorKeyTab]);
+    XCTAssertEqualObjects([ZXEditorAccessoryKeys titleForIdentifier:ZXEditorKeyLeft], @"←");
 }
 
 @end

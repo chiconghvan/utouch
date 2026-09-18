@@ -3,6 +3,8 @@
 #import "Socket.h"
 #import "Config.h"
 #import "ConfigManager.h"
+#import "ZXEditorAccessoryKeys.h"
+#import "ZXEditorAccessoryView.h"
 
 static const CGFloat ZXLineNumberHorizontalPadding = 6.0;
 static const CGFloat ZXLineNumberTextGap = 6.0;
@@ -114,7 +116,7 @@ static UIFont *ZXEditorFont(void)
 
 @end
 
-@interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate>
+@interface ScriptEditorViewController () <UITableViewDataSource, UITableViewDelegate, UIGestureRecognizerDelegate, ZXEditorAccessoryViewDelegate>
 - (void)refreshBarButtons;
 - (void)checkScript;
 - (void)runValidation;
@@ -134,6 +136,20 @@ static UIFont *ZXEditorFont(void)
 - (void)handleToastTap;
 - (void)handleEditorTap:(UITapGestureRecognizer *)recognizer;
 - (void)keyboardWillChangeFrame:(NSNotification *)note;
+- (void)configureExtraKeysBar;
+- (void)reloadExtraKeysBar;
+- (CGFloat)extraKeysVisibleHeight;
+- (void)handleExtraKey:(NSString *)identifier repeated:(BOOL)repeated;
+- (void)extraKeysMoveLeft;
+- (void)extraKeysMoveRight;
+- (void)extraKeysMoveUp;
+- (void)extraKeysMoveDown;
+- (void)extraKeysMoveHome;
+- (void)extraKeysMoveEnd;
+- (void)extraKeysDedentLines;
+- (void)extraKeysToggleComment;
+- (void)extraKeysDeleteLine;
+- (NSRange)extraKeysSelectedLineBlock:(NSString *)text;
 @end
 
 @implementation ScriptEditorViewController
@@ -160,6 +176,10 @@ static UIFont *ZXEditorFont(void)
     NSString *lastToastMessage;
     CGFloat keyboardBottomInset;
     BOOL toastHasProblems;
+    ZXEditorAccessoryView *extraKeysBar;
+    NSLayoutConstraint *extraKeysBottomConstraint;
+    NSLayoutConstraint *extraKeysHeightConstraint;
+    NSArray<NSString *> *extraKeysIdentifiers;
 }
 
 - (void)viewDidLoad {
@@ -183,9 +203,13 @@ static UIFont *ZXEditorFont(void)
     lineNumberView.userInteractionEnabled = NO;
     [_textInput addSubview:lineNumberView];
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(applyEditorFontSize)
-                                                 name:ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION
-                                               object:nil];
+                                              selector:@selector(applyEditorFontSize)
+                                                  name:ZX_EDITOR_FONT_SIZE_CHANGED_NOTIFICATION
+                                                object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                              selector:@selector(reloadExtraKeysBar)
+                                                  name:ZX_EDITOR_EXTRA_KEYS_CHANGED_NOTIFICATION
+                                                object:nil];
     // The text view is pinned to the safe area, which the keyboard does not
     // change, so the bottom inset has to be maintained by hand.
     [[NSNotificationCenter defaultCenter] addObserver:self
@@ -194,6 +218,7 @@ static UIFont *ZXEditorFont(void)
                                                object:nil];
     [self configureCompletionTable];
     [self configureToast];
+    [self configureExtraKeysBar];
     [self refreshBarButtons];
     [self applySyntaxHighlightingPreservingSelection:NO];
     isSaveButtonShown = NO;
@@ -456,7 +481,8 @@ static UIFont *ZXEditorFont(void)
     CGFloat height = MIN(270.0, MAX(54.0, completionItems.count * 54.0));
     CGFloat x = MAX(12.0, MIN(CGRectGetWidth(self.view.bounds) - width - 12.0, CGRectGetMinX(caretInView)));
     CGFloat y = CGRectGetMaxY(caretInView) + 4.0;
-    CGFloat availableBottom = CGRectGetHeight(self.view.bounds) - keyboardBottomInset - 12.0;
+    CGFloat availableBottom = CGRectGetHeight(self.view.bounds) - keyboardBottomInset
+        - [self extraKeysVisibleHeight] - 12.0;
     if (y + height > availableBottom) y = MAX(12.0, CGRectGetMinY(caretInView) - height - 4.0);
     completionTableView.frame = CGRectMake(x, y, width, height);
 }
@@ -492,6 +518,242 @@ static UIFont *ZXEditorFont(void)
     [self hideCompletions];
     [self applySyntaxHighlightingPreservingSelection:YES];
     [self showSaveButton];
+}
+
+#pragma mark - Extra keys pane
+
+// The pane is a separate region docked at the bottom of the editor: the text
+// view shrinks to end at the pane's top edge. When the keyboard appears the
+// same view slides up with it via extraKeysBottomConstraint (see
+// keyboardWillChangeFrame:), so there is only one instance to keep in sync.
+- (void)configureExtraKeysBar {
+    extraKeysBar = [[ZXEditorAccessoryView alloc] init];
+    extraKeysBar.translatesAutoresizingMaskIntoConstraints = NO;
+    extraKeysBar.delegate = self;
+    [self.view addSubview:extraKeysBar];
+
+    extraKeysBottomConstraint = [extraKeysBar.bottomAnchor
+        constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor
+                       constant:-keyboardBottomInset];
+    extraKeysHeightConstraint = [extraKeysBar.heightAnchor
+        constraintEqualToConstant:ZX_EDITOR_ACCESSORY_BAR_HEIGHT];
+    [NSLayoutConstraint activateConstraints:@[
+        [extraKeysBar.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor],
+        [extraKeysBar.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor],
+        extraKeysBottomConstraint,
+        extraKeysHeightConstraint,
+    ]];
+
+    // The storyboard pins the text view to the safe-area bottom; re-route it
+    // to the pane's top edge so the pane never covers text.
+    for (NSLayoutConstraint *constraint in [self.view.constraints copy]) {
+        BOOL isTextBottom = (constraint.firstItem == _textInput
+                && constraint.firstAttribute == NSLayoutAttributeBottom)
+            || (constraint.secondItem == _textInput
+                && constraint.secondAttribute == NSLayoutAttributeBottom);
+        if (isTextBottom) constraint.active = NO;
+    }
+    [_textInput.bottomAnchor constraintEqualToAnchor:extraKeysBar.topAnchor].active = YES;
+    [self reloadExtraKeysBar];
+}
+
+- (void)reloadExtraKeysBar {
+    if (!extraKeysBar) return;
+    ConfigManager *config = [[ConfigManager alloc] initWithPath:SPRINGBOARD_CONFIG_PATH];
+    extraKeysIdentifiers = [ZXEditorAccessoryKeys
+        enabledIdentifiersFromStored:[config getValueFromKey:ZX_EDITOR_EXTRA_KEYS_KEY]];
+    [extraKeysBar configureWithIdentifiers:extraKeysIdentifiers];
+    BOOL empty = (extraKeysIdentifiers.count == 0);
+    extraKeysBar.hidden = empty;
+    extraKeysHeightConstraint.constant = empty ? 0.0 : ZX_EDITOR_ACCESSORY_BAR_HEIGHT;
+    // Toast and completion popup both rest above the pane now.
+    toastBottomConstraint.constant = -(12.0 + keyboardBottomInset + [self extraKeysVisibleHeight]);
+    [self.view setNeedsLayout];
+}
+
+- (CGFloat)extraKeysVisibleHeight {
+    if (!extraKeysBar || extraKeysBar.hidden) return 0.0;
+    return ZX_EDITOR_ACCESSORY_BAR_HEIGHT;
+}
+
+- (void)editorAccessoryView:(UIView *)view
+             didActivateKey:(NSString *)identifier
+                   repeated:(BOOL)repeated {
+    (void)view;
+    (void)repeated;
+    [self handleExtraKey:identifier repeated:repeated];
+}
+
+- (void)handleExtraKey:(NSString *)identifier repeated:(BOOL)repeated {
+    (void)repeated;
+    // [_textInput insertText:] runs through shouldChangeTextInRange:/didChange,
+    // so Tab-to-spaces, auto-indent, highlight and completions all behave
+    // exactly as if the text had been typed.
+    if ([identifier isEqualToString:ZXEditorKeyEsc]) {
+        if (!completionTableView.hidden) [self hideCompletions];
+        else [_textInput resignFirstResponder];
+    } else if ([identifier isEqualToString:ZXEditorKeyLeft]) {
+        [self extraKeysMoveLeft];
+    } else if ([identifier isEqualToString:ZXEditorKeyRight]) {
+        [self extraKeysMoveRight];
+    } else if ([identifier isEqualToString:ZXEditorKeyUp]) {
+        [self extraKeysMoveUp];
+    } else if ([identifier isEqualToString:ZXEditorKeyDown]) {
+        [self extraKeysMoveDown];
+    } else if ([identifier isEqualToString:ZXEditorKeyHome]) {
+        [self extraKeysMoveHome];
+    } else if ([identifier isEqualToString:ZXEditorKeyEnd]) {
+        [self extraKeysMoveEnd];
+    } else if ([identifier isEqualToString:ZXEditorKeyShiftTab]) {
+        [self extraKeysDedentLines];
+    } else if ([identifier isEqualToString:ZXEditorKeyComment]) {
+        [self extraKeysToggleComment];
+    } else if ([identifier isEqualToString:ZXEditorKeyDeleteLine]) {
+        [self extraKeysDeleteLine];
+    } else if ([identifier isEqualToString:ZXEditorKeyBackspace]) {
+        [_textInput deleteBackward];
+    } else {
+        NSString *text = [ZXEditorAccessoryKeys insertTextForIdentifier:identifier];
+        if (text) [_textInput insertText:text];
+    }
+}
+
+- (void)extraKeysMoveLeft {
+    NSRange selected = _textInput.selectedRange;
+    NSUInteger position = selected.length > 0 ? selected.location
+        : (selected.location > 0 ? selected.location - 1 : 0);
+    _textInput.selectedRange = NSMakeRange(position, 0);
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
+    [self updateCompletions];
+}
+
+- (void)extraKeysMoveRight {
+    NSRange selected = _textInput.selectedRange;
+    NSUInteger end = MIN(NSMaxRange(selected), _textInput.text.length);
+    NSUInteger position = selected.length > 0 ? end : MIN(end + 1, _textInput.text.length);
+    _textInput.selectedRange = NSMakeRange(position, 0);
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
+    [self updateCompletions];
+}
+
+- (void)extraKeysMoveUp {
+    UITextRange *selected = _textInput.selectedTextRange;
+    if (!selected) return;
+    UITextPosition *position = [_textInput positionFromPosition:selected.start
+                                                   inDirection:UITextLayoutDirectionUp
+                                                        offset:1];
+    if (!position) return;
+    _textInput.selectedTextRange = [_textInput textRangeFromPosition:position toPosition:position];
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
+    [self updateCompletions];
+}
+
+- (void)extraKeysMoveDown {
+    UITextRange *selected = _textInput.selectedTextRange;
+    if (!selected) return;
+    UITextPosition *position = [_textInput positionFromPosition:selected.start
+                                                   inDirection:UITextLayoutDirectionDown
+                                                        offset:1];
+    if (!position) return;
+    _textInput.selectedTextRange = [_textInput textRangeFromPosition:position toPosition:position];
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
+    [self updateCompletions];
+}
+
+- (void)extraKeysMoveHome {
+    NSString *text = _textInput.text ?: @"";
+    NSUInteger position = MIN(_textInput.selectedRange.location, text.length);
+    while (position > 0 && [text characterAtIndex:position - 1] != '\n') position--;
+    _textInput.selectedRange = NSMakeRange(position, 0);
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
+    [self updateCompletions];
+}
+
+- (void)extraKeysMoveEnd {
+    NSString *text = _textInput.text ?: @"";
+    NSUInteger position = MIN(_textInput.selectedRange.location, text.length);
+    while (position < text.length && [text characterAtIndex:position] != '\n') position++;
+    _textInput.selectedRange = NSMakeRange(position, 0);
+    [_textInput scrollRangeToVisible:_textInput.selectedRange];
+    [self updateCompletions];
+}
+
+// Block range covering the current selection, expanded to full lines.
+- (NSRange)extraKeysSelectedLineBlock:(NSString *)text {
+    NSUInteger location = MIN(_textInput.selectedRange.location, text.length);
+    NSUInteger end = MIN(NSMaxRange(_textInput.selectedRange), text.length);
+    while (location > 0 && [text characterAtIndex:location - 1] != '\n') location--;
+    while (end < text.length && [text characterAtIndex:end] != '\n') end++;
+    return NSMakeRange(location, end - location);
+}
+
+- (void)extraKeysDedentLines {
+    NSString *text = _textInput.text ?: @"";
+    NSRange block = [self extraKeysSelectedLineBlock:text];
+    NSArray<NSString *> *lines = [[text substringWithRange:block] componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *dedented = [NSMutableArray arrayWithCapacity:lines.count];
+    for (NSString *line in lines) {
+        NSUInteger strip = 0;
+        while (strip < ZX_EDITOR_INDENT_WIDTH && strip < line.length
+                && [line characterAtIndex:strip] == ' ') strip++;
+        if (strip == 0 && line.length > 0 && [line characterAtIndex:0] == '\t') strip = 1;
+        [dedented addObject:[line substringFromIndex:strip]];
+    }
+    isApplyingEdit = YES;
+    [_textInput.textStorage replaceCharactersInRange:block
+                                          withString:[dedented componentsJoinedByString:@"\n"]];
+    _textInput.selectedRange = NSMakeRange(block.location, 0);
+    isApplyingEdit = NO;
+    [self applySyntaxHighlightingPreservingSelection:YES];
+    [self showSaveButton];
+    [self updateCompletions];
+}
+
+- (void)extraKeysToggleComment {
+    NSString *text = _textInput.text ?: @"";
+    NSRange block = [self extraKeysSelectedLineBlock:text];
+    NSArray<NSString *> *lines = [[text substringWithRange:block] componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *toggled = [NSMutableArray arrayWithCapacity:lines.count];
+    for (NSString *line in lines) {
+        NSUInteger indent = 0;
+        while (indent < line.length && [line characterAtIndex:indent] == ' ') indent++;
+        NSString *head = [line substringToIndex:indent];
+        NSString *body = [line substringFromIndex:indent];
+        if ([body hasPrefix:@"#"]) {
+            body = [body substringFromIndex:1];
+            if ([body hasPrefix:@" "]) body = [body substringFromIndex:1];
+        } else {
+            body = [@"# " stringByAppendingString:body];
+        }
+        [toggled addObject:[head stringByAppendingString:body]];
+    }
+    isApplyingEdit = YES;
+    [_textInput.textStorage replaceCharactersInRange:block
+                                          withString:[toggled componentsJoinedByString:@"\n"]];
+    _textInput.selectedRange = NSMakeRange(block.location, 0);
+    isApplyingEdit = NO;
+    [self applySyntaxHighlightingPreservingSelection:YES];
+    [self showSaveButton];
+    [self updateCompletions];
+}
+
+- (void)extraKeysDeleteLine {
+    NSString *text = _textInput.text ?: @"";
+    if (text.length == 0) return;
+    NSRange block = [self extraKeysSelectedLineBlock:text];
+    // Swallow one adjacent newline so no blank line is left behind.
+    if (NSMaxRange(block) < text.length && [text characterAtIndex:NSMaxRange(block)] == '\n') {
+        block = NSMakeRange(block.location, block.length + 1);
+    } else if (block.location > 0 && [text characterAtIndex:block.location - 1] == '\n') {
+        block = NSMakeRange(block.location - 1, block.length + 1);
+    }
+    isApplyingEdit = YES;
+    [_textInput.textStorage replaceCharactersInRange:block withString:@""];
+    _textInput.selectedRange = NSMakeRange(MIN(block.location, _textInput.text.length), 0);
+    isApplyingEdit = NO;
+    [self applySyntaxHighlightingPreservingSelection:YES];
+    [self showSaveButton];
+    [self updateCompletions];
 }
 
 #pragma mark - Toast
@@ -585,7 +847,10 @@ static UIFont *ZXEditorFont(void)
     void (^changes)(void) = ^{
         _textInput.contentInset = UIEdgeInsetsMake(inset.top, inset.left, bottomInset, inset.right);
         _textInput.verticalScrollIndicatorInsets = UIEdgeInsetsMake(0, 0, bottomInset, 0);
-        self->toastBottomConstraint.constant = -(12.0 + bottomInset);
+        // The same pane docks at the editor bottom normally and floats above
+        // the keyboard here; the toast always rests above the pane.
+        self->extraKeysBottomConstraint.constant = -bottomInset;
+        self->toastBottomConstraint.constant = -(12.0 + bottomInset + [self extraKeysVisibleHeight]);
         [self.view layoutIfNeeded];
     };
 
