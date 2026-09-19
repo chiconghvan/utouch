@@ -9,6 +9,11 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.44] — 2026-09-19
+
+### Đã sửa
+- CI dựng TrollVNC scheme roothide (`tools/trollvnc/build-and-stage.sh --scheme=roothide` trong `build.yml`) gãy ngay khi bắt đầu với `common.mk: No such file or directory`: script `source vendor/TrollVNC/devkit/roothide.sh` ghi đè `THEOS` sang `$HOME/theos-roothide`/`$GITHUB_WORKSPACE/theos-roothide` vốn không tồn tại (CI chỉ cài Theos fork roothide tại `$THEOS`), trong khi `rootless.sh` còn có fallback về `$GITHUB_WORKSPACE/theos` nên bản rootless vẫn qua. Nay script lưu `_SAVED_THEOS` trước khi source rồi khôi phục `THEOS` và ép `THEOS_PACKAGE_SCHEME="$SCHEME"`, nên cả hai scheme dùng chung bản Theos của CI mà vẫn khác nhau đúng scheme đóng gói.
+
 ## [0.3.43] — 2026-09-19
 
 ### Đã thêm
@@ -488,6 +493,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.44]: https://github.com/chiconghvan/utouch/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/chiconghvan/utouch/compare/v0.3.42...v0.3.43
 [0.3.42]: https://github.com/chiconghvan/utouch/compare/v0.3.41...v0.3.42
 [0.3.41]: https://github.com/chiconghvan/utouch/compare/v0.3.40...v0.3.41
