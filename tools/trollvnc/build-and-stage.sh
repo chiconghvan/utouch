@@ -36,7 +36,14 @@ command -v dpkg-deb >/dev/null 2>&1 || { echo "ERROR: dpkg-deb missing (brew ins
 
 cd "$TVNC"
 # shellcheck disable=SC1091
+# Upstream devkit scripts overwrite THEOS with their own install path
+# (roothide.sh points at $HOME/theos-roothide or $GITHUB_WORKSPACE/theos-roothide,
+# which CI never installs — our Theos lives at $THEOS, roothide fork covering
+# both schemes). Keep the caller's THEOS and only take the scheme from it.
+_SAVED_THEOS="$THEOS"
 source "devkit/${SCHEME}.sh"   # exports THEOS_PACKAGE_SCHEME=rootless|roothide
+export THEOS="$_SAVED_THEOS"
+export THEOS_PACKAGE_SCHEME="$SCHEME"
 FINALPACKAGE=1 gmake clean package
 
 DEB="$(ls -t packages/*.deb | head -1)"
