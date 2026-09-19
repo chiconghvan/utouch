@@ -114,6 +114,16 @@ jobs:
           THEOS: ${{ github.workspace }}/theos
 
       # ── Rootless (Dopamine) build ──────────────────────────────────────────
+      # Stash the roothide maintainer-script variants first: Theos packs every
+      # file under layout/DEBIAN into control.tar, so leaving them in place
+      # would ship postinst-roothide/prerm-roothide inertly inside the
+      # rootless .deb. They are restored right after for the roothide build.
+      - name: Stash Roothide scripts for Rootless build
+        run: |
+          mkdir -p /tmp/rh-keep
+          mv layout/DEBIAN/postinst-roothide layout/DEBIAN/prerm-roothide /tmp/rh-keep/
+          ls layout/DEBIAN
+
       - name: Build Rootless .deb
         run: make package THEOS_PACKAGE_SCHEME=rootless FINALPACKAGE=1
         env:
@@ -140,6 +150,17 @@ jobs:
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
+          # Rootless control.tar must NOT carry the roothide variants.
+          ctl=$(mktemp -d)
+          dpkg-deb -e "$DEB" "$ctl"
+          test ! -e "$ctl/postinst-roothide" && test ! -e "$ctl/prerm-roothide"
+          test -f "$ctl/postinst" && test -f "$ctl/prerm" && test -f "$ctl/preinst"
+          grep -q '/var/jb' "$ctl/postinst"
+          rm -rf "$ctl"
+          echo "Verified clean rootless control.tar (no roothide variants)"
+          # Restore the stashed roothide variants for the build below.
+          mv /tmp/rh-keep/postinst-roothide /tmp/rh-keep/prerm-roothide layout/DEBIAN/
+          ls layout/DEBIAN
 
       # ── Roothide build ─────────────────────────────────────────────────────
       # Swap maintainer scripts for Roothide (jbroot-based) and relabel the

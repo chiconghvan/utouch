@@ -23,6 +23,7 @@ import math
 import os
 import random
 import re
+import socket
 import sys
 import tempfile
 import time
@@ -768,7 +769,14 @@ def findImage(path, count=None, threshold=0.8, region=None):
             log("findImage: daemon khong ho tro region search (%s), mui lon man hinh" % (e,))
         # Old daemon without TASK_IMAGE_MULTI: single-match fallback,
         # filtered to the region so callers never see an outside hit.
-        ok, res = get_device().image_match(path, threshold, 2, 0.8)
+        # socket.timeout (see zxtouch.DEFAULT_TIMEOUT) means "daemon too
+        # slow", not "no match": return [] so wait-loops keep polling
+        # instead of hanging the script forever.
+        try:
+            ok, res = get_device().image_match(path, threshold, 2, 0.8)
+        except socket.timeout as e:
+            log("findImage: image_match qua lau (>timeout), coi nhu khong thay (%s)" % (e,))
+            return []
         if not ok:
             return []
         res = _with_confidence(_match_result(res))
@@ -794,7 +802,11 @@ def findImage(path, count=None, threshold=0.8, region=None):
     except Exception as e:
         log("findImage: daemon khong ho tro multi-match (%s)" % (e,))
     # Old daemon without TASK_IMAGE_MULTI: single-match fallback, wrapped.
-    ok, res = get_device().image_match(path, threshold, 2, 0.8)
+    try:
+        ok, res = get_device().image_match(path, threshold, 2, 0.8)
+    except socket.timeout as e:
+        log("findImage: image_match qua lau (>timeout), coi nhu khong thay (%s)" % (e,))
+        return []
     if not ok:
         return []
     res = _with_confidence(_match_result(res))
@@ -813,7 +825,12 @@ def waitForImage(path, timeout=10.0, threshold=0.8, interval=0.5, region=None):
     """
     end = time.time() + timeout
     while time.time() <= end:
-        matches = findImage(path, threshold=threshold, region=region)
+        try:
+            matches = findImage(path, threshold=threshold, region=region)
+        except socket.timeout:
+            # One slow daemon round-trip must not kill the whole wait:
+            # treat as "not yet" and keep polling until the budget ends.
+            matches = []
         if matches:
             return matches[0]
         time.sleep(interval)
@@ -1049,12 +1066,18 @@ def swipeUntilImage(path, direction="up", maxSwipes=5, threshold=0.8, speed=0.5,
     }
     x1, y1, x2, y2 = dirs.get(direction, dirs["up"])
     for _ in range(maxSwipes):
-        matches = findImage(path, threshold=threshold, region=region)
+        try:
+            matches = findImage(path, threshold=threshold, region=region)
+        except socket.timeout:
+            matches = []
         if matches:
             return matches[0]
         swipe(x1, y1, x2, y2, speed)
         time.sleep(0.5)
-    matches = findImage(path, threshold=threshold, region=region)
+    try:
+        matches = findImage(path, threshold=threshold, region=region)
+    except socket.timeout:
+        matches = []
     return matches[0] if matches else None
 
 

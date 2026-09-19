@@ -54,10 +54,47 @@ def _normalize_region(region):
 
 
 class zxtouch:
-    def __init__(self, ip):
+    # Default per-call socket timeout (seconds). The daemon answers most
+    # tasks in well under a second, but a full-screen template match can take
+    # tens of seconds; without any timeout a slow/dead daemon blocks recv()
+    # forever, which also makes "STOP" impossible on this same socket.
+    # None = block forever (legacy behaviour); use set_timeout() to change.
+    DEFAULT_TIMEOUT = 120.0
+
+    def __init__(self, ip, timeout=None):
         self.s = socket.socket()
         self.s.connect((str(ip), 6000))
+        self._ip = str(ip)
+        self.set_timeout(self.DEFAULT_TIMEOUT if timeout is None else timeout)
         time.sleep(0.1)
+
+    def set_timeout(self, seconds):
+        """Set the socket timeout for every daemon round-trip.
+
+        :param seconds: timeout per send/recv call, or None to block forever.
+        A socket.timeout raises to the caller instead of hanging forever,
+        so wait-loops (waitForImage/...) can keep polling and STOP stays
+        reachable via a FRESH connection (see force_stop_fresh).
+        """
+        self._timeout = seconds
+        self.s.settimeout(seconds)
+        return seconds
+
+    def force_stop_fresh(self, timeout=15):
+        """Force-stop via a FRESH connection (does not use this socket).
+
+        Use this when another call on this object is stuck in recv(): the
+        stuck socket cannot send anything, so open a throwaway connection
+        just for the stop task.
+        """
+        stopper = zxtouch(self._ip, timeout=timeout)
+        try:
+            return stopper.force_stop_script_play()
+        finally:
+            try:
+                stopper.disconnect()
+            except Exception:
+                pass
 
     def touch(self, type, finger_index, x, y):
         """Perform a touch event

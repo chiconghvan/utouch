@@ -9,6 +9,17 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.45] — 2026-09-19
+
+### Đã sửa
+- Máy roothide: các dịch vụ chạy ngầm (bảng điều khiển, màn hình trực tiếp, nhận diện chữ) có thể không khởi động sau khi cài đặt — nay khâu cài đặt ghi đúng đường dẫn nên cả ba đều chạy, máy từng cài bản lỗi cũng được tự sửa.
+- Tìm hình (`findImage`, `waitForImage`, `tapImage`): trước đây máy tìm quá lâu thì script đứng im, không bấm Dừng được; nay mỗi lượt tìm quá 2 phút sẽ tự bỏ qua và nút Dừng luôn dùng được.
+- Gỡ hoặc cập nhật bản rootless: trước đây còn sót tiến trình cũ chạy song song bản mới; nay dọn sạch cả ba dịch vụ.
+
+### Đã thêm
+- Công cụ `scripts/diag-findimage-roothide.py`: kiểm tra từng bước tìm hình ngay trên máy, bước nào quá lâu sẽ báo rõ thay vì treo.
+- Gói rootless gọn hơn: không còn kèm file cài đặt của bản roothide; bản roothide liên kết đủ cả hai đường dẫn Python như bản rootless.
+
 ## [0.3.44] — 2026-09-19
 
 ### Đã sửa
@@ -493,6 +504,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.45]: https://github.com/chiconghvan/utouch/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/chiconghvan/utouch/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/chiconghvan/utouch/compare/v0.3.42...v0.3.43
 [0.3.42]: https://github.com/chiconghvan/utouch/compare/v0.3.41...v0.3.42

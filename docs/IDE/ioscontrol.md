@@ -505,8 +505,8 @@ _Mọi `path` bên dưới được giải theo **thư mục asset** của scrip
 ### `findImage(path, count, threshold, region)`
 
 - Type: `func`
-- EN: Find template image on screen. Always returns a list of matches; each match is {x, y, width, height, confidence}. No count: returns all matches (so #matches counts hits). With count: returns up to count matches.
-- VI: Tìm hình ảnh mẫu trên màn hình. Luôn trả về danh sách các kết quả; mỗi kết quả là {x, y, width, height, confidence}. Không truyền count: trả toàn bộ kết quả (đếm qua #matches). Có count: trả tối đa count kết quả.
+- EN: Find template image on screen. Always returns a list of matches; each match is {x, y, width, height, confidence}. No count: returns all matches (so #matches counts hits). With count: returns up to count matches. A single search taking over 2 minutes is skipped (treated as no match) so scripts never freeze.
+- VI: Tìm hình ảnh mẫu trên màn hình. Luôn trả về danh sách các kết quả; mỗi kết quả là {x, y, width, height, confidence}. Không truyền count: trả toàn bộ kết quả (đếm qua #matches). Có count: trả tối đa count kết quả. Mỗi lượt tìm quá 2 phút sẽ tự bỏ qua (coi như không thấy) để script không đứng im.
 - Return: `[object Object]`
 
 **Params:**
@@ -546,8 +546,8 @@ local matches = findImage("btn.png", 1, 0.9, {0, 400, 414, 450})
 ### `waitForImage(path, timeout, threshold, interval, region)`
 
 - Type: `func`
-- EN: Wait for image to appear on screen. Polls every 500ms. Returns table {x=, y=} on success, false on timeout. With region, only that rectangle is searched — never the full screen.
-- VI: Chờ hình ảnh xuất hiện trên màn hình. Kiểm tra mỗi 500ms. Trả về bảng {x=, y=} nếu thành công, false nếu hết thời gian. Có region thì chỉ tìm trong vùng đó — không bao giờ quét toàn màn hình.
+- EN: Wait for image to appear on screen. Polls every 500ms. Returns table {x=, y=} on success, false on timeout. With region, only that rectangle is searched — never the full screen. A slow single search does not abort the wait: it counts as "not yet" and polling continues until the timeout.
+- VI: Chờ hình ảnh xuất hiện trên màn hình. Kiểm tra mỗi 500ms. Trả về bảng {x=, y=} nếu thành công, false nếu hết thời gian. Có region thì chỉ tìm trong vùng đó — không bao giờ quét toàn màn hình. Một lượt tìm chậm không làm hỏng cả lần chờ: lượt đó được tính là "chưa thấy" và tiếp tục kiểm tra đến hết thời gian.
 - Return: `[object Object]`
 
 **Params:**

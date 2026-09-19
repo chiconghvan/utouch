@@ -65,6 +65,15 @@ for PYVER in \
     /bin/python3; do
     if [ -x "$PYVER" ]; then
         ln -sf "$PYVER" "$PYTHON3"
+        # Mirror the rootless postinst, which links both usr/bin and bin:
+        # some wrappers call `python3` via $JBROOT/bin.
+        _PYBINDIR=$(jbroot /bin/python3 2>/dev/null)
+        if [ -n "$_PYBINDIR" ]; then
+            _PYBINDIR=${_PYBINDIR%/python3}
+            if [ -d "$_PYBINDIR" ] && [ "$_PYBINDIR" != "${PYTHON3%/python3}" ]; then
+                ln -sf "$PYVER" "$_PYBINDIR/python3" 2>/dev/null || true
+            fi
+        fi
         FOUND_PY="$PYVER"
         break
     fi
@@ -136,14 +145,125 @@ for b in $(jbroot /usr/bin/zxtouch-ocrd 2>/dev/null) $(jbroot /usr/bin/zxtouch-d
 done
 
 # TrollVNC bundled in the same .deb (single-.deb plan): VNC :5901 + noVNC :5801.
+# --- bplist-safe LaunchDaemon rewrite (roothide P0 fix) ---
+# The .deb ships LaunchDaemon plists compiled as bplist. A byte-level sed with
+# a longer $JBROOT replacement corrupts the bplist offset table ("Invalid
+# file"), so launchd rejects the job. Convert to XML first. Copies already
+# corrupted by older installs (bplist without /var/jb, or sed attempted with
+# no converter) are regenerated from the templates below.
+zx_plist_tool() {
+    if [ -x /usr/bin/plutil ]; then echo /usr/bin/plutil; return 0; fi
+    _p=$(jbroot /usr/bin/plutil 2>/dev/null)
+    if [ -n "$_p" ] && [ -x "$_p" ]; then echo "$_p"; return 0; fi
+    return 1
+}
+zx_write_plist_template() {
+    # $1 = kind (dashboard|trollvnc|ocr), $2 = dest path. Templates carry the
+    # stock /var/jb paths; the caller seds them to the live jbroot after.
+    case "$1" in
+        dashboard) cat > "$2" << 'PLIST_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.zjx.dashboard</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/jb/usr/bin/zxtouch-dashboardd</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key><false/>
+    </dict>
+    <key>UserName</key><string>mobile</string>
+    <key>ThrottleInterval</key><integer>30</integer>
+    <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/dashboardd.log</string>
+    <key>StandardErrorPath</key><string>/var/mobile/Library/ZXTouch/dashboardd.log</string>
+</dict>
+</plist>
+PLIST_EOF
+        ;;
+        trollvnc) cat > "$2" << 'PLIST_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key><string>com.zjx.trollvnc</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/var/jb/usr/bin/trollvncserver</string>
+        <string>-p</string><string>5901</string>
+        <string>-H</string><string>5801</string>
+        <string>-n</string><string>ZXTouch</string>
+        <string>-s</string><string>0.3</string>
+        <string>-F</string><string>30:60:120</string>
+        <string>-d</string><string>0.008</string>
+        <string>-Q</string><string>1</string>
+        <string>-O</string><string>on</string>
+        <string>-B</string><string>off</string>
+        <string>-A</string><string>15</string>
+        <string>-I</string><string>off</string>
+    </array>
+    <key>RunAtLoad</key><true/>
+    <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/trollvnc.log</string>
+    <key>StandardErrorPath</key><string>/var/mobile/Library/ZXTouch/trollvnc.log</string>
+</dict>
+</plist>
+PLIST_EOF
+        ;;
+        ocr) cat > "$2" << 'PLIST_EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>Label</key><string>com.zjx.ocr</string>
+    <key>ProgramArguments</key><array><string>/var/jb/usr/bin/zxtouch-ocrd</string></array>
+    <key>RunAtLoad</key><true/><key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>10</integer>
+    <key>StandardOutPath</key><string>/var/mobile/Library/ZXTouch/ocrd.log</string>
+    <key>StandardErrorPath</key><string>/var/mobile/Library/ZXTouch/ocrd.log</string>
+</dict></plist>
+PLIST_EOF
+        ;;
+        *) return 1 ;;
+    esac
+}
+zx_rewrite_plist() {
+    # $1 = installed plist path, $2 = live jbroot, $3 = kind.
+    _plist=$1; _jbroot=$2; _kind=$3
+    [ -n "$_plist" ] && [ -f "$_plist" ] && [ -n "$_jbroot" ] || return 0
+    if grep -q '/var/jb' "$_plist" 2>/dev/null; then
+        if [ "$(head -c 6 "$_plist" 2>/dev/null)" != "bplist" ]; then
+            # Already XML: length changes are safe.
+            sed -i "s|/var/jb|$_jbroot|g" "$_plist" 2>/dev/null || true
+        else
+            _tool=$(zx_plist_tool 2>/dev/null) || _tool=""
+            if [ -n "$_tool" ] && "$_tool" -convert xml1 "$_plist" 2>/dev/null; then
+                sed -i "s|/var/jb|$_jbroot|g" "$_plist" 2>/dev/null || true
+            elif [ -n "$FOUND_PY" ] && [ -x "$FOUND_PY" ] && "$FOUND_PY" -c 'import plistlib,sys; plistlib.dump(plistlib.load(open(sys.argv[1],"rb")), open(sys.argv[1],"wb"))' "$_plist" 2>/dev/null; then
+                sed -i "s|/var/jb|$_jbroot|g" "$_plist" 2>/dev/null || true
+            else
+                # No converter available: regenerate XML from template, then rewrite.
+                zx_write_plist_template "$_kind" "$_plist" 2>/dev/null || return 0
+                sed -i "s|/var/jb|$_jbroot|g" "$_plist" 2>/dev/null || true
+            fi
+        fi
+    elif [ "$(head -c 6 "$_plist" 2>/dev/null)" = "bplist" ]; then
+        # No /var/jb left in a binary plist: an older install already ran sed
+        # on bplist and corrupted it (a correct rewrite is always XML by now).
+        # Heal by regenerating from template.
+        zx_write_plist_template "$_kind" "$_plist" 2>/dev/null || return 0
+        sed -i "s|/var/jb|$_jbroot|g" "$_plist" 2>/dev/null || true
+    fi
+}
 TVNC_BIN=$(jbroot /usr/bin/trollvncserver 2>/dev/null)
 TVNC_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.trollvnc.plist 2>/dev/null)
 if [ -n "$TVNC_BIN" ] && [ -x "$TVNC_BIN" ]; then
     # Roothide has no fixed /var/jb path: rewrite the bundled plist's
-    # /var/jb prefix to the live jbroot before loading.
+    # /var/jb prefix to the live jbroot before loading (bplist-safe).
     JBROOT="${TVNC_BIN%/usr/bin/trollvncserver}"
     if [ -n "$TVNC_PLIST" ] && [ -f "$TVNC_PLIST" ] && [ "$JBROOT" != "/var/jb" ]; then
-        sed -i "s|/var/jb|$JBROOT|g" "$TVNC_PLIST" 2>/dev/null || true
+        zx_rewrite_plist "$TVNC_PLIST" "$JBROOT" trollvnc
     fi
     if command -v launchctl >/dev/null 2>&1 && [ -n "$TVNC_PLIST" ]; then
         launchctl unload "$TVNC_PLIST" 2>/dev/null || true
@@ -163,7 +283,7 @@ DASH_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.dashboard.plist 2>/dev/null)
 if [ -n "$DASH_BIN" ] && [ -x "$DASH_BIN" ]; then
     JBROOT="${DASH_BIN%/usr/bin/zxtouch-dashboardd}"
     if [ -n "$DASH_PLIST" ] && [ -f "$DASH_PLIST" ] && [ "$JBROOT" != "/var/jb" ]; then
-        sed -i "s|/var/jb|$JBROOT|g" "$DASH_PLIST" 2>/dev/null || true
+        zx_rewrite_plist "$DASH_PLIST" "$JBROOT" dashboard
     fi
     if command -v launchctl >/dev/null 2>&1 && [ -n "$DASH_PLIST" ]; then
         launchctl unload "$DASH_PLIST" 2>/dev/null || true
@@ -204,7 +324,7 @@ OCR_BIN=$(jbroot /usr/bin/zxtouch-ocrd 2>/dev/null)
 OCR_PLIST=$(jbroot /Library/LaunchDaemons/com.zjx.ocr.plist 2>/dev/null)
 if [ -n "$OCR_BIN" ] && [ -x "$OCR_BIN" ] && [ -n "$OCR_PLIST" ] && [ -f "$OCR_PLIST" ]; then
     JBROOT="${OCR_BIN%/usr/bin/zxtouch-ocrd}"
-    if [ "$JBROOT" != "/var/jb" ]; then sed -i "s|/var/jb|$JBROOT|g" "$OCR_PLIST" 2>/dev/null || true; fi
+    if [ "$JBROOT" != "/var/jb" ]; then zx_rewrite_plist "$OCR_PLIST" "$JBROOT" ocr; fi
     chown root:wheel "$OCR_PLIST" "$OCR_BIN" 2>/dev/null || true
     chmod 0644 "$OCR_PLIST" 2>/dev/null || true
     chmod 0755 "$OCR_BIN" 2>/dev/null || true
