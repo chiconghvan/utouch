@@ -9,6 +9,22 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.43] — 2026-09-19
+
+### Đã thêm
+- Hỗ trợ đóng gói roothide song song rootless: `tools/trollvnc/build-and-stage.sh` nhận `--scheme=rootless|roothide` (mặc định rootless), CI (`build.yml`) dựng TrollVNC một lần cho mỗi scheme trước `make package` tương ứng thay cho một binary dùng chung như trước; bản roothide đổi nhãn control `Description` thành `(roothide, iOS 15-16)` và kiểm guardrails trong `.deb` (postinst/prerm chứa `jbroot`, prerm nhắc đủ `com.zjx.dashboard`/`com.zjx.trollvnc`/`com.zjx.ocr`).
+- Script `layout/DEBIAN/prerm-roothide` mới: trước đây bản roothide không có `prerm` nên nâng cấp/gỡ để bản daemon cũ chạy cạnh bản mới; nay `unload` cả ba plist (`com.zjx.dashboard`, `com.zjx.trollvnc`, `com.zjx.ocr`) qua đường dẫn `jbroot`, rồi `killall`/`killall -9 zxtouch-dashboardd` (SIGTERM để ghi session-close marker trước, SIGKILL dọn bản kẹt).
+- Entitlements tường minh cho hai binary theos: `dashboardd/dashboardd.entitlements` và `zxtouch-binary/zxtouchb.entitlements` (bộ `platform-application`, `skip-library-validation`, `no-container`, `no-sandbox`, `storage.AppBundles/AppDataContainers`, riêng `zxtouchb` thêm `get-task-allow`), đấu qua `zxtouch-dashboardd_CODESIGN_FLAGS`/`zxtouchb_CODESIGN_FLAGS` trong Makefile; thay thế `layout/entitlements.plist` chung đã xoá.
+
+### Đã thay đổi
+- Tra cứu binary ưu tiên `jbroot()` trước, `/var/jb` chỉ còn là fallback rootless: `ZXCraneManager` trong `pccontrol/CraneBridge.xm` (trước `dlopen` hai đường cố định `/var/jb/usr/lib/libcrane.dylib` → `/usr/lib/libcrane.dylib`) nay `dlopen(jbroot(@"/usr/lib/libcrane.dylib"))` trước rồi mới tới hai đường cũ; `ZXPythonModulePath` trong `pccontrol/ScriptPlayer.xm` sinh wrapper `add_datetime.sh` với `DATE` giải qua `ZXFirstExecutablePath` (`jbroot(/usr/bin/date)`, `jbroot(/bin/date)`, `/var/jb/usr/bin/date`, `/var/jb/bin/date`, `/usr/bin/date`, `/bin/date`) thay cho hằng `/var/jb/usr/bin/date` cố định. `pccontrol/RootlessPath.h` đánh dấu `ROOTLESS_PREFIX` đã lỗi thời cho tra cứu binary (đường `/var/mobile/...` giữ nguyên vì nằm ngoài jbroot).
+- `zxtouch/zxtouch/RemoteDashboardServer.m` thêm `ZXJbrootResolve` (import `<roothide.h>` có guard `__has_include`, an toàn khi biên dịch bằng Xcode không có header) và `ZXBundleJbPrefix` (suy prefix từ `[[NSBundle mainBundle] bundlePath]` dạng `$JBROOT/Applications/zxtouch.app` → `$JBROOT`); `ZXJbrootPrefix` thêm hai fast path (dò `jbroot(/Library/LaunchDaemons/com.zjx.trollvnc.plist)` rồi lột 3 cấp, rồi tới bundle prefix) trước nhánh `/var/jb` cũ. Các điểm dùng chuyển sang thứ tự jbroot/bundle trước: `ZXVNCServerBinaryPath` (`trollvncserver`), `ZXVNCLaunchctl` (`bin/launchctl`), `ZXPreludePath` (`usr/share/zxtouch/python/zxtouch/prelude.py`), `dashboardBasePath` (bundle của chính mình → `jbroot(/Applications/zxtouch.app)` → bundle prefix → `/var/jb/Applications/zxtouch.app`), legacy prefs (`jbroot(/var/mobile/Library/Preferences/com.zjx.zxtouch.plist)` trước `/var/jb/...`), và `ZXSettingsKillVNCBestEffort` (`jbroot(/usr/bin/killall)` + bundle prefix trước `/var/jb/usr/bin/killall`).
+- Gợi ý editor (`ZXPythonEditorSupport.m`) tìm `prelude.py` qua prefix suy từ bundle (`$JBROOT/usr/share/zxtouch/python/zxtouch/prelude.py`) trước hai đường `/var/jb/...` và `/usr/share/...` như trước, nên target Xcode (không có libroothide) vẫn hoạt động dưới prefix roothide ngẫu nhiên.
+- `layout/DEBIAN/postinst-roothide` kill `zxtouch-dashboardd` qua `jbroot /usr/bin/killall` trước, giữ `/usr/bin/killall` làm fallback.
+
+### Đã sửa
+- Bản roothide prefix ngẫu nhiên chạy nhầm binary/đường dẫn `/var/jb` cố định (daemon plist, `trollvncserver`, `launchctl`, `killall`, `prelude.py`, app bundle, legacy prefs, `libcrane.dylib`, `date` trong wrapper): nay mọi điểm trên đều giải qua `jbroot()`/bundle prefix trước nên cùng một mã nguồn chạy đúng trên cả rootless (`/var/jb`) lẫn roothide.
+
 ## [0.3.42] — 2026-09-18
 
 ### Đã sửa
@@ -472,6 +488,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.43]: https://github.com/chiconghvan/utouch/compare/v0.3.42...v0.3.43
 [0.3.42]: https://github.com/chiconghvan/utouch/compare/v0.3.41...v0.3.42
 [0.3.41]: https://github.com/chiconghvan/utouch/compare/v0.3.40...v0.3.41
 [0.3.40]: https://github.com/chiconghvan/utouch/compare/v0.3.39...v0.3.40
