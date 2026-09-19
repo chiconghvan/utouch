@@ -98,13 +98,15 @@ jobs:
 
       # ── TrollVNC from source (submodule) → stage binary + webclients ──
       # Upstream publishes no .deb assets, so we compile v3.2-272 ourselves.
-      # Output lands in layout/ and is packaged into BOTH .debs below.
-      - name: Build TrollVNC from source
+      # Staged per scheme: --scheme=rootless here, rebuilt with
+      # --scheme=roothide before the roothide package below (entitlements and
+      # install paths differ; a single shared binary breaks roothide).
+      - name: Build TrollVNC from source (rootless)
         run: |
           brew install make dpkg ldid 2>/dev/null || true
           git submodule update --init vendor/TrollVNC
           chmod +x tools/trollvnc/build-and-stage.sh
-          bash tools/trollvnc/build-and-stage.sh
+          bash tools/trollvnc/build-and-stage.sh --scheme=rootless
           test -x layout/usr/bin/trollvncserver
           test -f layout/usr/share/trollvnc/webclients/novnc/core/rfb.js
           echo "Verified TrollVNC runtime and bundled noVNC assets"
@@ -140,14 +142,36 @@ jobs:
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_rootless.deb"
 
       # ── Roothide build ─────────────────────────────────────────────────────
-      - name: Swap postinst for Roothide
+      # Swap maintainer scripts for Roothide (jbroot-based) and relabel the
+      # control Description so the roothide .deb is distinguishable. The
+      # rootless .deb above is already saved, so mutating the tree here is safe.
+      - name: Swap maintainer scripts + control for Roothide
         run: |
           cp layout/DEBIAN/postinst-roothide layout/DEBIAN/postinst
           chmod +x layout/DEBIAN/postinst
           rm layout/DEBIAN/postinst-roothide
+          cp layout/DEBIAN/prerm-roothide layout/DEBIAN/prerm
+          chmod +x layout/DEBIAN/prerm
+          rm layout/DEBIAN/prerm-roothide
+          grep -q 'jbroot' layout/DEBIAN/postinst
+          grep -q 'jbroot' layout/DEBIAN/prerm
+          for CTL in control pccontrol/control; do
+            sed -i '' 's/(rootless, iOS 15-16)/(roothide, iOS 15-16)/' "$CTL" || sed -i 's/(rootless, iOS 15-16)/(roothide, iOS 15-16)/' "$CTL"
+          done
+          bash -n layout/DEBIAN/postinst && bash -n layout/DEBIAN/prerm
+          echo "Swapped postinst/prerm for roothide + relabeled control"
 
       - name: Clean for Roothide build
         run: make clean && rm -f packages/*.deb
+        env:
+          THEOS: ${{ github.workspace }}/theos
+
+      - name: Rebuild TrollVNC for Roothide
+        run: |
+          bash tools/trollvnc/build-and-stage.sh --scheme=roothide
+          test -x layout/usr/bin/trollvncserver
+          test -f layout/usr/share/trollvnc/webclients/novnc/core/rfb.js
+          echo "Staged TrollVNC roothide binary"
         env:
           THEOS: ${{ github.workspace }}/theos
 
@@ -174,6 +198,17 @@ jobs:
           dpkg-deb -c "$DEB" | grep -q 'usr/bin/zxtouch-ocrd'
           dpkg-deb -c "$DEB" | grep -q 'Library/LaunchDaemons/com.zjx.ocr.plist'
           echo "Verified dashboard daemon in roothide .deb"
+          # Roothide guardrails: maintainer scripts inside the .deb must be the
+          # jbroot-based variants (randomized prefix, no fixed /var/jb).
+          ctl=$(mktemp -d)
+          dpkg-deb -e "$DEB" "$ctl"
+          grep -q 'jbroot' "$ctl/postinst"
+          grep -q 'jbroot' "$ctl/prerm"
+          grep -q 'com.zjx.dashboard' "$ctl/prerm"
+          grep -q 'com.zjx.trollvnc' "$ctl/prerm"
+          grep -q 'com.zjx.ocr' "$ctl/prerm"
+          rm -rf "$ctl"
+          echo "Verified jbroot-based postinst/prerm in roothide .deb"
           VERSION=$(grep '^Version:' pccontrol/control | awk '{print $2}')
           cp "$DEB" "artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"
           echo "Saved: artifacts/com.zjx.ioscontrol_${VERSION}_roothide.deb"

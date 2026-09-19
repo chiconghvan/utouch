@@ -15,16 +15,18 @@ static CraneManager *ZXCraneManager(NSError **error) {
     static void *handle = NULL;
     if (!probed) {
         probed = YES;
-        // Plain C strings: jbroot() has ObjC/C overload subtleties, and both
-        // rootless (Dopamine) and roothide bootstraps live under /var/jb.
-        // Crane installs its dylib next to the other opa334 libs.
-        const char *candidates[] = {
-            "/var/jb/usr/lib/libcrane.dylib",
-            "/usr/lib/libcrane.dylib",
-            NULL,
-        };
-        for (int i = 0; candidates[i]; i++) {
-            handle = dlopen(candidates[i], RTLD_LAZY);
+        // jbroot() first: on roothide the prefix is randomized per install,
+        // on rootless (Dopamine) it resolves to /var/jb. Hardcoded fallbacks
+        // below keep older installs working if jbroot() ever fails.
+        NSString *jbLib = jbroot(@"/usr/lib/libcrane.dylib");
+        NSMutableArray<NSString *> *paths = [NSMutableArray array];
+        if (jbLib.length) [paths addObject:jbLib];
+        [paths addObjectsFromArray:@[
+            @"/var/jb/usr/lib/libcrane.dylib",
+            @"/usr/lib/libcrane.dylib",
+        ]];
+        for (NSString *p in paths) {
+            handle = dlopen(p.UTF8String, RTLD_LAZY);
             if (handle) break;
         }
         cls = NSClassFromString(@"CraneManager");
