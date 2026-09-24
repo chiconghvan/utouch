@@ -9,6 +9,18 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.48] — 2026-09-24
+
+### Đã thêm
+- Native task `TASK_SETAIRPLANEMODE=52` (`pccontrol/Task.h`, `ExtTasks.h/.xm`, `Task.xm`): bật/tắt chế độ máy bay qua `RadiosPreferences` (`setAirplaneMode:` + `synchronize`, lookup runtime, đọc lại giá trị để verify thay vì trả `True` khống). Phía Python: `tasktypes.TASK_SETAIRPLANEMODE`, `client.set_airplane_mode_enabled(enabled, delay)`, `prelude.setAirplaneMode` thử native trước rồi fallback plist; helper native dùng chung `_nativeRadioTask`, validate `delay` dùng chung `_coerceDelay`.
+- Native task `TASK_SETPROXY=53` (`Task.h`, `ExtTasks.h/.xm`, `Task.xm`, thêm `SystemConfiguration` vào `pccontrol_FRAMEWORKS`): đặt/xóa proxy HTTP/HTTPS của Wi-Fi **service** qua `SCPreferences` (commit + apply để configd nhận ngay, không bounce interface) — cách đúng mà app Settings dùng; code cũ ghi Global plist (kiểu macOS) nên iOS lờ đi với traffic Wi-Fi. Phía Python: `tasktypes.TASK_SETPROXY`, `client.set_proxy(host, port)` / `clear_proxy()`, `prelude.setProxySystem`/`clearProxySystem` thử native trước rồi fallback legacy; helper native tổng quát thành `_nativeDaemonTask`.
+
+### Đã thay đổi
+- `setAirplaneMode(enabled, delay)` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: trước đây chỉ đi đường plist (`_toggleRadio` ghi plist + bounce CommCenter); nay thử system API trước (`TASK_SETAIRPLANEMODE` qua `RadiosPreferences`, verify bằng cách đọc lại, `delay` hẹn khôi phục phía daemon và trả về ngay) rồi mới fallback plist khi daemon cũ im lặng hoặc API từ chối.
+- `setProxySystem(host, port)` / `clearProxySystem()` trong `prelude.py`: trước đây luôn ghi Global plist + bounce `en0` (iOS lờ đi với traffic Wi-Fi); nay thử `TASK_SETPROXY` trước (ghi proxy vào Wi-Fi service qua `SCPreferences`, commit + apply live, không bounce) rồi mới fallback legacy.
+- Gom helper native dùng chung trong `prelude.py`: `_cellularNative` tách thành `_nativeDaemonTask(method, args, timeout)` + `_nativeRadioTask`, validate `delay` dùng chung `_coerceDelay` cho cả `setCellularData`/`setAirplaneMode` — hành vi `setCellularData` giữ nguyên, chỉ hết trùng code.
+- Tài liệu `docs/IDE/ioscontrol.md`: thêm ghi chú `delay` không chặn cho `setAirplaneMode` (trả về ngay, hẹn khôi phục nền, native `TASK_SETAIRPLANEMODE` trước + fallback plist) và ghi chú proxy per-service `SCPreferences` live cho `setProxySystem`/`clearProxySystem` (daemon cũ fallback Global plist + bounce `en0`).
+
 ## [0.3.47] — 2026-09-24
 
 ### Đã thêm
@@ -529,6 +541,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.48]: https://github.com/chiconghvan/utouch/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/chiconghvan/utouch/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/chiconghvan/utouch/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/chiconghvan/utouch/compare/v0.3.44...v0.3.45

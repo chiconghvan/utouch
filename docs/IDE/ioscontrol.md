@@ -2059,6 +2059,13 @@ setAirplaneMode(True, 3)
 sleep(4)
 log("Network reset complete")
 ```
+
+> Note: `delay` does not block — the call returns immediately and the
+> device restores the opposite state in the background. On current
+> daemons the switch goes through `RadiosPreferences` first
+> (`TASK_SETAIRPLANEMODE`, verified by reading the value back); only when
+> the daemon is too old or the API refuses does it fall back to the plist
+> method (write as root + bounce CommCenter).
 ---
 
 ### `getIP()`
@@ -2106,6 +2113,11 @@ setAirplaneMode(true)
 sleep(1)
 setAirplaneMode(false)
 ```
+
+> Note: on current daemons the proxy is written into the Wi-Fi network
+> service via `SCPreferences` (`TASK_SETPROXY`) and applied live — no
+> interface bounce. Older daemons fall back to the Global plist + `en0`
+> bounce, which iOS ignores for Wi-Fi traffic.
 ---
 
 ### `clearProxySystem()`

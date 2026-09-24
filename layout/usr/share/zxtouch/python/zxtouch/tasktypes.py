@@ -44,3 +44,9 @@ TASK_PLAY_SCRIPT_IN_PLACE = 50
 # Cellular-data master switch via the system telephony API (see
 # cellularDataFromRawData in pccontrol/ExtTasks.xm).
 TASK_SETCELLULARDATA = 51
+# Airplane mode via AppSupport's RadiosPreferences (see
+# airplaneModeFromRawData in pccontrol/ExtTasks.xm).
+TASK_SETAIRPLANEMODE = 52
+# Wi-Fi service proxy via SCPreferences (see proxyFromRawData in
+# pccontrol/ExtTasks.xm).
+TASK_SETPROXY = 53

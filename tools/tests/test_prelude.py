@@ -855,6 +855,113 @@ def test_cellular_falls_back_to_plist(monkeypatch, capsys):
             prelude.disconnect()
 
 
+def test_airplane_native_success_and_fallback(monkeypatch, capsys):
+    import socket
+
+    class NativeAirplaneDevice(ShellDevice):
+        def __init__(self, behavior):
+            super().__init__({"pref-set": "ZXOK 1"})
+            self.behavior = behavior
+            self.native_calls = []
+
+        def set_airplane_mode_enabled(self, enabled, delay=None):
+            self.native_calls.append((enabled, delay))
+            if self.behavior == "ok":
+                return (True, [])
+            if self.behavior == "refuse":
+                return (False, "ignored by the system")
+            raise socket.timeout("timed out")
+
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+
+    dev = NativeAirplaneDevice("ok")
+    prelude.set_device(dev)
+    try:
+        assert prelude.setAirplaneMode(True, 3) is True
+        assert "system API" in capsys.readouterr().out
+        assert dev.native_calls == [(True, 3.0)]
+        assert dev.calls == []
+    finally:
+        prelude.disconnect()
+
+    for behavior in ("silent", "refuse"):
+        dev = NativeAirplaneDevice(behavior)
+        monkeypatch.setattr(prelude, "get_device", lambda ip=None: dev)
+        prelude.set_device(dev)
+        try:
+            assert prelude.setAirplaneMode(True, 3) is True
+            out = capsys.readouterr().out
+            assert "plist fallback" in out
+            assert "preflightAirplaneModeEnabled=1" in out
+            assert any("sleep" in c for c in dev.calls)
+        finally:
+            prelude.disconnect()
+
+
+def test_proxy_native_success_and_fallback(monkeypatch, capsys):
+    import socket
+
+    class NativeProxyDevice(ShellDevice):
+        def __init__(self, behavior):
+            super().__init__({"proxy-set": "ZXOK 1.2.3.4",
+                              "proxy-clear": "ZXOK cleared"})
+            self.behavior = behavior
+            self.native_calls = []
+
+        def set_proxy(self, host, port):
+            self.native_calls.append(("set", host, port))
+            if self.behavior == "ok":
+                return (True, [])
+            if self.behavior == "refuse":
+                return (False, "no Wi-Fi service")
+            raise socket.timeout("timed out")
+
+        def clear_proxy(self):
+            self.native_calls.append(("clear",))
+            if self.behavior == "ok":
+                return (True, [])
+            if self.behavior == "refuse":
+                return (False, "no Wi-Fi service")
+            raise socket.timeout("timed out")
+
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+
+    dev = NativeProxyDevice("ok")
+    prelude.set_device(dev)
+    try:
+        assert prelude.setProxySystem("1.2.3.4", 8080) is True
+        assert "system API" in capsys.readouterr().out
+        assert ("set", "1.2.3.4", 8080) in dev.native_calls
+        assert dev.calls == []
+        assert prelude.clearProxySystem() is True
+        assert ("clear",) in dev.native_calls
+    finally:
+        prelude.disconnect()
+
+    for behavior in ("silent", "refuse"):
+        dev = NativeProxyDevice(behavior)
+        monkeypatch.setattr(prelude, "get_device", lambda ip=None: dev)
+        prelude.set_device(dev)
+        try:
+            assert prelude.setProxySystem("1.2.3.4", 8080) is True
+            out = capsys.readouterr().out
+            assert "legacy method" in out
+            assert any("proxy-set" in c for c in dev.calls)
+            assert prelude.clearProxySystem() is True
+            assert any("proxy-clear" in c for c in dev.calls)
+        finally:
+            prelude.disconnect()
+
+
+def test_coerce_delay_rejects_bad_values(capsys):
+    assert prelude._coerceDelay("setAirplaneMode", "abc") is None
+    assert prelude._coerceDelay("setAirplaneMode", -2) is None
+    assert prelude._coerceDelay("setAirplaneMode", 0) is None
+    assert prelude._coerceDelay("setAirplaneMode", None) is None
+    assert prelude._coerceDelay("setAirplaneMode", 3) == 3.0
+    assert "bad delay" in capsys.readouterr().out
+
+
 def test_restore_later_rejects_bad_delay(capsys):
     # A non-numeric delay must skip the restore, never kill the script.
     dev = ShellDevice({})

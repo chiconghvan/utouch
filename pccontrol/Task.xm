@@ -659,6 +659,36 @@ void processTask(UInt8 *buff, CFWriteStreamRef writeStreamRef)
             }
         }
     }
+    else if (taskType == TASK_SETAIRPLANEMODE)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            NSString *result = airplaneModeFromRawData(eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)[result UTF8String], writeStreamRef);
+            }
+        }
+    }
+    else if (taskType == TASK_SETPROXY)
+    {
+        @autoreleasepool {
+            NSError *err = nil;
+            NSString *result = proxyFromRawData(eventData, &err);
+            if (err)
+            {
+                notifyClient((UInt8*)[[err localizedDescription] UTF8String], writeStreamRef);
+            }
+            else
+            {
+                notifyClient((UInt8*)[result UTF8String], writeStreamRef);
+            }
+        }
+    }
     else if (taskType == TASK_TEST)
     {
 

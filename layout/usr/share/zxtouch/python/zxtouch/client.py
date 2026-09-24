@@ -634,6 +634,41 @@ class zxtouch:
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_SETCELLULARDATA, payload))
         return datahandler.decode_socket_data(self.s.recv(1024))
 
+    def set_airplane_mode_enabled(self, enabled, delay=None):
+        """Flip airplane mode via RadiosPreferences.
+
+        (TASK_SETAIRPLANEMODE=52; daemon applies it in-process, verifies by
+        reading the value back, and — when ``delay`` is given — restores the
+        opposite state on a daemon-side timer before replying immediately.)
+
+        :param enabled: truthy = on, falsy = off
+        :param delay: seconds after which the daemon restores the opposite
+            state, or None for a permanent switch
+        :return: Result tuple (success?, error message / "")
+        """
+        payload = "1" if enabled else "0"
+        if delay is not None:
+            payload += ";;%g" % float(delay)
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SETAIRPLANEMODE, payload))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def set_proxy(self, host, port):
+        """Set the Wi-Fi service HTTP/HTTPS proxy (TASK_SETPROXY=53).
+
+        The daemon writes the proxy into the Wi-Fi network service via
+        SCPreferences and applies it live — no interface bounce needed.
+
+        :return: Result tuple (success?, error message / "")
+        """
+        self.s.send(datahandler.format_socket_data(
+            tasktypes.TASK_SETPROXY, "%s;;%d" % (host, int(port))))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
+    def clear_proxy(self):
+        """Remove the Wi-Fi service proxy (TASK_SETPROXY=53, "clear" payload)."""
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SETPROXY, "clear"))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
     def find_colors_multi(self, color, count=5, region=None, tolerance=0, skip=2):
         """Device-side multi-point color search (Phase 2: TASK_COLOR_MULTI=39).
 

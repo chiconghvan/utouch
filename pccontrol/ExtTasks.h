@@ -60,6 +60,19 @@ NSString *pingFromRawData(UInt8 *eventData, NSError **error);
 // is re-applied on a daemon-side timer and the reply is still immediate.
 NSString *cellularDataFromRawData(UInt8 *eventData, NSError **error);
 
+// 52: "0|1[;;delaySecs]" -> "0". Flips airplane mode via AppSupport's
+// RadiosPreferences (setAirplaneMode: + synchronize, class looked up at
+// runtime so the tweak loads everywhere). The value is read back and a
+// mismatch is reported as an error. delaySecs restores the opposite state
+// on a daemon-side timer; the reply is still immediate.
+NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error);
+
+// 53: "host;;port" -> "0" (set), "clear" -> "0" (remove). Writes the proxy
+// into the Wi-Fi network SERVICE's Proxies dict via SCPreferences
+// (commit + apply so configd picks it up live). Global proxy keys are
+// intentionally not used: iOS applies per-service proxies for Wi-Fi.
+NSString *proxyFromRawData(UInt8 *eventData, NSError **error);
+
 // Private SpringBoard class (forward declaration so the Logos %c lookup
 // compiles cleanly; the call itself is respondsToSelector-guarded).
 // NOTE: SBApplication already comes from Common.h — do not redeclare it.

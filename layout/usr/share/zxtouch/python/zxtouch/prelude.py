@@ -1879,15 +1879,29 @@ def _toggleRadio(label, key, flag, delay):
 
 
 def setAirplaneMode(enabled, delay=None):
-    """Best-effort airplane-mode toggle. Returns True only when applied+verified.
+    """Toggle airplane mode. Native system API first, plist fallback.
 
-    ``delay`` restores the opposite state after N seconds using a device-side
-    timer and returns immediately (it does NOT block the script for N
-    seconds). Logs the reason and returns False when the device refuses;
-    never raises.
+    The daemon (TASK_SETAIRPLANEMODE=52) flips the switch through
+    RadiosPreferences, verifies by reading the value back, and — when
+    ``delay`` is given — restores the opposite state on a daemon-side timer;
+    the call itself never blocks. When the daemon is too old to know task 52
+    (stays silent) or the system API refuses, falls back to the plist method
+    (:func:`_toggleRadio`), which logs its own outcome. Never raises.
     """
-    return _toggleRadio("setAirplaneMode", "preflightAirplaneModeEnabled",
-                        1 if enabled else 0, delay)
+    flag = 1 if enabled else 0
+    delay_s = _coerceDelay("setAirplaneMode", delay)
+    t0 = time.time()
+    ok, why = _airplaneNative(flag, delay_s)
+    if ok:
+        if delay_s is not None:
+            log("setAirplaneMode: airplane %s via system API, restoring in %ss "
+                "(after %.1fs)" % ("on" if flag else "off", delay, time.time() - t0))
+        else:
+            log("setAirplaneMode: airplane %s via system API (after %.1fs)"
+                % ("on" if flag else "off", time.time() - t0))
+        return True
+    log("setAirplaneMode: system API unavailable (%s), using plist fallback" % (why,))
+    return _toggleRadio("setAirplaneMode", "preflightAirplaneModeEnabled", flag, delay)
 
 
 def setCellularData(enabled, delay=None):
@@ -1901,15 +1915,7 @@ def setCellularData(enabled, delay=None):
     own outcome. Never raises.
     """
     flag = 1 if enabled else 0
-    delay_s = None
-    if delay is not None:
-        try:
-            delay_s = float(delay)
-        except (TypeError, ValueError):
-            log("setCellularData: bad delay %r, ignoring" % (delay,))
-            delay_s = None
-        if delay_s is not None and not delay_s > 0:
-            delay_s = None
+    delay_s = _coerceDelay("setCellularData", delay)
     t0 = time.time()
     ok, why = _cellularNative(flag, delay_s)
     if ok:
@@ -1924,29 +1930,29 @@ def setCellularData(enabled, delay=None):
     return _toggleRadio("setCellularData", "PrefEnableCellularData", flag, delay)
 
 
-def _cellularNative(flag, delay_s):
-    """Ask the daemon to flip the switch via the system telephony API.
+def _nativeDaemonTask(method, args=(), timeout=10):
+    """Run a daemon-side task with a bounded socket timeout.
 
     Returns ``(True, "")`` on success, else ``(False, reason)``. Old daemons
-    don't know task 51 and stay silent, so this uses a short socket timeout
+    don't know the task and stay silent, so this uses a short socket timeout
     and drops the connection on socket errors (a late reply would poison the
-    next round-trip); the caller falls back to the plist method.
+    next round-trip); the caller falls back to the legacy method.
     """
     try:
         dev = get_device()
     except Exception as e:
         return False, "%s: %s" % (type(e).__name__, e)
-    if not hasattr(dev, "set_cellular_data_enabled"):
-        return False, "daemon client has no cellular task"
+    if not hasattr(dev, method):
+        return False, "daemon client has no %s task" % (method,)
     prev_timeout = getattr(dev, "_timeout", None)
     if hasattr(dev, "set_timeout"):
         try:
-            dev.set_timeout(10)
+            dev.set_timeout(timeout)
         except Exception:
             pass
     try:
         try:
-            ok, res = dev.set_cellular_data_enabled(bool(flag), delay_s)
+            ok, res = getattr(dev, method)(*args)
         except Exception as e:
             try:
                 disconnect()
@@ -1966,12 +1972,43 @@ def _cellularNative(flag, delay_s):
                 pass
 
 
-def setProxySystem(host, port):
-    """Best-effort device-wide HTTP/HTTPS proxy. Returns True when applied.
+def _nativeRadioTask(method, flag, delay_s, timeout=10):
+    """Daemon-side radio toggle; see :func:`_nativeDaemonTask`."""
+    return _nativeDaemonTask(method, (bool(flag), delay_s), timeout)
 
-    Host + port only, matching the IOSControl limit. Writes the Wi-Fi proxy into
-    SystemConfiguration preferences as root, then bounces en0 so wifid re-reads
-    it. Never raises.
+
+def _cellularNative(flag, delay_s):
+    """Daemon-side cellular toggle (TASK_SETCELLULARDATA); see :func:`_nativeRadioTask`."""
+    return _nativeRadioTask("set_cellular_data_enabled", flag, delay_s)
+
+
+def _airplaneNative(flag, delay_s):
+    """Daemon-side airplane toggle (TASK_SETAIRPLANEMODE); see :func:`_nativeRadioTask`."""
+    return _nativeRadioTask("set_airplane_mode_enabled", flag, delay_s)
+
+
+def _coerceDelay(label, delay):
+    """Validate a restore delay; bad/non-positive values become None (no restore)."""
+    if delay is None:
+        return None
+    try:
+        delay_s = float(delay)
+    except (TypeError, ValueError):
+        log("%s: bad delay %r, ignoring" % (label, delay))
+        return None
+    if not delay_s > 0:
+        return None
+    return delay_s
+
+
+def setProxySystem(host, port):
+    """Device-wide Wi-Fi HTTP/HTTPS proxy. Returns True when applied.
+
+    Host + port only, matching the IOSControl limit. The daemon
+    (TASK_SETPROXY=53) writes the proxy into the Wi-Fi network service via
+    SCPreferences and applies it live. When the daemon is too old or the
+    system call refuses, falls back to the legacy Global-plist method. Never
+    raises.
     """
     host = str(host).strip()
     if not host or not re.match(r"^[A-Za-z0-9._:-]+$", host):
@@ -1985,6 +2022,12 @@ def setProxySystem(host, port):
     if not 0 < port < 65536:
         log("setProxySystem: port out of range: %d" % (port,))
         return False
+    t0 = time.time()
+    ok, why = _nativeDaemonTask("set_proxy", (host, port))
+    if ok:
+        log("setProxySystem: %s:%d via system API (after %.1fs)" % (host, port, time.time() - t0))
+        return True
+    log("setProxySystem: system API unavailable (%s), using legacy method" % (why,))
     ok, out = _rootPython(["proxy-set", _UTIL_PROXY_PLIST, host, port])
     if not ok:
         log("setProxySystem: %s" % (out,))
@@ -1994,7 +2037,13 @@ def setProxySystem(host, port):
 
 
 def clearProxySystem():
-    """Remove the system proxy set by :func:`setProxySystem`; restores direct."""
+    """Remove the proxy set by :func:`setProxySystem`; restores direct."""
+    t0 = time.time()
+    ok, why = _nativeDaemonTask("clear_proxy", ())
+    if ok:
+        log("clearProxySystem: cleared via system API (after %.1fs)" % (time.time() - t0,))
+        return True
+    log("clearProxySystem: system API unavailable (%s), using legacy method" % (why,))
     ok, out = _rootPython(["proxy-clear", _UTIL_PROXY_PLIST])
     if not ok:
         log("clearProxySystem: %s" % (out,))

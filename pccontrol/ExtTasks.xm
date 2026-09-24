@@ -9,6 +9,7 @@
 #include <dlfcn.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <UIKit/UIKit.h>
+#import <SystemConfiguration/SystemConfiguration.h>
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wavailability"
@@ -869,6 +870,155 @@ NSString *cellularDataFromRawData(UInt8 *eventData, NSError **error) {
                        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             @try { setEnabled(restore); } @catch (NSException *e) {}
         });
+    }
+    return @"0\r\n";
+}
+
+// ---------------------------------------------------------------- 52 airplane mode
+
+NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error) {
+    // Payload: "0|1[;;delaySecs]". Same API the Control Center toggle goes
+    // through (RadiosPreferences in AppSupport). The class is looked up at
+    // runtime so the tweak loads on every iOS; writing com.apple.radios.plist
+    // needs the SystemConfiguration write entitlements, which SpringBoard
+    // (the tweak host) holds. The value is read back — a mismatch means the
+    // write was ignored and is reported instead of a false success.
+    NSArray *parts = ZXSplit(eventData);
+    BOOL wantOn = [[parts firstObject] intValue] ? YES : NO;
+    double delay = [parts count] > 1 ? [[parts objectAtIndex:1] doubleValue] : 0;
+
+    Class cls = NSClassFromString(@"RadiosPreferences");
+    if (!cls) {
+        NSBundle *b = [NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/AppSupport.framework"];
+        @try { [b load]; } @catch (NSException *e) {}
+        cls = NSClassFromString(@"RadiosPreferences");
+    }
+    if (!cls) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Airplane API unavailable on this iOS (RadiosPreferences missing).")}];
+        return nil;
+    }
+    id prefs = nil;
+    @try {
+        prefs = [[cls alloc] init];
+        if (![prefs respondsToSelector:@selector(setAirplaneMode:)] ||
+            ![prefs respondsToSelector:@selector(airplaneMode)]) {
+            if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+                userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Airplane API changed on this iOS (selectors missing).")}];
+            return nil;
+        }
+        [prefs setAirplaneMode:wantOn];
+        [prefs synchronize];
+        // Give the prefs daemon a moment to settle, then verify.
+        [NSThread sleepForTimeInterval:0.5];
+        BOOL actual = [prefs airplaneMode] ? YES : NO;
+        if (actual != wantOn) {
+            if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+                userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Airplane toggle ignored by the system (missing entitlement?).")}];
+            return nil;
+        }
+    } @catch (NSException *e) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError([@"Airplane toggle failed: " stringByAppendingString:e.reason ?: @"unknown"])}];
+        return nil;
+    }
+    if (delay > 0) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @autoreleasepool {
+                @try {
+                    id rp = [[NSClassFromString(@"RadiosPreferences") alloc] init];
+                    [rp setAirplaneMode:!wantOn];
+                    [rp synchronize];
+                } @catch (NSException *e) {}
+            }
+        });
+    }
+    return @"0\r\n";
+}
+
+// ---------------------------------------------------------------- 53 proxy
+
+NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
+    // Payload: "host;;port" to set, "clear" to remove. Mirrors what Settings
+    // writes: the proxy lives in the Wi-Fi network SERVICE's Proxies dict,
+    // committed + applied through SCPreferences so configd picks it up live
+    // (no interface bounce needed). Writing the Global dict instead — the
+    // old Python fallback — is ignored for Wi-Fi traffic on iOS.
+    NSArray *parts = ZXSplit(eventData);
+    NSString *first = [parts count] > 0 ? [parts objectAtIndex:0] : @"";
+    BOOL clear = [first isEqualToString:@"clear"];
+    NSString *host = clear ? nil : first;
+    int port = (int)([parts count] > 1 ? [[parts objectAtIndex:1] intValue] : 0);
+    if (!clear && (host.length == 0 || port <= 0 || port > 65535)) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Proxy format: host;;port (1-65535), or clear.")}];
+        return nil;
+    }
+
+    SCPreferencesRef prefs = SCPreferencesCreate(NULL, CFSTR("zxtouch-proxy"), NULL);
+    if (!prefs) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Could not open system preferences.")}];
+        return nil;
+    }
+    NSString *fail = nil;
+    @try {
+        if (!SCPreferencesLock(prefs, true)) fail = @"Could not lock system preferences.";
+        NSDictionary *currentSet = nil;
+        NSDictionary *services = nil;
+        if (!fail) {
+            CFStringRef curSetPath = SCPreferencesGetValue(prefs, kSCPrefCurrentSet);
+            currentSet = (__bridge NSDictionary *)SCPreferencesPathGetValue(prefs, curSetPath);
+            services = (__bridge NSDictionary *)SCPreferencesGetValue(prefs, kSCPrefNetworkServices);
+            if (!currentSet || !services) fail = @"No current network set.";
+        }
+        NSMutableDictionary *nservices = nil;
+        NSString *wifiKey = nil;
+        if (!fail) {
+            nservices = CFBridgingRelease(CFPropertyListCreateDeepCopy(
+                NULL, (__bridge CFPropertyListRef)services,
+                kCFPropertyListMutableContainersAndLeaves));
+            NSDictionary *setServices = currentSet[(__bridge NSString *)kSCCompNetwork][(__bridge NSString *)kSCCompService];
+            for (NSString *key in setServices) {
+                NSDictionary *svc = services[key];
+                if (svc && [@"Wi-Fi" isEqualToString:svc[(__bridge NSString *)kSCPropUserDefinedName]]) {
+                    wifiKey = key;
+                    break;
+                }
+            }
+            if (!wifiKey) fail = @"No Wi-Fi service in the current set.";
+        }
+        if (!fail) {
+            NSMutableDictionary *proxies = nservices[wifiKey][(__bridge NSString *)kSCEntNetProxies];
+            if (!proxies) {
+                proxies = [NSMutableDictionary dictionary];
+                nservices[wifiKey][(__bridge NSString *)kSCEntNetProxies] = proxies;
+            }
+            if (clear) {
+                [proxies removeAllObjects];
+            } else {
+                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPEnable] = @1;
+                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPProxy] = host;
+                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPPort] = @(port);
+                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPSEnable] = @1;
+                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPSProxy] = host;
+                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPSPort] = @(port);
+                proxies[(__bridge NSString *)kSCPropNetProxiesSOCKSEnable] = @0;
+            }
+            if (!SCPreferencesSetValue(prefs, kSCPrefNetworkServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
+            else if (!SCPreferencesCommitChanges(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", SCError()];
+            else if (!SCPreferencesApplyChanges(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", SCError()];
+        }
+    } @catch (NSException *e) {
+        fail = [@"Proxy change failed: " stringByAppendingString:e.reason ?: @"unknown"];
+    }
+    SCPreferencesUnlock(prefs);
+    CFRelease(prefs);
+    if (fail) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(fail)}];
+        return nil;
     }
     return @"0\r\n";
 }
