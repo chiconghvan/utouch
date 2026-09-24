@@ -1614,15 +1614,38 @@ def _shellCapture(cmd, timeout=15):
 
     ``cmd`` must not contain a double quote: the daemon wraps it in
     ``sh -c "..."``. Never raises — failures come back as ``(False, reason)``.
+
+    ``timeout`` is enforced through the device socket: without it a stuck
+    shell command blocks ``recv()`` until the 120s default socket timeout,
+    which looks like the script hung with no log output. On a socket-level
+    failure the shared connection is dropped, because a late daemon reply
+    would otherwise poison the next round-trip; the next call reconnects.
     """
     if '"' in cmd:
         return False, "command must not contain a double quote (daemon wraps it in sh -c)"
     out_path = None
     try:
+        dev = get_device()
+    except Exception as e:
+        return False, "%s: %s" % (type(e).__name__, e)
+    prev_timeout = getattr(dev, "_timeout", None)
+    if hasattr(dev, "set_timeout"):
+        try:
+            dev.set_timeout(timeout)
+        except Exception:
+            pass
+    try:
         fd, out_path = tempfile.mkstemp(prefix="zxsh_", suffix=".out")
         os.close(fd)
         os.chmod(out_path, 0o666)  # the root shell must be able to overwrite it
-        ok, res = get_device().run_shell_command("%s >%s 2>&1" % (cmd, out_path))
+        try:
+            ok, res = dev.run_shell_command("%s >%s 2>&1" % (cmd, out_path))
+        except Exception as e:
+            try:
+                disconnect()
+            except Exception:
+                pass
+            return False, "%s: %s" % (type(e).__name__, e)
         if not ok:
             return False, str(res)
         try:
@@ -1634,6 +1657,11 @@ def _shellCapture(cmd, timeout=15):
     except Exception as e:
         return False, "%s: %s" % (type(e).__name__, e)
     finally:
+        if prev_timeout is not None and hasattr(dev, "set_timeout"):
+            try:
+                dev.set_timeout(prev_timeout)
+            except Exception:
+                pass
         if out_path:
             try:
                 os.unlink(out_path)
@@ -1720,15 +1748,59 @@ def _restoreLater(args, delay):
 
     Backgrounded inside the root shell (``sleep N; ... &``) so the restore still
     happens when the script exits first — a Python thread would die with it.
+    Never raises: a bad delay or unsafe path only skips the restore with a log.
     """
+    try:
+        delay_s = float(delay)
+    except (TypeError, ValueError):
+        log("auto-restore: bad delay %r, skipping restore" % (delay,))
+        return False
+    if not delay_s > 0:
+        return False
+    interp = (sys.executable or "").strip()
+    if (not interp or not (interp.startswith("/") or re.match(r"^[A-Za-z]:[\\/]", interp))
+            or re.search(r"[\s'\"`;|&$()<>]", interp)):
+        log("auto-restore: unsafe interpreter path %r, skipping restore" % (interp,))
+        return False
+    for a in args:
+        if re.search(r"[\s'\"`;|&$()<>]", str(a)):
+            log("auto-restore: unsafe argument %r, skipping restore" % (a,))
+            return False
     try:
         helper = _utilHelperPath()
     except Exception as e:
         log("auto-restore: %s" % (e,))
         return False
     cmd = "( sleep %s ; %s %s %s ) >/dev/null 2>&1 &" % (
-        float(delay), sys.executable, helper, " ".join(str(a) for a in args))
-    ok, res = get_device().run_shell_command(cmd)
+        delay_s, interp, helper, " ".join(str(a) for a in args))
+    # The daemon should answer instantly (the shell backgrounds and exits),
+    # so bound this round-trip: a stuck daemon must not hang the script.
+    try:
+        dev = get_device()
+    except Exception as e:
+        log("auto-restore after %ss not scheduled: %s: %s" % (delay, type(e).__name__, e))
+        return False
+    prev_timeout = getattr(dev, "_timeout", None)
+    if hasattr(dev, "set_timeout"):
+        try:
+            dev.set_timeout(15)
+        except Exception:
+            pass
+    try:
+        ok, res = dev.run_shell_command(cmd)
+    except Exception as e:
+        try:
+            disconnect()
+        except Exception:
+            pass
+        log("auto-restore after %ss not scheduled: %s: %s" % (delay, type(e).__name__, e))
+        return False
+    finally:
+        if prev_timeout is not None and hasattr(dev, "set_timeout"):
+            try:
+                dev.set_timeout(prev_timeout)
+            except Exception:
+                pass
     if not ok:
         log("auto-restore after %ss not scheduled: %s" % (delay, res))
     return bool(ok)
@@ -1779,17 +1851,26 @@ def getIP(timeout=15):
 
 
 def _toggleRadio(label, key, flag, delay):
-    """Write + verify one integer radio preference; True only if it took effect."""
+    """Write + verify one integer radio preference; True only if it took effect.
+
+    The call returns immediately: ``delay`` schedules a device-side restore
+    (root shell background timer) instead of blocking the script. Every
+    outcome is logged, so the Logs pane always shows what happened.
+    ``Verified`` means the plist read back the written value — iOS exposes
+    no API to confirm the radio itself followed.
+    """
     ok, out = _rootPython(["pref-set", _UTIL_RADIO_PLIST, key, int(flag)])
     if not ok:
         log("%s: %s — no public iOS API for this toggle, so %s=%d could not be "
             "applied (returning False, script continues)" % (label, out, key, flag))
         return False
+    log("%s: %s=%d written and verified" % (label, key, flag))
     # The pref is stored, but only CommCenter re-reads it: bounce it so the
     # radio reacts. A failed killall does not undo the write.
     _shellCapture("killall -m -q CommCenter")
     if delay:
-        _restoreLater(["pref-set", _UTIL_RADIO_PLIST, key, 1 - int(flag)], delay)
+        if _restoreLater(["pref-set", _UTIL_RADIO_PLIST, key, 1 - int(flag)], delay):
+            log("%s: will restore %s=%d in %ss" % (label, key, 1 - int(flag), delay))
     return True
 
 
@@ -1797,15 +1878,22 @@ def setAirplaneMode(enabled, delay=None):
     """Best-effort airplane-mode toggle. Returns True only when applied+verified.
 
     ``delay`` restores the opposite state after N seconds using a device-side
-    timer, so it survives the script exiting. Logs the reason and returns False
-    when the device refuses; never raises.
+    timer and returns immediately (it does NOT block the script for N
+    seconds). Logs the reason and returns False when the device refuses;
+    never raises.
     """
     return _toggleRadio("setAirplaneMode", "preflightAirplaneModeEnabled",
                         1 if enabled else 0, delay)
 
 
 def setCellularData(enabled, delay=None):
-    """Best-effort cellular-data toggle. Same contract as :func:`setAirplaneMode`."""
+    """Best-effort cellular-data toggle. Same contract as :func:`setAirplaneMode`.
+
+    Best-effort because iOS has no public switch: the preference is written
+    as root and CommCenter is bounced so it re-reads it. Recent iOS versions
+    may ignore the plist, in which case the write still verifies (True) but
+    the signal icon does not change.
+    """
     return _toggleRadio("setCellularData", "PrefEnableCellularData",
                         1 if enabled else 0, delay)
 
@@ -2065,6 +2153,15 @@ set_debug_visual = setDebugVisual
 clear_debug_visual = clearDebugVisual
 set_debug_touch_log = setDebugTouchLog
 
+# Lua compatibility: ZXTouch scripts were historically Lua, where booleans are
+# lowercase `true`/`false` and null is `nil`. Python uses `True`/`False`/`None`,
+# so a copy-pasted `setCellularData(false, 5)` raises
+# `NameError: name 'false' is not defined`. Expose lowercase aliases so such
+# scripts keep working; new code should still prefer True/False/None.
+true = True
+false = False
+nil = None
+
 
 def install(namespace=None):
     """Inject all globals into ``namespace`` (default: caller's globals).
@@ -2123,4 +2220,7 @@ __all__ = [
     "set_proxy_system", "clear_proxy_system",
     "record_start", "record_stop", "record_play", "record_save",
     "record_load", "set_debug_visual", "clear_debug_visual", "set_debug_touch_log",
+    # Lua-compat boolean/nil aliases (true/false/nil) so copy-pasted Lua
+    # snippets do not raise NameError under Python.
+    "true", "false", "nil",
 ]

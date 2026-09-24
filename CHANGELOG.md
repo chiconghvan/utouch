@@ -9,6 +9,21 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.46] — 2026-09-24
+
+### Đã thêm
+- Bí danh tương thích Lua `true`/`false`/`nil` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py` (kèm `__all__`): trước đây script chép từ Lua gọi `setCellularData(false, 5)` thì gãy ngay `NameError: name 'false' is not defined` vì Python chỉ có `True`/`False`/`None`; nay chạy được, code mới vẫn nên dùng `True`/`False`/`None`.
+- `_toggleRadio` (`setAirplaneMode`, `setCellularData`) nay ghi log mọi kết quả: trước đây đường thành công im lặng, không biết đã ghi hay đã hẹn khôi phục; nay log dòng `...=0/1 written and verified` và `will restore ... in Ns`, thất bại vẫn log lý do và trả `False`.
+
+### Đã thay đổi
+- `_shellCapture(cmd, timeout)` ép `timeout` qua socket thiết bị (`dev.set_timeout(timeout)`, khôi phục giá trị cũ sau gọi): trước đây `timeout` chỉ nằm ở chữ ký, lệnh shell kẹt thì treo tới timeout socket mặc định 120s trông như script đứng; nay quá `timeout` thì fail nhanh với `(False, lý do)`.
+- `_restoreLater(args, delay)` không bao giờ ném lỗi và chặn tiêm lệnh shell: trước đây `delay` sai kiểu (`"abc"`) hay số âm/0 vẫn đi tiếp, đường dẫn `sys.executable` và tham số chứa `space'"`;|&$()<>'` được nối thẳng vào `sh`; nay delay lỗi thì log `auto-restore: bad delay ...` và bỏ qua, đường dẫn/tham số nguy hiểm thì log `unsafe ...` và bỏ qua, vòng gọi daemon giới hạn 15s rồi khôi phục timeout cũ.
+- Tài liệu `docs/IDE/ioscontrol.md` và gợi ý editor (`layout/Applications/zxtouch.app/index.html`, `zxtouch/zxtouch/http/index.html`): trước đây ví dụ chỉ dùng `true`/`false` của Lua khiến người viết Python chép theo là gãy, `delay` không nói rõ có chặn hay không; nay thêm ví dụ Python (`True`/`False`), ghi rõ `delay` trả về ngay và hẹn khôi phục nền, `setCellularData` best-effort (ghi plist + bounce CommCenter, iOS mới có thể bỏ qua nhưng vẫn trả `True`).
+
+### Đã sửa
+- Socket kẹt làm "độc" kết nối dùng chung: trước đây `_shellCapture`/`_restoreLater` gặp lỗi socket (ví dụ `socket.timeout`) thì giữ nguyên kết nối, reply muộn của daemon có thể lẫn vào lần gọi sau; nay bắt ngoại lệ, gọi `disconnect()` để lần sau nối mới, đồng thời trả `(False, ...)` / log `not scheduled` thay vì treo hoặc ném.
+- `layout/usr/share/zxtouch/python/zxtouch/apispec.py` bỏ sót export `nil`: trước đây `_build_all()` dùng `getattr(prelude, name, None)` + `if obj is None: continue` nên `nil` (vốn là `None`) bị bỏ qua, thiếu spec; nay dùng sentinel `_MISSING` riêng nên mọi tên trong `__all__` đều có spec.
+
 ## [0.3.45] — 2026-09-19
 
 ### Đã sửa
@@ -504,6 +519,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.46]: https://github.com/chiconghvan/utouch/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/chiconghvan/utouch/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/chiconghvan/utouch/compare/v0.3.43...v0.3.44
 [0.3.43]: https://github.com/chiconghvan/utouch/compare/v0.3.42...v0.3.43

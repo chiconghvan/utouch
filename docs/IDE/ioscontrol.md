@@ -1495,6 +1495,13 @@ swipe(200, 600, 200, 200) -- đoạn thẳng đỏ từ (200,600) đến (200,20
 tapText("Login")         -- bbox đỏ quanh chữ + vòng tròn đỏ chỗ tap
 clearDebugVisual()       -- xóa ngay mọi hình đang hiện
 ```
+
+> Python: dùng `True`/`False` thay cho `true`/`false`:
+>
+> ```python
+> setDebugVisual(False)
+> setDebugVisual(True, 0.8)
+> ```
 ---
 
 ### `clearDebugVisual()`
@@ -1989,6 +1996,25 @@ setCellularData(false)
 -- Turn back on
 setCellularData(true)
 ```
+
+**Example (Python — scripts run as Python, use `True`/`False`):**
+
+```python
+# Turn off cellular for 5 seconds then back on
+setCellularData(False, 5)
+
+# Permanently turn off
+setCellularData(False)
+
+# Turn back on
+setCellularData(True)
+```
+
+> Note: `delay` does not block — the call returns immediately and the
+> device restores the previous state in the background. The toggle is
+> best-effort (no public iOS API): the preference is written as root and
+> CommCenter is bounced, but recent iOS may ignore it, in which case the
+> call still returns `True` while the signal icon stays unchanged.
 ---
 
 ### `setAirplaneMode(enabled, delay)`
@@ -2010,6 +2036,15 @@ setCellularData(true)
 ```lua
 -- Reset network: airplane on 3s then off
 setAirplaneMode(true, 3)
+sleep(4)
+log("Network reset complete")
+```
+
+**Example (Python — scripts run as Python, use `True`/`False`):**
+
+```python
+# Reset network: airplane on 3s then off
+setAirplaneMode(True, 3)
 sleep(4)
 log("Network reset complete")
 ```

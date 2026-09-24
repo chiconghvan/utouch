@@ -774,6 +774,89 @@ def test_util_toggles_fail_soft_without_device(monkeypatch, capsys):
     assert "daemon unreachable" in capsys.readouterr().out
 
 
+def test_toggle_radio_success_logs_and_schedules_restore(monkeypatch, capsys):
+    # Success path used to be silent (no log line at all); now it reports
+    # the write and the scheduled restore.
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+    dev = ShellDevice({"pref-set": "ZXOK 0"})
+    prelude.set_device(dev)
+    try:
+        assert prelude.setCellularData(False, 5) is True
+        out = capsys.readouterr().out
+        assert "PrefEnableCellularData=0" in out
+        assert "restore" in out
+        assert any("sleep" in c for c in dev.calls)
+    finally:
+        prelude.disconnect()
+
+
+def test_restore_later_rejects_bad_delay(capsys):
+    # A non-numeric delay must skip the restore, never kill the script.
+    dev = ShellDevice({})
+    prelude.set_device(dev)
+    try:
+        assert prelude._restoreLater(["pref-set", "/x", "k", "1"], "abc") is False
+        assert prelude._restoreLater(["pref-set", "/x", "k", "1"], -5) is False
+        assert prelude._restoreLater(["pref-set", "/x", "k", "1"], 0) is False
+        assert "bad delay" in capsys.readouterr().out
+        assert dev.calls == []
+    finally:
+        prelude.disconnect()
+
+
+def test_shellcapture_socket_timeout_fails_fast_and_drops_connection():    # A stuck shell command must not hang until the 120s socket default:
+    # _shellCapture enforces its timeout and drops the poisoned connection
+    # so the next call reconnects fresh.
+    import socket
+
+    class TimeoutShell(ShellDevice):
+        def __init__(self):
+            super().__init__({})
+            self._timeout = 120.0
+            self.timeouts = []
+
+        def set_timeout(self, s):
+            self.timeouts.append(s)
+            self._timeout = s
+            return s
+
+        def run_shell_command(self, cmd):
+            self.calls.append(cmd)
+            raise socket.timeout("timed out")
+
+    dev = TimeoutShell()
+    prelude.set_device(dev)
+    ok, why = prelude._shellCapture("echo hi", timeout=7)
+    assert not ok and "timed out" in why
+    assert dev.timeouts[0] == 7  # enforced during the call ...
+    assert dev.timeouts[-1] == 120.0  # ... then restored
+    assert prelude._DEVICE is None  # poisoned socket dropped
+    prelude.disconnect()
+
+
+def test_restore_later_timeout_fails_fast_and_drops_connection(capsys):
+    # Same guarantee for the restore-scheduling round-trip.
+    import socket
+
+    class TimeoutShell(ShellDevice):
+        def __init__(self):
+            super().__init__({})
+            self._timeout = 120.0
+
+        def set_timeout(self, s):
+            self._timeout = s
+            return s
+
+        def run_shell_command(self, cmd):
+            raise socket.timeout("timed out")
+
+    prelude.set_device(TimeoutShell())
+    assert prelude._restoreLater(["pref-set", "/x", "k", "1"], 5) is False
+    assert "not scheduled" in capsys.readouterr().out
+    assert prelude._DEVICE is None
+    prelude.disconnect()
+
+
 def test_getip_validates_lookup(monkeypatch):
     monkeypatch.setattr(prelude, "httpGet",
                         lambda url, headers=None, timeout=15: prelude.HttpResponse("203.0.113.9", 200))

@@ -409,6 +409,12 @@ def _build_spec(name: str, func: Any) -> FunctionSpec:
     return FunctionSpec(name, resolved, RETURN_TYPES.get(name, "unknown"), checkable=True)
 
 
+# Sentinel for "prelude has no such attribute" — must not be None because the
+# Lua-compat alias `nil` is legitimately None and still needs a (non-checkable)
+# spec entry so every __all__ export stays covered.
+_MISSING = object()
+
+
 @functools.lru_cache(maxsize=1)
 def _build_all() -> Dict[str, FunctionSpec]:
     specs: Dict[str, FunctionSpec] = {}
@@ -418,8 +424,8 @@ def _build_all() -> Dict[str, FunctionSpec]:
         return specs
 
     for name in getattr(prelude, "__all__", []):
-        obj = getattr(prelude, name, None)
-        if obj is None:
+        obj = getattr(prelude, name, _MISSING)
+        if obj is _MISSING:
             continue
         specs[name] = _build_spec(name, obj)
 
