@@ -2116,8 +2116,19 @@ setAirplaneMode(false)
 
 > Note: on current daemons the proxy is written into the Wi-Fi network
 > service via `SCPreferences` (`TASK_SETPROXY`) and applied live — no
-> interface bounce. Older daemons fall back to the Global plist + `en0`
-> bounce, which iOS ignores for Wi-Fi traffic.
+> interface bounce. Older daemons fall back to editing the same Wi-Fi
+> service through a root helper + `en0` bounce.
+>
+> Troubleshooting:
+> - `system API unavailable (Could not lock ...)`: the tweak runs as
+>   `mobile` and cannot lock the system preferences — the root-helper
+>   fallback runs next, no action needed.
+> - `... (after ~30s) ...`: the daemon's root shell never answered. Run
+>   `wifiInfo()` (same shell, trivial command): fast means only the
+>   Python helper stage stalls; slow too means the daemon shell is wedged
+>   (respring/retry, check Console.app for `system2` errors).
+> - No Wi-Fi connected (cellular only): there is no Wi-Fi service to
+>   attach the proxy to — the call returns `False` by design.
 ---
 
 ### `clearProxySystem()`

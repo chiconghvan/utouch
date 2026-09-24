@@ -1542,6 +1542,33 @@ def load(path):
         return plistlib.load(f)
 
 
+def wifi_proxies(data):
+    # Live Proxies dict of the Wi-Fi service in the current network set.
+    # iOS applies per-service proxies for Wi-Fi; the Global dict is ignored.
+    cur = data.get("CurrentSet")
+    sets = data.get("Sets")
+    services = data.get("NetworkServices")
+    if not isinstance(cur, str) or not isinstance(sets, dict) or not isinstance(services, dict):
+        fail("no usable Sets/NetworkServices in preferences")
+    node = sets.get(cur.rsplit("/", 1)[-1])
+    if not isinstance(node, dict):
+        fail("current set %r not found" % (cur,))
+    try:
+        members = node["Network"]["Service"]
+    except (KeyError, TypeError):
+        fail("current set has no Network/Service")
+    if not isinstance(members, dict):
+        fail("current set services is not a dict")
+    for svc_id in members:
+        svc = services.get(svc_id)
+        if isinstance(svc, dict) and svc.get("UserDefinedName") == "Wi-Fi":
+            proxies = svc.setdefault("Proxies", {})
+            if not isinstance(proxies, dict):
+                fail("Wi-Fi Proxies is not a dict")
+            return proxies
+    fail("no Wi-Fi service in the current set")
+
+
 def main():
     action, path = sys.argv[1], sys.argv[2]
     data = load(path)
@@ -1568,6 +1595,21 @@ def main():
         g = data.get("Global")
         if isinstance(g, dict):
             g.pop("Proxy", None)
+    elif action == "proxy-svc-set":
+        host, port = sys.argv[3], int(sys.argv[4])
+        if not 0 < port < 65536:
+            fail("port out of range: %d" % port)
+        proxies = wifi_proxies(data)
+        proxies["HTTPEnable"] = 1
+        proxies["HTTPProxy"] = host
+        proxies["HTTPPort"] = port
+        proxies["HTTPSEnable"] = 1
+        proxies["HTTPSProxy"] = host
+        proxies["HTTPSPort"] = port
+        proxies["SOCKSEnable"] = 0
+        want = host
+    elif action == "proxy-svc-clear":
+        wifi_proxies(data).clear()
     else:
         fail("unknown action " + action)
 
@@ -1579,6 +1621,8 @@ def main():
     check = load(path)
     if action == "pref-set":
         got = str(check.get(key, "MISSING"))
+    elif action == "proxy-svc-set":
+        got = str(wifi_proxies(check).get("HTTPProxy", "MISSING"))
     else:
         proxy = ((check.get("Global") or {}).get("Proxy") or {})
         got = str(proxy.get("HTTPProxy", "MISSING"))
@@ -1586,6 +1630,11 @@ def main():
     if action == "proxy-clear":
         if got != "MISSING":
             fail("proxy still present after removal (" + got + ")")
+        print("ZXOK cleared")
+        return 0
+    if action == "proxy-svc-clear":
+        if wifi_proxies(check):
+            fail("proxy still present after removal")
         print("ZXOK cleared")
         return 0
     if got != str(want):
@@ -2028,7 +2077,7 @@ def setProxySystem(host, port):
         log("setProxySystem: %s:%d via system API (after %.1fs)" % (host, port, time.time() - t0))
         return True
     log("setProxySystem: system API unavailable (%s), using legacy method" % (why,))
-    ok, out = _rootPython(["proxy-set", _UTIL_PROXY_PLIST, host, port])
+    ok, out = _rootPython(["proxy-svc-set", _UTIL_PROXY_PLIST, host, port])
     if not ok:
         log("setProxySystem: %s" % (out,))
         return False
@@ -2044,7 +2093,7 @@ def clearProxySystem():
         log("clearProxySystem: cleared via system API (after %.1fs)" % (time.time() - t0,))
         return True
     log("clearProxySystem: system API unavailable (%s), using legacy method" % (why,))
-    ok, out = _rootPython(["proxy-clear", _UTIL_PROXY_PLIST])
+    ok, out = _rootPython(["proxy-svc-clear", _UTIL_PROXY_PLIST])
     if not ok:
         log("clearProxySystem: %s" % (out,))
         return False
