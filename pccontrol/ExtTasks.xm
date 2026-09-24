@@ -30,6 +30,14 @@ static NSArray *ZXSplit(UInt8 *eventData) {
     return [s componentsSeparatedByString:@";;"];
 }
 
+// SystemConfiguration's SCPreferences symbols are API_UNAVAILABLE(ios) in the
+// SDK (compile-time only — they exist on-device). dlsym on a CFStringRef
+// global returns the address of the variable, hence the extra indirection.
+static CFStringRef ZXSCConst(void *handle, const char *sym) {
+    void *addr = handle ? dlsym(handle, sym) : NULL;
+    return addr ? *(CFStringRef *)addr : NULL;
+}
+
 static id ZXJSONFromB64(NSString *b64, NSError **error) {
     NSData *d = [[NSData alloc] initWithBase64EncodedString:b64 options:0];
     if (!d) {
@@ -898,7 +906,7 @@ NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error) {
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Airplane API unavailable on this iOS (RadiosPreferences missing).")}];
         return nil;
     }
-    id prefs = nil;
+    RadiosPreferences *prefs = nil;
     @try {
         prefs = [[cls alloc] init];
         if (![prefs respondsToSelector:@selector(setAirplaneMode:)] ||
@@ -927,7 +935,7 @@ NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error) {
                        dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
             @autoreleasepool {
                 @try {
-                    id rp = [[NSClassFromString(@"RadiosPreferences") alloc] init];
+                    RadiosPreferences *rp = [[NSClassFromString(@"RadiosPreferences") alloc] init];
                     [rp setAirplaneMode:!wantOn];
                     [rp synchronize];
                 } @catch (NSException *e) {}
@@ -945,6 +953,11 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
     // committed + applied through SCPreferences so configd picks it up live
     // (no interface bounce needed). Writing the Global dict instead — the
     // old Python fallback — is ignored for Wi-Fi traffic on iOS.
+    //
+    // The SCPreferences C API and its schema constants are marked
+    // API_UNAVAILABLE(ios) in the SDK, so everything is resolved at runtime
+    // (dlopen/dlsym); a missing symbol means the OS moved the API and is
+    // reported instead of a false success.
     NSArray *parts = ZXSplit(eventData);
     NSString *first = [parts count] > 0 ? [parts objectAtIndex:0] : @"";
     BOOL clear = [first isEqualToString:@"clear"];
@@ -956,7 +969,50 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
         return nil;
     }
 
-    SCPreferencesRef prefs = SCPreferencesCreate(NULL, CFSTR("zxtouch-proxy"), NULL);
+    typedef SCPreferencesRef (*ZXSCPrefsCreateFn)(CFAllocatorRef, CFStringRef, CFStringRef);
+    typedef Boolean (*ZXSCPrefsLockFn)(SCPreferencesRef, Boolean);
+    typedef void (*ZXSCPrefsUnlockFn)(SCPreferencesRef);
+    typedef CFPropertyListRef (*ZXSCPrefsGetValueFn)(SCPreferencesRef, CFStringRef);
+    typedef CFPropertyListRef (*ZXSCPrefsPathGetValueFn)(SCPreferencesRef, CFStringRef);
+    typedef Boolean (*ZXSCPrefsSetValueFn)(SCPreferencesRef, CFStringRef, CFPropertyListRef);
+    typedef Boolean (*ZXSCPrefsCommitFn)(SCPreferencesRef);
+    typedef Boolean (*ZXSCPrefsApplyFn)(SCPreferencesRef);
+    typedef int (*ZXSCErrorFn)(void);
+
+    void *sc = dlopen("/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration", RTLD_LAZY);
+    ZXSCPrefsCreateFn pCreate = sc ? (ZXSCPrefsCreateFn)dlsym(sc, "SCPreferencesCreate") : NULL;
+    ZXSCPrefsLockFn pLock = sc ? (ZXSCPrefsLockFn)dlsym(sc, "SCPreferencesLock") : NULL;
+    ZXSCPrefsUnlockFn pUnlock = sc ? (ZXSCPrefsUnlockFn)dlsym(sc, "SCPreferencesUnlock") : NULL;
+    ZXSCPrefsGetValueFn pGetValue = sc ? (ZXSCPrefsGetValueFn)dlsym(sc, "SCPreferencesGetValue") : NULL;
+    ZXSCPrefsPathGetValueFn pPathGetValue = sc ? (ZXSCPrefsPathGetValueFn)dlsym(sc, "SCPreferencesPathGetValue") : NULL;
+    ZXSCPrefsSetValueFn pSetValue = sc ? (ZXSCPrefsSetValueFn)dlsym(sc, "SCPreferencesSetValue") : NULL;
+    ZXSCPrefsCommitFn pCommit = sc ? (ZXSCPrefsCommitFn)dlsym(sc, "SCPreferencesCommitChanges") : NULL;
+    ZXSCPrefsApplyFn pApply = sc ? (ZXSCPrefsApplyFn)dlsym(sc, "SCPreferencesApplyChanges") : NULL;
+    ZXSCErrorFn pError = sc ? (ZXSCErrorFn)dlsym(sc, "SCError") : NULL;
+    CFStringRef kCurSet = ZXSCConst(sc, "kSCPrefCurrentSet");
+    CFStringRef kNetServices = ZXSCConst(sc, "kSCPrefNetworkServices");
+    CFStringRef kCompNetwork = ZXSCConst(sc, "kSCCompNetwork");
+    CFStringRef kCompService = ZXSCConst(sc, "kSCCompService");
+    CFStringRef kUserName = ZXSCConst(sc, "kSCPropUserDefinedName");
+    CFStringRef kProxies = ZXSCConst(sc, "kSCEntNetProxies");
+    CFStringRef kHTTPEnable = ZXSCConst(sc, "kSCPropNetProxiesHTTPEnable");
+    CFStringRef kHTTPProxy = ZXSCConst(sc, "kSCPropNetProxiesHTTPProxy");
+    CFStringRef kHTTPPort = ZXSCConst(sc, "kSCPropNetProxiesHTTPPort");
+    CFStringRef kHTTPSEnable = ZXSCConst(sc, "kSCPropNetProxiesHTTPSEnable");
+    CFStringRef kHTTPSProxy = ZXSCConst(sc, "kSCPropNetProxiesHTTPSProxy");
+    CFStringRef kHTTPSPort = ZXSCConst(sc, "kSCPropNetProxiesHTTPSPort");
+    CFStringRef kSOCKSEnable = ZXSCConst(sc, "kSCPropNetProxiesSOCKSEnable");
+    if (!pCreate || !pLock || !pUnlock || !pGetValue || !pPathGetValue ||
+        !pSetValue || !pCommit || !pApply || !pError ||
+        !kCurSet || !kNetServices || !kCompNetwork || !kCompService ||
+        !kUserName || !kProxies || !kHTTPEnable || !kHTTPProxy || !kHTTPPort ||
+        !kHTTPSEnable || !kHTTPSProxy || !kHTTPSPort || !kSOCKSEnable) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Proxy API unavailable on this iOS (SystemConfiguration symbols missing).")}];
+        return nil;
+    }
+
+    SCPreferencesRef prefs = pCreate(NULL, CFSTR("zxtouch-proxy"), NULL);
     if (!prefs) {
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Could not open system preferences.")}];
@@ -964,13 +1020,13 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
     }
     NSString *fail = nil;
     @try {
-        if (!SCPreferencesLock(prefs, true)) fail = @"Could not lock system preferences.";
+        if (!pLock(prefs, true)) fail = @"Could not lock system preferences.";
         NSDictionary *currentSet = nil;
         NSDictionary *services = nil;
         if (!fail) {
-            CFStringRef curSetPath = SCPreferencesGetValue(prefs, kSCPrefCurrentSet);
-            currentSet = (__bridge NSDictionary *)SCPreferencesPathGetValue(prefs, curSetPath);
-            services = (__bridge NSDictionary *)SCPreferencesGetValue(prefs, kSCPrefNetworkServices);
+            CFStringRef curSetPath = (CFStringRef)pGetValue(prefs, kCurSet);
+            currentSet = (__bridge NSDictionary *)pPathGetValue(prefs, curSetPath);
+            services = (__bridge NSDictionary *)pGetValue(prefs, kNetServices);
             if (!currentSet || !services) fail = @"No current network set.";
         }
         NSMutableDictionary *nservices = nil;
@@ -979,10 +1035,10 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
             nservices = CFBridgingRelease(CFPropertyListCreateDeepCopy(
                 NULL, (__bridge CFPropertyListRef)services,
                 kCFPropertyListMutableContainersAndLeaves));
-            NSDictionary *setServices = currentSet[(__bridge NSString *)kSCCompNetwork][(__bridge NSString *)kSCCompService];
+            NSDictionary *setServices = currentSet[(__bridge NSString *)kCompNetwork][(__bridge NSString *)kCompService];
             for (NSString *key in setServices) {
                 NSDictionary *svc = services[key];
-                if (svc && [@"Wi-Fi" isEqualToString:svc[(__bridge NSString *)kSCPropUserDefinedName]]) {
+                if (svc && [@"Wi-Fi" isEqualToString:svc[(__bridge NSString *)kUserName]]) {
                     wifiKey = key;
                     break;
                 }
@@ -990,30 +1046,30 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
             if (!wifiKey) fail = @"No Wi-Fi service in the current set.";
         }
         if (!fail) {
-            NSMutableDictionary *proxies = nservices[wifiKey][(__bridge NSString *)kSCEntNetProxies];
+            NSMutableDictionary *proxies = nservices[wifiKey][(__bridge NSString *)kProxies];
             if (!proxies) {
                 proxies = [NSMutableDictionary dictionary];
-                nservices[wifiKey][(__bridge NSString *)kSCEntNetProxies] = proxies;
+                nservices[wifiKey][(__bridge NSString *)kProxies] = proxies;
             }
             if (clear) {
                 [proxies removeAllObjects];
             } else {
-                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPEnable] = @1;
-                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPProxy] = host;
-                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPPort] = @(port);
-                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPSEnable] = @1;
-                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPSProxy] = host;
-                proxies[(__bridge NSString *)kSCPropNetProxiesHTTPSPort] = @(port);
-                proxies[(__bridge NSString *)kSCPropNetProxiesSOCKSEnable] = @0;
+                proxies[(__bridge NSString *)kHTTPEnable] = @1;
+                proxies[(__bridge NSString *)kHTTPProxy] = host;
+                proxies[(__bridge NSString *)kHTTPPort] = @(port);
+                proxies[(__bridge NSString *)kHTTPSEnable] = @1;
+                proxies[(__bridge NSString *)kHTTPSProxy] = host;
+                proxies[(__bridge NSString *)kHTTPSPort] = @(port);
+                proxies[(__bridge NSString *)kSOCKSEnable] = @0;
             }
-            if (!SCPreferencesSetValue(prefs, kSCPrefNetworkServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
-            else if (!SCPreferencesCommitChanges(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", SCError()];
-            else if (!SCPreferencesApplyChanges(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", SCError()];
+            if (!pSetValue(prefs, kNetServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
+            else if (!pCommit(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", pError()];
+            else if (!pApply(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", pError()];
         }
     } @catch (NSException *e) {
         fail = [@"Proxy change failed: " stringByAppendingString:e.reason ?: @"unknown"];
     }
-    SCPreferencesUnlock(prefs);
+    pUnlock(prefs);
     CFRelease(prefs);
     if (fail) {
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999

@@ -69,9 +69,20 @@ NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error);
 
 // 53: "host;;port" -> "0" (set), "clear" -> "0" (remove). Writes the proxy
 // into the Wi-Fi network SERVICE's Proxies dict via SCPreferences
-// (commit + apply so configd picks it up live). Global proxy keys are
+// (commit + apply so configd picks it up live; functions and schema
+// constants resolved with dlopen/dlsym because the SDK marks them
+// API_UNAVAILABLE(ios)). Global proxy keys are
 // intentionally not used: iOS applies per-service proxies for Wi-Fi.
 NSString *proxyFromRawData(UInt8 *eventData, NSError **error);
+
+// Private AppSupport class (selectors declared so ARC sees them; the class
+// itself is resolved with NSClassFromString and every call is
+// respondsToSelector-guarded, so the tweak loads on iOS versions without it).
+@interface RadiosPreferences : NSObject
+- (BOOL)airplaneMode;
+- (void)setAirplaneMode:(BOOL)mode;
+- (void)synchronize;
+@end
 
 // Private SpringBoard class (forward declaration so the Logos %c lookup
 // compiles cleanly; the call itself is respondsToSelector-guarded).
