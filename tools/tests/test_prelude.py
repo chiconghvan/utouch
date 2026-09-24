@@ -728,95 +728,10 @@ def test_helper_writes_and_verifies_real_plists(tmp_path):
     assert d["preflightAirplaneModeEnabled"] == 1
     assert d["KeepMe"] == {"a": 1}  # unrelated keys survive
 
-    prefs = str(tmp_path / "preferences.plist")
-    with open(prefs, "wb") as f:
-        plistlib.dump({"Global": {"Services": {"x": 1}}, "UserDefined": {"y": 2}}, f)
-    p = subprocess.run([sys.executable, helper, "proxy-set", prefs, "160.25.77.31", "8770"],
-                       capture_output=True, text=True, timeout=60)
-    assert p.returncode == 0, p.stdout + p.stderr
-    with open(prefs, "rb") as f:
-        d = plistlib.load(f)
-    assert d["Global"]["Proxy"]["HTTPProxy"] == "160.25.77.31"
-    assert d["Global"]["Proxy"]["HTTPPort"] == 8770
-    assert d["Global"]["Services"] == {"x": 1} and d["UserDefined"] == {"y": 2}
-
-    p = subprocess.run([sys.executable, helper, "proxy-clear", prefs],
-                       capture_output=True, text=True, timeout=60)
-    assert p.returncode == 0, p.stdout + p.stderr
-    with open(prefs, "rb") as f:
-        d = plistlib.load(f)
-    assert "Proxy" not in d["Global"] and d["Global"]["Services"] == {"x": 1}
-
     missing = str(tmp_path / "nope.plist")
     p = subprocess.run([sys.executable, helper, "pref-set", missing, "k", "1"],
                        capture_output=True, text=True, timeout=60)
     assert p.returncode == 1 and "ZXERR" in (p.stdout + p.stderr)  # reported, not a crash
-
-
-def _svc_prefs(tmp_path):
-    import plistlib
-    prefs = str(tmp_path / "svc-preferences.plist")
-    data = {
-        "CurrentSet": "/Sets/AAA",
-        "Sets": {"AAA": {"Network": {"Service": {
-            "WIFI-UUID": {"__LINK__": "/NetworkServices/WIFI-UUID"},
-            "CELL-UUID": {"__LINK__": "/NetworkServices/CELL-UUID"}}}}},
-        "NetworkServices": {
-            "WIFI-UUID": {"UserDefinedName": "Wi-Fi", "Proxies": {}},
-            "CELL-UUID": {"UserDefinedName": "Cellular", "Proxies": {}}},
-    }
-    with open(prefs, "wb") as f:
-        plistlib.dump(data, f)
-    return prefs
-
-
-def test_helper_proxy_svc_set_and_clear(tmp_path):
-    # Wi-Fi SERVICE proxies (what iOS actually applies), not the Global dict.
-    import plistlib
-    import subprocess
-
-    helper = prelude._utilHelperDir()
-    prefs = _svc_prefs(tmp_path)
-
-    p = subprocess.run([sys.executable, helper, "proxy-svc-set", prefs,
-                        "160.25.77.31", "8770"],
-                       capture_output=True, text=True, timeout=60)
-    assert p.returncode == 0 and "ZXOK" in p.stdout, p.stdout + p.stderr
-    with open(prefs, "rb") as f:
-        d = plistlib.load(f)
-    wifi = d["NetworkServices"]["WIFI-UUID"]["Proxies"]
-    assert wifi["HTTPProxy"] == "160.25.77.31" and wifi["HTTPPort"] == 8770
-    assert wifi["HTTPSProxy"] == "160.25.77.31" and wifi["HTTPSPort"] == 8770
-    assert wifi["HTTPEnable"] == 1 and wifi["HTTPSEnable"] == 1
-    assert d["NetworkServices"]["CELL-UUID"]["Proxies"] == {}  # untouched
-
-    p = subprocess.run([sys.executable, helper, "proxy-svc-clear", prefs],
-                       capture_output=True, text=True, timeout=60)
-    assert p.returncode == 0 and "ZXOK cleared" in p.stdout, p.stdout + p.stderr
-    with open(prefs, "rb") as f:
-        d = plistlib.load(f)
-    assert d["NetworkServices"]["WIFI-UUID"]["Proxies"] == {}
-
-    p = subprocess.run([sys.executable, helper, "proxy-svc-set", prefs,
-                        "1.2.3.4", "0"],
-                       capture_output=True, text=True, timeout=60)
-    assert p.returncode == 1 and "ZXERR" in (p.stdout + p.stderr)
-
-
-def test_helper_proxy_svc_no_wifi_service(tmp_path):
-    import plistlib
-    import subprocess
-
-    helper = prelude._utilHelperDir()
-    prefs = str(tmp_path / "nowifi.plist")
-    with open(prefs, "wb") as f:
-        plistlib.dump({"CurrentSet": "/Sets/AAA",
-                       "Sets": {"AAA": {"Network": {"Service": {}}}},
-                       "NetworkServices": {}}, f)
-    p = subprocess.run([sys.executable, helper, "proxy-svc-set", prefs,
-                        "1.2.3.4", "8080"],
-                       capture_output=True, text=True, timeout=60)
-    assert p.returncode == 1 and "no Wi-Fi service" in (p.stdout + p.stderr)
 
 
 def test_proxy_input_validation():
@@ -964,13 +879,14 @@ def test_airplane_native_success_and_fallback(monkeypatch, capsys):
             prelude.disconnect()
 
 
-def test_proxy_native_success_and_fallback(monkeypatch, capsys):
+def test_proxy_native_only(monkeypatch, capsys):
+    # System API only (TASK_SETPROXY): success applies live, any failure
+    # returns False with a reason — no plist fallback, no shell round-trip.
     import socket
 
     class NativeProxyDevice(ShellDevice):
         def __init__(self, behavior):
-            super().__init__({"proxy-svc-set": "ZXOK 1.2.3.4",
-                              "proxy-svc-clear": "ZXOK cleared"})
+            super().__init__()
             self.behavior = behavior
             self.native_calls = []
 
@@ -979,7 +895,7 @@ def test_proxy_native_success_and_fallback(monkeypatch, capsys):
             if self.behavior == "ok":
                 return (True, [])
             if self.behavior == "refuse":
-                return (False, "no Wi-Fi service")
+                return (False, "Could not lock system preferences.")
             raise socket.timeout("timed out")
 
         def clear_proxy(self):
@@ -987,7 +903,7 @@ def test_proxy_native_success_and_fallback(monkeypatch, capsys):
             if self.behavior == "ok":
                 return (True, [])
             if self.behavior == "refuse":
-                return (False, "no Wi-Fi service")
+                return (False, "Could not lock system preferences.")
             raise socket.timeout("timed out")
 
     monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
@@ -1009,12 +925,14 @@ def test_proxy_native_success_and_fallback(monkeypatch, capsys):
         monkeypatch.setattr(prelude, "get_device", lambda ip=None: dev)
         prelude.set_device(dev)
         try:
-            assert prelude.setProxySystem("1.2.3.4", 8080) is True
+            assert prelude.setProxySystem("1.2.3.4", 8080) is False
             out = capsys.readouterr().out
-            assert "legacy method" in out
-            assert any("proxy-svc-set" in c for c in dev.calls)
-            assert prelude.clearProxySystem() is True
-            assert any("proxy-svc-clear" in c for c in dev.calls)
+            assert "system API failed" in out
+            assert "(after " in out
+            assert dev.calls == []  # no shell fallback
+            assert prelude.clearProxySystem() is False
+            assert "system API failed" in capsys.readouterr().out
+            assert dev.calls == []
         finally:
             prelude.disconnect()
 

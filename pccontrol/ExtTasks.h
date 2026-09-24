@@ -67,12 +67,15 @@ NSString *cellularDataFromRawData(UInt8 *eventData, NSError **error);
 // on a daemon-side timer; the reply is still immediate.
 NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error);
 
-// 53: "host;;port" -> "0" (set), "clear" -> "0" (remove). Writes the proxy
-// into the Wi-Fi network SERVICE's Proxies dict via SCPreferences
-// (commit + apply so configd picks it up live; functions and schema
-// constants resolved with dlopen/dlsym because the SDK marks them
-// API_UNAVAILABLE(ios)). Global proxy keys are
-// intentionally not used: iOS applies per-service proxies for Wi-Fi.
+// 53: "host;;port" -> "0" (set), "clear" -> "0" (remove). Relays the
+// payload to zxtouchb ("-proxy" / "-proxy-clear") through sudo, because
+// only root can SCPreferencesLock the system preferences and this tweak
+// runs as mobile. zxtouchb applies the proxy into the Wi-Fi network
+// SERVICE's Proxies dict via SCPreferences (commit + apply so configd
+// picks it up live; functions and schema constants resolved with
+// dlopen/dlsym because the SDK marks them API_UNAVAILABLE(ios)).
+// Global proxy keys are intentionally not used: iOS applies per-service
+// proxies for Wi-Fi.
 NSString *proxyFromRawData(UInt8 *eventData, NSError **error);
 
 // Private AppSupport class (selectors declared so ARC sees them; the class

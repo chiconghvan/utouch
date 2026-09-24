@@ -9,6 +9,12 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+### Đã thêm
+- Chạy `TASK_SETPROXY=53` dưới quyền root qua `sudo zxtouchb`: logic `SCPreferences` tách sang file mới `pccontrol/ZXProxyApply.{h,m}` (chỉ Foundation, forward-declare opaque type nên không cần link framework), `zxtouch-binary` thêm subcommand `-proxy "host;;port"` / `-proxy-clear` in `0` hoặc `-1;;lý do` ra stdout; handler trong tweak (`mobile`) chỉ relay payload qua `sudo -n` + đọc kết quả từ file tạm, giữ nguyên protocol task nên phía Python không đổi. `control` thêm `Depends: sudo`.
+
+### Đã loại bỏ
+- Mọi đường plist fallback của proxy trong `prelude.py`: `setProxySystem`/`clearProxySystem` chỉ dùng system API (`_nativeDaemonTask`), helper `_UTIL_HELPER` chỉ còn action `pref-set` (bỏ `proxy-set`/`proxy-clear`/`proxy-svc-set`/`proxy-svc-clear`, hàm `wifi_proxies`, hằng `_UTIL_PROXY_PLIST`); test tương ứng trong `tools/tests/test_prelude.py` chuyển sang `test_proxy_native_only` (fail trả `False`, không gọi shell).
+
 ## [0.3.51] — 2026-09-24
 
 ### Đã thay đổi

@@ -7,6 +7,9 @@
 #include "SocketServer.h"
 #include "Touch.h"
 #include <dlfcn.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <roothide.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <UIKit/UIKit.h>
 #import <SystemConfiguration/SystemConfiguration.h>
@@ -948,194 +951,90 @@ NSString *airplaneModeFromRawData(UInt8 *eventData, NSError **error) {
 // ---------------------------------------------------------------- 53 proxy
 
 NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
-    // Payload: "host;;port" to set, "clear" to remove. Mirrors what Settings
-    // writes: the proxy lives in the Wi-Fi network SERVICE's Proxies dict,
-    // committed + applied through SCPreferences so configd picks it up live
-    // (no interface bounce needed). Writing the Global dict instead — the
-    // old Python fallback — is ignored for Wi-Fi traffic on iOS.
-    //
-    // The SCPreferences C API and its schema constants are marked
-    // API_UNAVAILABLE(ios) in the SDK, so everything is resolved at runtime
-    // (dlopen/dlsym); a missing symbol means the OS moved the API and is
-    // reported instead of a false success.
-    NSArray *parts = ZXSplit(eventData);
+    // TASK_SETPROXY relay: SCPreferencesLock needs system-preferences write
+    // access, which the SpringBoard tweak (mobile) does not have. Run the
+    // same payload through zxtouchb, which sudoers allows mobile to execute
+    // as root (see layout/DEBIAN/postinst*), and mirror its reply.
+    // Payload: "host;;port" to set, "clear" to remove.
+    NSString *fail = nil;
+    NSString *payload = [NSString stringWithUTF8String:(char *)eventData] ?: @"";
+    NSLog(@"com.zjx.springboard: [proxy] TASK_SETPROXY payload=%@", payload);
+    NSArray *parts = [payload componentsSeparatedByString:@";;"];
     NSString *first = [parts count] > 0 ? [parts objectAtIndex:0] : @"";
     BOOL clear = [first isEqualToString:@"clear"];
     NSString *host = clear ? nil : first;
-    int port = (int)([parts count] > 1 ? [[parts objectAtIndex:1] intValue] : 0);
-    if (!clear && (host.length == 0 || port <= 0 || port > 65535)) {
-        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
-            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Proxy format: host;;port (1-65535), or clear.")}];
-        return nil;
+    NSString *portStr = [parts count] > 1 ? [parts objectAtIndex:1] : @"0";
+    int port = (int)[portStr intValue];
+    NSCharacterSet *okSet = [NSCharacterSet characterSetWithCharactersInString:
+        @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._:-"];
+    if (!clear && (host.length == 0 || [host rangeOfCharacterFromSet:[okSet invertedSet]].location != NSNotFound ||
+            port <= 0 || port > 65535 || ![portStr isEqualToString:[@(port) stringValue]])) {
+        fail = @"Proxy format: host;;port (1-65535), or clear.";
+        NSLog(@"com.zjx.springboard: [proxy] reject payload: %@", fail);
     }
-
-    typedef SCPreferencesRef (*ZXSCPrefsCreateFn)(CFAllocatorRef, CFStringRef, CFStringRef);
-    typedef Boolean (*ZXSCPrefsLockFn)(SCPreferencesRef, Boolean);
-    typedef Boolean (*ZXSCPrefsUnlockFn)(SCPreferencesRef);
-    typedef CFPropertyListRef (*ZXSCPrefsGetValueFn)(SCPreferencesRef, CFStringRef);
-    typedef CFPropertyListRef (*ZXSCPrefsPathGetValueFn)(SCPreferencesRef, CFStringRef);
-    typedef Boolean (*ZXSCPrefsSetValueFn)(SCPreferencesRef, CFStringRef, CFPropertyListRef);
-    typedef Boolean (*ZXSCPrefsCommitFn)(SCPreferencesRef);
-    typedef Boolean (*ZXSCPrefsApplyFn)(SCPreferencesRef);
-    typedef int (*ZXSCErrorFn)(void);
-
-    void *sc = dlopen("/System/Library/Frameworks/SystemConfiguration.framework/SystemConfiguration", RTLD_LAZY);
-    ZXSCPrefsCreateFn pCreate = sc ? (ZXSCPrefsCreateFn)dlsym(sc, "SCPreferencesCreate") : NULL;
-    ZXSCPrefsLockFn pLock = sc ? (ZXSCPrefsLockFn)dlsym(sc, "SCPreferencesLock") : NULL;
-    ZXSCPrefsUnlockFn pUnlock = sc ? (ZXSCPrefsUnlockFn)dlsym(sc, "SCPreferencesUnlock") : NULL;
-    ZXSCPrefsGetValueFn pGetValue = sc ? (ZXSCPrefsGetValueFn)dlsym(sc, "SCPreferencesGetValue") : NULL;
-    ZXSCPrefsPathGetValueFn pPathGetValue = sc ? (ZXSCPrefsPathGetValueFn)dlsym(sc, "SCPreferencesPathGetValue") : NULL;
-    ZXSCPrefsSetValueFn pSetValue = sc ? (ZXSCPrefsSetValueFn)dlsym(sc, "SCPreferencesSetValue") : NULL;
-    ZXSCPrefsCommitFn pCommit = sc ? (ZXSCPrefsCommitFn)dlsym(sc, "SCPreferencesCommitChanges") : NULL;
-    ZXSCPrefsApplyFn pApply = sc ? (ZXSCPrefsApplyFn)dlsym(sc, "SCPreferencesApplyChanges") : NULL;
-    ZXSCErrorFn pError = sc ? (ZXSCErrorFn)dlsym(sc, "SCError") : NULL;
-    CFStringRef kCurSet = ZXSCConst(sc, "kSCPrefCurrentSet");
-    CFStringRef kNetServices = ZXSCConst(sc, "kSCPrefNetworkServices");
-    CFStringRef kCompNetwork = ZXSCConst(sc, "kSCCompNetwork");
-    CFStringRef kCompService = ZXSCConst(sc, "kSCCompService");
-    CFStringRef kUserName = ZXSCConst(sc, "kSCPropUserDefinedName");
-    CFStringRef kProxies = ZXSCConst(sc, "kSCEntNetProxies");
-    CFStringRef kHTTPEnable = ZXSCConst(sc, "kSCPropNetProxiesHTTPEnable");
-    CFStringRef kHTTPProxy = ZXSCConst(sc, "kSCPropNetProxiesHTTPProxy");
-    CFStringRef kHTTPPort = ZXSCConst(sc, "kSCPropNetProxiesHTTPPort");
-    CFStringRef kHTTPSEnable = ZXSCConst(sc, "kSCPropNetProxiesHTTPSEnable");
-    CFStringRef kHTTPSProxy = ZXSCConst(sc, "kSCPropNetProxiesHTTPSProxy");
-    CFStringRef kHTTPSPort = ZXSCConst(sc, "kSCPropNetProxiesHTTPSPort");
-    CFStringRef kSOCKSEnable = ZXSCConst(sc, "kSCPropNetProxiesSOCKSEnable");
-    CFStringRef kSOCKSProxy = ZXSCConst(sc, "kSCPropNetProxiesSOCKSProxy");
-    CFStringRef kSOCKSPort = ZXSCConst(sc, "kSCPropNetProxiesSOCKSPort");
-    if (!pCreate || !pLock || !pUnlock || !pGetValue || !pPathGetValue ||
-        !pSetValue || !pCommit || !pApply || !pError ||
-        !kCurSet || !kNetServices || !kCompNetwork || !kCompService ||
-        !kUserName || !kProxies || !kHTTPEnable || !kHTTPProxy || !kHTTPPort ||
-        !kHTTPSEnable || !kHTTPSProxy || !kHTTPSPort || !kSOCKSEnable ||
-        !kSOCKSProxy || !kSOCKSPort) {
-        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
-            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Proxy API unavailable on this iOS (SystemConfiguration symbols missing).")}];
-        return nil;
-    }
-
-    SCPreferencesRef prefs = pCreate(NULL, CFSTR("zxtouch-proxy"), NULL);
-    if (!prefs) {
-        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
-            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Could not open system preferences.")}];
-        return nil;
-    }
-    NSString *fail = nil;
-    @try {
-        if (!pLock(prefs, true)) fail = @"Could not lock system preferences.";
-        NSDictionary *currentSet = nil;
-        NSDictionary *services = nil;
-        if (!fail) {
-            CFStringRef curSetPath = (CFStringRef)pGetValue(prefs, kCurSet);
-            currentSet = (__bridge NSDictionary *)pPathGetValue(prefs, curSetPath);
-            services = (__bridge NSDictionary *)pGetValue(prefs, kNetServices);
-            if (!currentSet || !services) fail = @"No current network set.";
+    NSString *sudo = nil;
+    NSString *helper = nil;
+    if (!fail) {
+        // Exact paths matter: sudoers whitelists the installed helper path,
+        // so resolve it first (jbroot for roothide, /var/jb for rootless).
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *p in @[jbroot(@"/usr/bin/sudo"), @"/var/jb/usr/bin/sudo", @"/usr/bin/sudo"]) {
+            if (p.length > 0 && [fm isExecutableFileAtPath:p]) { sudo = p; break; }
         }
-        NSMutableDictionary *nservices = nil;
-        NSString *wifiKey = nil;
-        if (!fail) {
-            nservices = CFBridgingRelease(CFPropertyListCreateDeepCopy(
-                NULL, (__bridge CFPropertyListRef)services,
-                kCFPropertyListMutableContainersAndLeaves));
-            NSDictionary *setServices = currentSet[(__bridge NSString *)kCompNetwork][(__bridge NSString *)kCompService];
-            // Port of proxyswitcher-ng (PSNWiFiProxyHandler): a Wi-Fi service
-            // is identified by its Interface (Hardware=AirPort or
-            // Type=IEEE80211), not by UserDefinedName. The name is localised
-            // and user-renamable, so matching "Wi-Fi" misses real devices.
-            for (NSString *key in setServices) {
-                NSDictionary *svc = services[key];
-                NSDictionary *iface = svc ? svc[@"Interface"] : nil;
-                if ([@"AirPort" isEqualToString:iface[@"Hardware"]] ||
-                    [@"IEEE80211" isEqualToString:iface[@"Type"]]) {
-                    wifiKey = key;
-                    break;
-                }
-            }
-            if (!wifiKey) {
-                // Legacy fallback for prefs fixtures / older configs without
-                // an Interface dict.
-                for (NSString *key in setServices) {
-                    NSDictionary *svc = services[key];
-                    if (svc && [@"Wi-Fi" isEqualToString:svc[(__bridge NSString *)kUserName]]) {
-                        wifiKey = key;
-                        break;
-                    }
-                }
-            }
-            if (!wifiKey) fail = @"No Wi-Fi service in the current set.";
+        for (NSString *p in @[jbroot(@"/usr/bin/zxtouchb"), @"/var/jb/usr/bin/zxtouchb", @"/usr/bin/zxtouchb"]) {
+            if (p.length > 0 && [fm isExecutableFileAtPath:p]) { helper = p; break; }
         }
-        if (!fail) {
-            NSMutableDictionary *proxies = nservices[wifiKey][(__bridge NSString *)kProxies];
-            if (!proxies) {
-                proxies = [NSMutableDictionary dictionary];
-                nservices[wifiKey][(__bridge NSString *)kProxies] = proxies;
-            }
-            // Idempotent apply (proxyswitcher-ng shouldChangeProxyDict):
-            // skip the commit+apply round-trip when the live state already
-            // matches. Type-strict so a stale string port (older builds
-            // wrote strings the stack ignores) forces a clean rewrite
-            // instead of crashing on -isEqualToNumber:.
-            NSString *sHTTPEnable = (__bridge NSString *)kHTTPEnable;
-            NSString *sHTTPProxy = (__bridge NSString *)kHTTPProxy;
-            NSString *sHTTPPort = (__bridge NSString *)kHTTPPort;
-            NSString *sHTTPSEnable = (__bridge NSString *)kHTTPSEnable;
-            NSString *sHTTPSProxy = (__bridge NSString *)kHTTPSProxy;
-            NSString *sHTTPSPort = (__bridge NSString *)kHTTPSPort;
-            NSString *sSOCKSProxy = (__bridge NSString *)kSOCKSProxy;
-            BOOL alreadyApplied = NO;
-            if (clear) {
-                alreadyApplied = (proxies.count == 0);
-            } else {
-                id v;
-                v = proxies[sHTTPEnable];
-                BOOL httpOk = [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@1];
-                v = proxies[sHTTPProxy];
-                httpOk = httpOk && [v isKindOfClass:[NSString class]] && [(NSString *)v isEqualToString:host];
-                v = proxies[sHTTPPort];
-                httpOk = httpOk && [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@(port)];
-                v = proxies[sHTTPSEnable];
-                httpOk = httpOk && [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@1];
-                v = proxies[sHTTPSProxy];
-                httpOk = httpOk && [v isKindOfClass:[NSString class]] && [(NSString *)v isEqualToString:host];
-                v = proxies[sHTTPSPort];
-                httpOk = httpOk && [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@(port)];
-                alreadyApplied = httpOk && (proxies[sSOCKSProxy] == nil);
-            }
-            if (alreadyApplied) {
-                // Nothing to stage: unlock and report success.
-            } else if (clear) {
-                [proxies removeAllObjects];
-                if (!pSetValue(prefs, kNetServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
-                else if (!pCommit(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", pError()];
-                else if (!pApply(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", pError()];
-            } else {
-                proxies[sHTTPEnable] = @1;
-                proxies[sHTTPProxy] = host;
-                proxies[sHTTPPort] = @(port);
-                proxies[sHTTPSEnable] = @1;
-                proxies[sHTTPSProxy] = host;
-                proxies[sHTTPSPort] = @(port);
-                // HTTP mode must not coexist with SOCKS keys: drop them
-                // entirely instead of leaving a stale proxy behind with
-                // SOCKSEnable=0.
-                [proxies removeObjectForKey:(__bridge NSString *)kSOCKSEnable];
-                [proxies removeObjectForKey:sSOCKSProxy];
-                [proxies removeObjectForKey:(__bridge NSString *)kSOCKSPort];
-                if (!pSetValue(prefs, kNetServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
-                else if (!pCommit(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", pError()];
-                else if (!pApply(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", pError()];
-            }
-        }
-    } @catch (NSException *e) {
-        fail = [@"Proxy change failed: " stringByAppendingString:e.reason ?: @"unknown"];
+        if (!sudo) fail = @"Proxy needs root: sudo not installed.";
+        else if (!helper) fail = @"Proxy helper zxtouchb not installed.";
+        NSLog(@"com.zjx.springboard: [proxy] relay sudo=%@ helper=%@ clear=%d fail=%@",
+            sudo, helper, clear, fail ?: @"(none)");
     }
-    pUnlock(prefs);
-    CFRelease(prefs);
+    NSString *out = nil;
+    if (!fail) {
+        // mkstemp file is mobile-owned 0600, but root can still write it.
+        char tmpl[] = "/tmp/zxproxy-XXXXXX";
+        int fd = mkstemp(tmpl);
+        if (fd < 0) {
+            fail = @"Proxy relay could not stage output.";
+        } else {
+            close(fd);
+            NSString *arg = clear ? @"-proxy-clear" :
+                [NSString stringWithFormat:@"-proxy '%@;;%d'", host, port];
+            // sudo -n fails fast instead of prompting when NOPASSWD is absent.
+            NSString *cmd = [NSString stringWithFormat:@"%@ -n %@ %@ >%s 2>&1",
+                sudo, helper, arg, tmpl];
+            int rc = system2([cmd UTF8String], NULL, NULL);
+            out = [NSString stringWithContentsOfFile:@(tmpl)
+                                            encoding:NSUTF8StringEncoding error:NULL];
+            unlink(tmpl);
+            NSLog(@"com.zjx.springboard: [proxy] helper exit=%d raw=%@", rc, out);
+        }
+    }
+    if (!fail) {
+        // The helper's stderr (NSLog) shares the capture file, so the
+        // result contract ("0" / "-1;;reason") is the last non-empty line.
+        NSString *token = nil;
+        for (NSString *ln in [[out componentsSeparatedByCharactersInSet:
+                [NSCharacterSet newlineCharacterSet]] reverseObjectEnumerator]) {
+            NSString *t = [ln stringByTrimmingCharactersInSet:
+                [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (t.length > 0) { token = t; break; }
+        }
+        if ([token hasPrefix:@"-1;;"]) {
+            // Helper already formats the client error; strip the prefix.
+            fail = [token substringFromIndex:4];
+            if (fail.length == 0) fail = @"Proxy helper failed.";
+        } else if (![token isEqualToString:@"0"]) {
+            fail = ([token length] > 0) ? token : @"Proxy helper produced no output.";
+        }
+    }
     if (fail) {
+        NSLog(@"com.zjx.springboard: [proxy] FAIL %@", fail);
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(fail)}];
         return nil;
     }
+    NSLog(@"com.zjx.springboard: [proxy] OK");
     return @"0\r\n";
 }
+

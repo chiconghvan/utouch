@@ -1542,48 +1542,6 @@ def load(path):
         return plistlib.load(f)
 
 
-def wifi_proxies(data):
-    # Live Proxies dict of the Wi-Fi service in the current network set.
-    # iOS applies per-service proxies for Wi-Fi; the Global dict is ignored.
-    # Follows proxyswitcher-ng (PSNWiFiProxyHandler): match by Interface
-    # (Hardware=AirPort or Type=IEEE80211) — UserDefinedName is localised
-    # and user-renamable — with a name fallback for old fixtures.
-    cur = data.get("CurrentSet")
-    sets = data.get("Sets")
-    services = data.get("NetworkServices")
-    if not isinstance(cur, str) or not isinstance(sets, dict) or not isinstance(services, dict):
-        fail("no usable Sets/NetworkServices in preferences")
-    node = sets.get(cur.rsplit("/", 1)[-1])
-    if not isinstance(node, dict):
-        fail("current set %r not found" % (cur,))
-    try:
-        members = node["Network"]["Service"]
-    except (KeyError, TypeError):
-        fail("current set has no Network/Service")
-    if not isinstance(members, dict):
-        fail("current set services is not a dict")
-    def _proxies_of(svc_id):
-        svc = services.get(svc_id)
-        if not isinstance(svc, dict):
-            return None
-        proxies = svc.setdefault("Proxies", {})
-        if not isinstance(proxies, dict):
-            fail("Wi-Fi Proxies is not a dict")
-        return proxies
-    for svc_id in members:
-        svc = services.get(svc_id)
-        if not isinstance(svc, dict):
-            continue
-        iface = svc.get("Interface")
-        if isinstance(iface, dict) and (iface.get("Hardware") == "AirPort" or iface.get("Type") == "IEEE80211"):
-            return _proxies_of(svc_id)
-    for svc_id in members:
-        svc = services.get(svc_id)
-        if isinstance(svc, dict) and svc.get("UserDefinedName") == "Wi-Fi":
-            return _proxies_of(svc_id)
-    fail("no Wi-Fi service in the current set")
-
-
 def main():
     action, path = sys.argv[1], sys.argv[2]
     data = load(path)
@@ -1595,40 +1553,6 @@ def main():
     if action == "pref-set":
         key, want = sys.argv[3], int(sys.argv[4])
         data[key] = want
-    elif action == "proxy-set":
-        host, port = sys.argv[3], int(sys.argv[4])
-        g = data.setdefault("Global", {})
-        if not isinstance(g, dict):
-            fail("Global is not a dict")
-        g["Proxy"] = {
-            "HTTPEnable": 1, "HTTPProxy": host, "HTTPPort": port,
-            "HTTPSEnable": 1, "HTTPSPriority": 0,
-            "SecureHTTPEnable": 1, "SecureHTTPProxy": host, "SecureHTTPPort": port,
-        }
-        want = host
-    elif action == "proxy-clear":
-        g = data.get("Global")
-        if isinstance(g, dict):
-            g.pop("Proxy", None)
-    elif action == "proxy-svc-set":
-        host, port = sys.argv[3], int(sys.argv[4])
-        if not 0 < port < 65536:
-            fail("port out of range: %d" % port)
-        proxies = wifi_proxies(data)
-        # HTTP mode (proxyswitcher-ng): set HTTP+HTTPS, drop SOCKS keys so
-        # the two modes never coexist on the service.
-        proxies["HTTPEnable"] = 1
-        proxies["HTTPProxy"] = host
-        proxies["HTTPPort"] = port
-        proxies["HTTPSEnable"] = 1
-        proxies["HTTPSProxy"] = host
-        proxies["HTTPSPort"] = port
-        proxies.pop("SOCKSEnable", None)
-        proxies.pop("SOCKSProxy", None)
-        proxies.pop("SOCKSPort", None)
-        want = host
-    elif action == "proxy-svc-clear":
-        wifi_proxies(data).clear()
     else:
         fail("unknown action " + action)
 
@@ -1638,29 +1562,8 @@ def main():
     os.replace(tmp, path)
 
     check = load(path)
-    if action == "pref-set":
-        got = str(check.get(key, "MISSING"))
-    elif action == "proxy-svc-set":
-        _chk = wifi_proxies(check)
-        got = str(_chk.get("HTTPProxy", "MISSING"))
-        # Type-strict: a stale string port is ignored by the network stack,
-        # so treat it as a failed write rather than ZXOK.
-        if not isinstance(_chk.get("HTTPPort"), int):
-            fail("HTTPPort is not an int after write")
-    else:
-        proxy = ((check.get("Global") or {}).get("Proxy") or {})
-        got = str(proxy.get("HTTPProxy", "MISSING"))
+    got = str(check.get(key, "MISSING"))
 
-    if action == "proxy-clear":
-        if got != "MISSING":
-            fail("proxy still present after removal (" + got + ")")
-        print("ZXOK cleared")
-        return 0
-    if action == "proxy-svc-clear":
-        if wifi_proxies(check):
-            fail("proxy still present after removal")
-        print("ZXOK cleared")
-        return 0
     if got != str(want):
         fail("wrote %s but read back %s" % (want, got))
     print("ZXOK " + got)
@@ -1677,8 +1580,6 @@ except Exception as exc:
 
 # Airplane mode and cellular data both live in commcenter's preferences plist.
 _UTIL_RADIO_PLIST = "/var/wireless/Library/Preferences/com.apple.commcenter.plist"
-# Device-wide (Wi-Fi) proxy, read by wifid from SystemConfiguration.
-_UTIL_PROXY_PLIST = "/var/Preferences/SystemConfiguration/preferences.plist"
 _IPV4_RE = re.compile(r"^(\d{1,3}\.){3}\d{1,3}$")
 
 
@@ -2009,7 +1910,7 @@ def _nativeDaemonTask(method, args=(), timeout=10):
     Returns ``(True, "")`` on success, else ``(False, reason)``. Old daemons
     don't know the task and stay silent, so this uses a short socket timeout
     and drops the connection on socket errors (a late reply would poison the
-    next round-trip); the caller falls back to the legacy method.
+    next round-trip); the caller decides how to handle failure.
     """
     try:
         dev = get_device()
@@ -2077,14 +1978,15 @@ def _coerceDelay(label, delay):
 def setProxySystem(host, port):
     """Device-wide Wi-Fi HTTP/HTTPS proxy. Returns True when applied.
 
-    Host + port only, matching the IOSControl limit. The daemon
-    (TASK_SETPROXY=53) writes the proxy into the Wi-Fi network service via
-    SCPreferences and applies it live (commit + apply, no bounce needed).
-    The Wi-Fi service is found by Interface (Hardware=AirPort or
-    Type=IEEE80211, as in proxyswitcher-ng), with a UserDefinedName
-    fallback; HTTP mode sets HTTP+HTTPS keys and drops SOCKS keys so the
-    modes never coexist. When the daemon is too old or the system call
-    refuses, falls back to the same per-service plist edit. Never raises.
+    Host + port only, matching the IOSControl limit. Applied by the daemon
+    (TASK_SETPROXY=53), which writes the proxy into the Wi-Fi network
+    service via SCPreferences and applies it live (commit + apply), the
+    same path the Settings app and proxyswitcher-ng use: the Wi-Fi service
+    is found by Interface (Hardware=AirPort or Type=IEEE80211), HTTP mode
+    sets HTTP+HTTPS keys and drops SOCKS keys, and an already-matching
+    proxy is not committed again. System API only — no plist fallback:
+    when the daemon is too old or the system call refuses, returns False.
+    Never raises.
     """
     host = str(host).strip()
     if not host or not re.match(r"^[A-Za-z0-9._:-]+$", host):
@@ -2103,29 +2005,22 @@ def setProxySystem(host, port):
     if ok:
         log("setProxySystem: %s:%d via system API (after %.1fs)" % (host, port, time.time() - t0))
         return True
-    log("setProxySystem: system API unavailable (%s), using legacy method" % (why,))
-    ok, out = _rootPython(["proxy-svc-set", _UTIL_PROXY_PLIST, host, port])
-    if not ok:
-        log("setProxySystem: %s" % (out,))
-        return False
-    _shellCapture("ifconfig en0 down; sleep 1; ifconfig en0 up")
-    return True
+    log("setProxySystem: system API failed (%s) (after %.1fs)" % (why, time.time() - t0))
+    return False
 
 
 def clearProxySystem():
-    """Remove the proxy set by :func:`setProxySystem`; restores direct."""
+    """Remove the proxy set by :func:`setProxySystem`; restores direct.
+
+    System API only (TASK_SETPROXY=53) — no plist fallback. Never raises.
+    """
     t0 = time.time()
     ok, why = _nativeDaemonTask("clear_proxy", ())
     if ok:
         log("clearProxySystem: cleared via system API (after %.1fs)" % (time.time() - t0,))
         return True
-    log("clearProxySystem: system API unavailable (%s), using legacy method" % (why,))
-    ok, out = _rootPython(["proxy-svc-clear", _UTIL_PROXY_PLIST])
-    if not ok:
-        log("clearProxySystem: %s" % (out,))
-        return False
-    _shellCapture("ifconfig en0 down; sleep 1; ifconfig en0 up")
-    return True
+    log("clearProxySystem: system API failed (%s) (after %.1fs)" % (why, time.time() - t0))
+    return False
 
 
 # ---------------------------------------------------------------- Record

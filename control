@@ -1,7 +1,7 @@
 Package: com.zjx.ioscontrol
 Name: ZXTouch
 Version: 0.3.51
-Depends: mobilesubstrate | ellekit, firmware (>= 15.0)
+Depends: mobilesubstrate | ellekit, firmware (>= 15.0), sudo
 Recommends: com.opa334.crane
 Architecture: iphoneos-arm64
 Description: ZXTouch Main Application (rootless, iOS 15-16)

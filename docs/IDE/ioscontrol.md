@@ -1896,12 +1896,15 @@ local s = jsonEncode({score=100})
 > **ZXTouch Python runtime (`.py` scripts):** the six network controls of this
 > group (`wifiInfo`, `getIP`, `setAirplaneMode`, `setCellularData`,
 > `setProxySystem`, `clearProxySystem`) are implemented **best-effort in pure
-> Python**. iOS exposes no public API for the radio/proxy switches, so the
-> helpers write the system preferences through the ZXTouch daemon's root shell
-> and read the value back. They return `True`/`False` (never raise) and log the
+> Python**. iOS exposes no public API for the radio/proxy switches. The
+> radio toggles write the system preferences through the ZXTouch daemon's
+> root shell and read the value back; the proxy pair uses the daemon system
+> API only (`TASK_SETPROXY`, SCPreferences on the Wi-Fi service, no plist
+> fallback). They return `True`/`False` (never raise) and log the
 > reason on failure. Caveats: `wifiInfo()` always returns `ssid = nil` from
 > Python (CoreWiFi private API only); the radio toggles need CommCenter to be
-> reachable, and the proxy needs `/var/Preferences/SystemConfiguration`. The
+> reachable, and the proxy needs the daemon system API to succeed (it runs
+> as `mobile`, so a lock refusal returns `False`). The
 > scheduler (`schedule`, `scheduleAfter`, `onNotification`) and the whole
 > `spoof.*` group are **not** available in ZXTouch scripts.
 
@@ -2114,24 +2117,22 @@ sleep(1)
 setAirplaneMode(false)
 ```
 
-> Note: on current daemons the proxy is written into the Wi-Fi network
-> service via `SCPreferences` (`TASK_SETPROXY`) and applied live — no
-> interface bounce. The Wi-Fi service is identified by `Interface.Hardware
-> == "AirPort"` or `Interface.Type == "IEEE80211"`; the localized/custom
-> name is only a fallback for older configurations. HTTP mode enables both
-> HTTP and HTTPS and removes all SOCKS keys. An already-matching proxy is
-> not committed again. Older daemons fall back to editing the same Wi-Fi
-> service through a root helper + `en0` bounce; that path also requires the
-> saved HTTP port to be an integer.
+> Note: the proxy is written into the Wi-Fi network service via
+> `SCPreferences` (`TASK_SETPROXY`) and applied live — no interface
+> bounce, no plist fallback. The tweak runs as `mobile`, so the task
+> relays the payload to `zxtouchb -proxy` through `sudo` and the helper
+> applies it as root. The Wi-Fi service is identified by
+> `Interface.Hardware == "AirPort"` or `Interface.Type == "IEEE80211"`;
+> the localized/custom name is only a fallback for older configurations.
+> HTTP mode enables both HTTP and HTTPS and removes all SOCKS keys. An
+> already-matching proxy is not committed again.
 >
 > Troubleshooting:
-> - `system API unavailable (Could not lock ...)`: the tweak runs as
->   `mobile` and cannot lock the system preferences — the root-helper
->   fallback runs next, no action needed.
-> - `... (after ~30s) ...`: the daemon's root shell never answered. Run
->   `wifiInfo()` (same shell, trivial command): fast means only the
->   Python helper stage stalls; slow too means the daemon shell is wedged
->   (respring/retry, check Console.app for `system2` errors).
+> - `system API failed (Proxy needs root: sudo not installed)`: package
+>   `sudo` chưa có trên máy nên relay qua `zxtouchb` không leo được root —
+>   cài `sudo` (Procursus) rồi cài lại package để `postinst` ghi sudoers.
+> - `system API failed (Could not lock ...)`: chính tiến trình root cũng
+>   không lock được system preferences (hiếm) — xem `SCError` và Console.
 > - No Wi-Fi connected (cellular only): there is no Wi-Fi service to
 >   attach the proxy to — the call returns `False` by design.
 ---

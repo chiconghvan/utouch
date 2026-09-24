@@ -1,4 +1,5 @@
 #import <Foundation/Foundation.h>
+#import "../pccontrol/ZXProxyApply.h"
 #include <stdio.h>
 #include <sys/socket.h>
 #include <arpa/inet.h>
@@ -70,6 +71,38 @@ int main(int argc, char *argv[], char *envp[]) {
     else if (equal(argv[1], "-pr")) // play back from raw file
     {
         playBackFromRawFile();
+    }
+    else if (equal(argv[1], "-proxy") || equal(argv[1], "-proxy-clear"))
+    {
+        // Wi-Fi proxy as root (TASK_SETPROXY). The SpringBoard tweak runs as
+        // mobile and cannot SCPreferencesLock, so it relays here through
+        // sudo (see layout/DEBIAN/postinst*). Prints "0" on success or the
+        // "-1;;reason" client error and always exits 0; the caller parses
+        // stdout, like TASK_RUN_SHELL results.
+        @autoreleasepool {
+            NSLog(@"com.zjx.zxtouchb: [proxy] start argv=%s uid=%d euid=%d",
+                argv[1], (int)getuid(), (int)geteuid());
+            NSString *payload;
+            if (equal(argv[1], "-proxy-clear")) {
+                payload = @"clear";
+            } else if (argc >= 3) {
+                payload = [NSString stringWithUTF8String:argv[2]] ?: @"";
+            } else {
+                printf("-1;;Proxy format: host;;port (1-65535), or clear.\r\n");
+                return 0;
+            }
+            NSLog(@"com.zjx.zxtouchb: [proxy] applying payload=%@", payload);
+            NSError *err = nil;
+            NSString *result = ZXProxyApplyFromRawData((UInt8 *)[payload UTF8String], &err);
+            if (result) {
+                NSLog(@"com.zjx.zxtouchb: [proxy] applied OK");
+                printf("0\r\n");
+            } else {
+                NSString *msg = [err localizedDescription] ?: @"-1;;Proxy failed.\r\n";
+                NSLog(@"com.zjx.zxtouchb: [proxy] FAIL %@", msg);
+                printf("%s", [msg UTF8String]);
+            }
+        }
     }
     else
     {
