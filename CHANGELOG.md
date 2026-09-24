@@ -9,12 +9,23 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.50] — 2026-09-24
+
+### Đã sửa
+- Đường fallback `setProxySystem(host, port)` / `clearProxySystem()` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: trước đây gọi action helper `proxy-set`/`proxy-clear` ghi dict `Global` kiểu macOS + bounce `en0` nên iOS lờ đi với traffic Wi-Fi; nay gọi `proxy-svc-set`/`proxy-svc-clear` ghi/xóa `Proxies` của Wi-Fi service trong set hiện tại rồi verify đọc lại, proxy fallback có tác dụng thật.
+
+### Đã thêm
+- Hàm `wifi_proxies(data)` + hai action helper `proxy-svc-set`/`proxy-svc-clear` trong `_UTIL_HELPER` (`prelude.py`): tìm Wi-Fi service qua `CurrentSet` → `Sets[...].Network.Service` → `NetworkServices[...].UserDefinedName == "Wi-Fi"`; `proxy-svc-set` ghi `HTTPEnable`/`HTTPProxy`/`HTTPPort`/`HTTPSEnable`/`HTTPSProxy`/`HTTPSPort` (+ `SOCKSEnable=0`, kiểm tra `0 < port < 65536`), `proxy-svc-clear` xóa sạch dict, verify đọc lại (`ZXOK`/`ZXOK cleared`, `fail` khi thiếu set/service hoặc `Proxies` không phải dict).
+- Test `tools/tests/test_prelude.py`: `test_helper_proxy_svc_set_and_clear` (set rồi đọc plist kiểm tra đúng service Wi-Fi, service Cellular giữ nguyên, clear, port 0 báo `ZXERR`), `test_helper_proxy_svc_no_wifi_service` (không có Wi-Fi service báo `no Wi-Fi service`); mock fallback chuyển sang `proxy-svc-set`/`proxy-svc-clear`.
+
+### Đã thay đổi
+- Tài liệu `docs/IDE/ioscontrol.md` (`setProxySystem`): trước đây ghi fallback là Global plist + bounce `en0`; nay ghi đúng fallback per-service qua root helper + bounce `en0`, kèm troubleshooting (`Could not lock ...` do tweak chạy dưới user `mobile` nên fallback tự chạy, treo `after ~30s` thì chạy `wifiInfo()` để phân biệt kẹt helper với shell daemon treo, máy chỉ có cellular thì trả `False` theo thiết kế vì không có Wi-Fi service).
+
 ## [0.3.48] — 2026-09-24
 
 ### Đã thêm
 - Native task `TASK_SETAIRPLANEMODE=52` (`pccontrol/Task.h`, `ExtTasks.h/.xm`, `Task.xm`): bật/tắt chế độ máy bay qua `RadiosPreferences` (`setAirplaneMode:` + `synchronize`, lookup runtime, đọc lại giá trị để verify thay vì trả `True` khống). Phía Python: `tasktypes.TASK_SETAIRPLANEMODE`, `client.set_airplane_mode_enabled(enabled, delay)`, `prelude.setAirplaneMode` thử native trước rồi fallback plist; helper native dùng chung `_nativeRadioTask`, validate `delay` dùng chung `_coerceDelay`.
 - Native task `TASK_SETPROXY=53` (`Task.h`, `ExtTasks.h/.xm`, `Task.xm`, thêm `SystemConfiguration` vào `pccontrol_FRAMEWORKS`): đặt/xóa proxy HTTP/HTTPS của Wi-Fi **service** qua `SCPreferences` (commit + apply để configd nhận ngay, không bounce interface) — cách đúng mà app Settings dùng; code cũ ghi Global plist (kiểu macOS) nên iOS lờ đi với traffic Wi-Fi. Phía Python: `tasktypes.TASK_SETPROXY`, `client.set_proxy(host, port)` / `clear_proxy()`, `prelude.setProxySystem`/`clearProxySystem` thử native trước rồi fallback legacy; helper native tổng quát thành `_nativeDaemonTask`.
-- Root helper thêm action `proxy-svc-set`/`proxy-svc-clear` (`_UTIL_HELPER` trong `prelude.py`): ghi/xóa Proxies của Wi-Fi service trong set hiện tại (tìm qua `CurrentSet` → `UserDefinedName == "Wi-Fi"`), verify đọc lại, thay cho action Global cũ ở đường fallback. Trên máy tweak chạy dưới user `mobile` (không `SCPreferencesLock` được) và shell daemon treo thì native fail nhanh rồi fallback cũng timeout có log — xem troubleshooting trong `docs/IDE/ioscontrol.md` (kiểm tra `wifiInfo()` để phân biệt).
 
 ### Đã thay đổi
 - `setAirplaneMode(enabled, delay)` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: trước đây chỉ đi đường plist (`_toggleRadio` ghi plist + bounce CommCenter); nay thử system API trước (`TASK_SETAIRPLANEMODE` qua `RadiosPreferences`, verify bằng cách đọc lại, `delay` hẹn khôi phục phía daemon và trả về ngay) rồi mới fallback plist khi daemon cũ im lặng hoặc API từ chối.
@@ -542,6 +553,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.50]: https://github.com/chiconghvan/utouch/compare/v0.3.48...v0.3.50
 [0.3.48]: https://github.com/chiconghvan/utouch/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/chiconghvan/utouch/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/chiconghvan/utouch/compare/v0.3.45...v0.3.46
