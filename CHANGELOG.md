@@ -9,6 +9,16 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.47] — 2026-09-24
+
+### Đã thêm
+- Native task `TASK_SETCELLULARDATA=51` (`pccontrol/Task.h`, `ExtTasks.h/.xm`, `Task.xm`): bật/tắt dữ liệu di động bằng đúng API hệ thống (`CTCellularDataPlanSetIsEnabled` qua `dlsym`, không phụ thuộc phiên bản iOS lúc build). `delay` được hẹn khôi phục phía daemon (`dispatch_after`) nên vẫn trả lời ngay; thiếu symbol thì báo lỗi để phía Python dùng đường plist cũ. Phía Python: `tasktypes.TASK_SETCELLULARDATA`, `client.set_cellular_data_enabled(enabled, delay)`, `prelude.setCellularData` thử native trước (timeout 10s) rồi mới fallback plist — daemon cũ không biết task 51 thì im lặng, hết timeout là fallback.
+
+### Đã thay đổi
+- Log thất bại của `_toggleRadio` (`layout/usr/share/zxtouch/python/zxtouch/prelude.py`) kèm thời gian thực hiện (`after Xs`): trước đây log thất bại không ghi thời gian nên timeout shell ~30s trông giống từ chối tức thì; nay phân biệt được timeout với từ chối nhanh, script vẫn trả `False` và chạy tiếp.
+- `setCellularData` kiểm tra `delay` trước khi gọi native: trước đây `delay` sai kiểu/số âm/0 vẫn chuyển xuống daemon; nay log `bad delay ...` và bỏ qua, chỉ chuyển `delay > 0` cho timer khôi phục phía daemon.
+- Tài liệu `setCellularData` trong `docs/IDE/ioscontrol.md`: trước đây chỉ nói best-effort plist (ghi plist + bounce CommCenter); nay ghi rõ đường system API trước (`TASK_SETCELLULARDATA`) + fallback plist, kèm cách cô lập lỗi timeout 30s bằng `wifiInfo()` (phân biệt kẹt plist/CommCenter với shell daemon treo, gợi ý xem lỗi `system2` trong Console.app).
+
 ## [0.3.46] — 2026-09-24
 
 ### Đã thêm
@@ -519,6 +529,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.47]: https://github.com/chiconghvan/utouch/compare/v0.3.46...v0.3.47
 [0.3.46]: https://github.com/chiconghvan/utouch/compare/v0.3.45...v0.3.46
 [0.3.45]: https://github.com/chiconghvan/utouch/compare/v0.3.44...v0.3.45
 [0.3.44]: https://github.com/chiconghvan/utouch/compare/v0.3.43...v0.3.44

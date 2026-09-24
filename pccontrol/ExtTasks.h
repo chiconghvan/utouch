@@ -54,6 +54,12 @@ NSString *recordLoadFromRawData(UInt8 *eventData, NSError **error);
 // 46: "" -> "0;;ok;;<version>"
 NSString *pingFromRawData(UInt8 *eventData, NSError **error);
 
+// 51: "0|1[;;delaySecs]" -> "0". Flips the cellular-data master switch via
+// CoreTelephony (CTCellularDataPlanSetIsEnabled, resolved with dlsym so old
+// iOS without the symbol still loads). When delaySecs > 0 the opposite state
+// is re-applied on a daemon-side timer and the reply is still immediate.
+NSString *cellularDataFromRawData(UInt8 *eventData, NSError **error);
+
 // Private SpringBoard class (forward declaration so the Logos %c lookup
 // compiles cleanly; the call itself is respondsToSelector-guarded).
 // NOTE: SBApplication already comes from Common.h — do not redeclare it.

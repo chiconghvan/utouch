@@ -771,7 +771,9 @@ def test_util_toggles_fail_soft_without_device(monkeypatch, capsys):
     assert prelude.setCellularData(False) is False
     assert prelude.setProxySystem("1.2.3.4", 8080) is False
     assert prelude.clearProxySystem() is False
-    assert "daemon unreachable" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "daemon unreachable" in out
+    assert "(after " in out  # elapsed time distinguishes timeout from instant refusal
 
 
 def test_toggle_radio_success_logs_and_schedules_restore(monkeypatch, capsys):
@@ -788,6 +790,69 @@ def test_toggle_radio_success_logs_and_schedules_restore(monkeypatch, capsys):
         assert any("sleep" in c for c in dev.calls)
     finally:
         prelude.disconnect()
+
+
+def test_cellular_native_success_skips_shell(monkeypatch, capsys):
+    # New daemon with TASK_SETCELLULARDATA=51: the system API applies it,
+    # no plist/shell round-trips happen, delay is forwarded for daemon-side
+    # restore.
+    import socket  # noqa: F401
+
+    class NativeCellularDevice(ShellDevice):
+        def __init__(self, behavior):
+            super().__init__({"pref-set": "ZXOK 0"})
+            self.behavior = behavior
+            self.native_calls = []
+
+        def set_cellular_data_enabled(self, enabled, delay=None):
+            self.native_calls.append((enabled, delay))
+            if self.behavior == "ok":
+                return (True, [])
+            if self.behavior == "refuse":
+                return (False, "denied")
+            raise socket.timeout("timed out")
+
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+    dev = NativeCellularDevice("ok")
+    prelude.set_device(dev)
+    try:
+        assert prelude.setCellularData(False, 5) is True
+        out = capsys.readouterr().out
+        assert "system API" in out
+        assert dev.native_calls == [(False, 5.0)]
+        assert dev.calls == []  # plist path untouched
+    finally:
+        prelude.disconnect()
+
+
+def test_cellular_falls_back_to_plist(monkeypatch, capsys):
+    # Old daemon (silent -> timeout) or refusing API: plist fallback applies.
+    import socket
+
+    class NativeCellularDevice(ShellDevice):
+        def __init__(self, behavior):
+            super().__init__({"pref-set": "ZXOK 0"})
+            self.behavior = behavior
+
+        def set_cellular_data_enabled(self, enabled, delay=None):
+            if self.behavior == "silent":
+                raise socket.timeout("timed out")
+            return (False, "denied")
+
+    monkeypatch.setattr(prelude.sys, "executable", "/bin/python3")
+    for behavior in ("silent", "refuse"):
+        dev = NativeCellularDevice(behavior)
+        # Reconnects land on a fresh channel (production: a new socket).
+        monkeypatch.setattr(prelude, "get_device", lambda ip=None: dev)
+        prelude.set_device(dev)
+        try:
+            assert prelude.setCellularData(False, 5) is True
+            out = capsys.readouterr().out
+            assert "plist fallback" in out
+            assert "PrefEnableCellularData=0" in out
+            assert any("sleep" in c for c in dev.calls)
+        finally:
+            prelude.disconnect()
 
 
 def test_restore_later_rejects_bad_delay(capsys):
@@ -834,8 +899,7 @@ def test_shellcapture_socket_timeout_fails_fast_and_drops_connection():    # A s
     prelude.disconnect()
 
 
-def test_restore_later_timeout_fails_fast_and_drops_connection(capsys):
-    # Same guarantee for the restore-scheduling round-trip.
+def test_restore_later_timeout_fails_fast_and_drops_connection(capsys):    # Same guarantee for the restore-scheduling round-trip.
     import socket
 
     class TimeoutShell(ShellDevice):

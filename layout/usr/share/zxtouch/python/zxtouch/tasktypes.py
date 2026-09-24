@@ -41,3 +41,6 @@ TASK_VALIDATE_SCRIPT = 49
 # Run immediately on the currently displayed screen without switching apps
 # first (floating panel / dashboard entry points).
 TASK_PLAY_SCRIPT_IN_PLACE = 50
+# Cellular-data master switch via the system telephony API (see
+# cellularDataFromRawData in pccontrol/ExtTasks.xm).
+TASK_SETCELLULARDATA = 51

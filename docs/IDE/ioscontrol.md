@@ -2011,10 +2011,21 @@ setCellularData(True)
 ```
 
 > Note: `delay` does not block — the call returns immediately and the
-> device restores the previous state in the background. The toggle is
-> best-effort (no public iOS API): the preference is written as root and
-> CommCenter is bounced, but recent iOS may ignore it, in which case the
-> call still returns `True` while the signal icon stays unchanged.
+> device restores the previous state in the background. On current
+> daemons the switch goes through the system telephony API first
+> (`TASK_SETCELLULARDATA`); only when the daemon is too old
+> or the API refuses does it fall back to the plist method (write as root
+> + bounce CommCenter, which recent iOS may ignore).
+>
+> Troubleshooting `... (after ~30s) ... could not be applied`: the 30s
+> timeout means the daemon's root shell never answered the preference
+> write. Isolate it — `wifiInfo()` uses the same root-shell path with a
+> trivial command: if `wifiInfo()` is fast but `setCellularData` times
+> out, the stall is in the root-Python/plist stage
+> (`/var/wireless/Library/Preferences/com.apple.commcenter.plist`); if
+> `wifiInfo()` is slow too, the daemon shell itself is wedged — check
+> Console.app for `com.zjx.springboard: system2` errors. Either way the
+> call returns `False` and the script continues.
 ---
 
 ### `setAirplaneMode(enabled, delay)`

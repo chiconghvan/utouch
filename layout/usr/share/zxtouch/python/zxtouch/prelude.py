@@ -1857,12 +1857,16 @@ def _toggleRadio(label, key, flag, delay):
     (root shell background timer) instead of blocking the script. Every
     outcome is logged, so the Logs pane always shows what happened.
     ``Verified`` means the plist read back the written value — iOS exposes
-    no API to confirm the radio itself followed.
+    no API to confirm the radio itself followed. The failure log carries the
+    elapsed time so a full-timeout (~30s, daemon shell never answered) is
+    distinguishable from an instant refusal.
     """
+    t0 = time.time()
     ok, out = _rootPython(["pref-set", _UTIL_RADIO_PLIST, key, int(flag)])
     if not ok:
-        log("%s: %s — no public iOS API for this toggle, so %s=%d could not be "
-            "applied (returning False, script continues)" % (label, out, key, flag))
+        log("%s: %s (after %.1fs) — no public iOS API for this toggle, so %s=%d "
+            "could not be applied (returning False, script continues)"
+            % (label, out, time.time() - t0, key, flag))
         return False
     log("%s: %s=%d written and verified" % (label, key, flag))
     # The pref is stored, but only CommCenter re-reads it: bounce it so the
@@ -1887,15 +1891,79 @@ def setAirplaneMode(enabled, delay=None):
 
 
 def setCellularData(enabled, delay=None):
-    """Best-effort cellular-data toggle. Same contract as :func:`setAirplaneMode`.
+    """Toggle cellular data. Native system API first, plist fallback.
 
-    Best-effort because iOS has no public switch: the preference is written
-    as root and CommCenter is bounced so it re-reads it. Recent iOS versions
-    may ignore the plist, in which case the write still verifies (True) but
-    the signal icon does not change.
+    The daemon (TASK_SETCELLULARDATA=51) flips the master switch through
+    CoreTelephony and, when ``delay`` is given, restores the opposite state
+    on a daemon-side timer — the call itself never blocks. When the daemon
+    is too old to know task 51 (stays silent) or the system API refuses,
+    falls back to the plist method (:func:`_toggleRadio`), which logs its
+    own outcome. Never raises.
     """
-    return _toggleRadio("setCellularData", "PrefEnableCellularData",
-                        1 if enabled else 0, delay)
+    flag = 1 if enabled else 0
+    delay_s = None
+    if delay is not None:
+        try:
+            delay_s = float(delay)
+        except (TypeError, ValueError):
+            log("setCellularData: bad delay %r, ignoring" % (delay,))
+            delay_s = None
+        if delay_s is not None and not delay_s > 0:
+            delay_s = None
+    t0 = time.time()
+    ok, why = _cellularNative(flag, delay_s)
+    if ok:
+        if delay_s is not None:
+            log("setCellularData: cellular %s via system API, restoring in %ss "
+                "(after %.1fs)" % ("on" if flag else "off", delay, time.time() - t0))
+        else:
+            log("setCellularData: cellular %s via system API (after %.1fs)"
+                % ("on" if flag else "off", time.time() - t0))
+        return True
+    log("setCellularData: system API unavailable (%s), using plist fallback" % (why,))
+    return _toggleRadio("setCellularData", "PrefEnableCellularData", flag, delay)
+
+
+def _cellularNative(flag, delay_s):
+    """Ask the daemon to flip the switch via the system telephony API.
+
+    Returns ``(True, "")`` on success, else ``(False, reason)``. Old daemons
+    don't know task 51 and stay silent, so this uses a short socket timeout
+    and drops the connection on socket errors (a late reply would poison the
+    next round-trip); the caller falls back to the plist method.
+    """
+    try:
+        dev = get_device()
+    except Exception as e:
+        return False, "%s: %s" % (type(e).__name__, e)
+    if not hasattr(dev, "set_cellular_data_enabled"):
+        return False, "daemon client has no cellular task"
+    prev_timeout = getattr(dev, "_timeout", None)
+    if hasattr(dev, "set_timeout"):
+        try:
+            dev.set_timeout(10)
+        except Exception:
+            pass
+    try:
+        try:
+            ok, res = dev.set_cellular_data_enabled(bool(flag), delay_s)
+        except Exception as e:
+            try:
+                disconnect()
+            except Exception:
+                pass
+            return False, "%s: %s" % (type(e).__name__, e)
+        if not ok:
+            if isinstance(res, (list, tuple)):
+                res = ";;".join(str(v) for v in res)
+            return False, str(res)
+        return True, ""
+    finally:
+        if prev_timeout is not None and hasattr(dev, "set_timeout"):
+            try:
+                dev.set_timeout(prev_timeout)
+            except Exception:
+                pass
 
 
 def setProxySystem(host, port):

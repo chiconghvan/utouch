@@ -828,3 +828,47 @@ NSString *pingFromRawData(UInt8 *eventData, NSError **error) {
     (void)eventData; (void)error;
     return @"0;;ok;;zxtouch\r\n";
 }
+
+// ---------------------------------------------------------------- 51 cellular data
+
+NSString *cellularDataFromRawData(UInt8 *eventData, NSError **error) {
+    // Payload: "0|1[;;delaySecs]". Uses the same private API the Settings app
+    // toggles through (CTCellularDataPlanSetIsEnabled). Resolved with dlsym so
+    // the tweak still loads on iOS versions without the symbol, in which case
+    // the caller falls back to the plist method. Needs the
+    // com.apple.CommCenter.fine-grained entitlement on the host process
+    // (present since iOS 8.3); without it CommCenter ignores the request.
+    NSArray *parts = ZXSplit(eventData);
+    BOOL wantOn = [[parts firstObject] intValue] ? YES : NO;
+    double delay = [parts count] > 1 ? [[parts objectAtIndex:1] doubleValue] : 0;
+
+    static void (*setEnabled)(BOOL) = NULL;
+    static BOOL lookedUp = NO;
+    if (!lookedUp) {
+        lookedUp = YES;
+        void *ct = dlopen("/System/Library/Frameworks/CoreTelephony.framework/CoreTelephony", RTLD_LAZY);
+        if (ct) setEnabled = (void (*)(BOOL))dlsym(ct, "CTCellularDataPlanSetIsEnabled");
+    }
+    if (!setEnabled) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Cellular API unavailable on this iOS (CTCellularDataPlanSetIsEnabled missing).")}];
+        return nil;
+    }
+    @try {
+        setEnabled(wantOn);
+    } @catch (NSException *e) {
+        if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
+            userInfo:@{NSLocalizedDescriptionKey: ZXExtError([@"Cellular toggle failed: " stringByAppendingString:e.reason ?: @"unknown"])}];
+        return nil;
+    }
+    if (delay > 0) {
+        // Restore the opposite state without blocking the reply: the Python
+        // side returns immediately, like the plist path's shell timer.
+        BOOL restore = !wantOn;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            @try { setEnabled(restore); } @catch (NSException *e) {}
+        });
+    }
+    return @"0\r\n";
+}

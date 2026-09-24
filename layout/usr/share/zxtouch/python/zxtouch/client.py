@@ -616,6 +616,24 @@ class zxtouch:
         """Vibrate the device (Phase 2: TASK_VIBRATE=38)."""
         self.s.send(datahandler.format_socket_data(tasktypes.TASK_VIBRATE))
 
+    def set_cellular_data_enabled(self, enabled, delay=None):
+        """Flip the cellular-data master switch via the system telephony API.
+
+        (TASK_SETCELLULARDATA=51; daemon applies it in-process and, when
+        ``delay`` is given, restores the opposite state on a daemon-side
+        timer before replying immediately.)
+
+        :param enabled: truthy = on, falsy = off
+        :param delay: seconds after which the daemon restores the opposite
+            state, or None for a permanent switch
+        :return: Result tuple (success?, error message / "")
+        """
+        payload = "1" if enabled else "0"
+        if delay is not None:
+            payload += ";;%g" % float(delay)
+        self.s.send(datahandler.format_socket_data(tasktypes.TASK_SETCELLULARDATA, payload))
+        return datahandler.decode_socket_data(self.s.recv(1024))
+
     def find_colors_multi(self, color, count=5, region=None, tolerance=0, skip=2):
         """Device-side multi-point color search (Phase 2: TASK_COLOR_MULTI=39).
 
