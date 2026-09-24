@@ -9,6 +9,8 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.52] — 2026-09-24
+
 ### Đã thêm
 - Chạy `TASK_SETPROXY=53` dưới quyền root qua `sudo zxtouchb`: logic `SCPreferences` tách sang file mới `pccontrol/ZXProxyApply.{h,m}` (chỉ Foundation, forward-declare opaque type nên không cần link framework), `zxtouch-binary` thêm subcommand `-proxy "host;;port"` / `-proxy-clear` in `0` hoặc `-1;;lý do` ra stdout; handler trong tweak (`mobile`) chỉ relay payload qua `sudo -n` + đọc kết quả từ file tạm, giữ nguyên protocol task nên phía Python không đổi. `control` thêm `Depends: sudo`.
 
@@ -569,6 +571,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.52]: https://github.com/chiconghvan/utouch/compare/v0.3.51...v0.3.52
 [0.3.51]: https://github.com/chiconghvan/utouch/compare/v0.3.50...v0.3.51
 [0.3.50]: https://github.com/chiconghvan/utouch/compare/v0.3.48...v0.3.50
 [0.3.48]: https://github.com/chiconghvan/utouch/compare/v0.3.47...v0.3.48
