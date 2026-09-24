@@ -9,6 +9,16 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 ## [Unreleased]
 
+## [0.3.51] — 2026-09-24
+
+### Đã thay đổi
+- `TASK_SETPROXY=53` và các action `proxy-svc-set`/`proxy-svc-clear` trong `layout/usr/share/zxtouch/python/zxtouch/prelude.py`: trước đây chỉ tìm Wi-Fi service theo tên `UserDefinedName == "Wi-Fi"` nên có thể bỏ sót service đã đổi tên hoặc dùng tên theo ngôn ngữ hệ thống; nay nhận diện theo `Interface.Hardware == "AirPort"` hoặc `Interface.Type == "IEEE80211"` như `proxyswitcher-ng`, rồi mới fallback sang tên cũ. Chế độ HTTP ghi đồng thời HTTP/HTTPS và xóa toàn bộ khóa `SOCKSEnable`/`SOCKSProxy`/`SOCKSPort` thay vì chỉ tắt SOCKS, tránh cấu hình proxy cũ còn sót; nếu proxy đã khớp chính xác thì bỏ qua vòng `commit + apply` không tạo thay đổi giả.
+- Fallback của `setProxySystem(host, port)` trong `prelude.py`: sau khi ghi `proxy-svc-set`, nay kiểm tra `HTTPPort` phải là số nguyên; trước đây một port kiểu chuỗi bị network stack bỏ qua vẫn có thể khiến fallback báo thành công. Đường dùng `SCPreferences` cũng ép kiểu khi so sánh trạng thái để ghi lại cấu hình cũ bằng port chuỗi.
+
+### Đã sửa
+- `TASK_SETPROXY=53` trong `pccontrol/ExtTasks.xm`: khai báo đúng kiểu trả về `Boolean` của `SCPreferencesUnlock` thay vì `void`; cấu hình proxy đã đúng hoặc đã rỗng được áp dụng idempotent, còn `proxy-svc-clear` chỉ commit khi dict `Proxies` thực sự còn dữ liệu.
+- Tài liệu `setProxySystem` trong `docs/IDE/ioscontrol.md`: cập nhật cách nhận diện Wi-Fi service, thứ tự ưu tiên HTTP/HTTPS, việc loại bỏ khóa SOCKS và kiểm tra kiểu port của đường fallback.
+
 ## [0.3.50] — 2026-09-24
 
 ### Đã sửa
@@ -553,6 +563,7 @@ Loại mục: `Đã thêm` (tính năng mới) · `Đã thay đổi` (đổi hà
 
 <!-- So sánh giữa các bản -->
 
+[0.3.51]: https://github.com/chiconghvan/utouch/compare/v0.3.50...v0.3.51
 [0.3.50]: https://github.com/chiconghvan/utouch/compare/v0.3.48...v0.3.50
 [0.3.48]: https://github.com/chiconghvan/utouch/compare/v0.3.47...v0.3.48
 [0.3.47]: https://github.com/chiconghvan/utouch/compare/v0.3.46...v0.3.47

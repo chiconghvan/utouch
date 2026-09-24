@@ -2116,8 +2116,13 @@ setAirplaneMode(false)
 
 > Note: on current daemons the proxy is written into the Wi-Fi network
 > service via `SCPreferences` (`TASK_SETPROXY`) and applied live — no
-> interface bounce. Older daemons fall back to editing the same Wi-Fi
-> service through a root helper + `en0` bounce.
+> interface bounce. The Wi-Fi service is identified by `Interface.Hardware
+> == "AirPort"` or `Interface.Type == "IEEE80211"`; the localized/custom
+> name is only a fallback for older configurations. HTTP mode enables both
+> HTTP and HTTPS and removes all SOCKS keys. An already-matching proxy is
+> not committed again. Older daemons fall back to editing the same Wi-Fi
+> service through a root helper + `en0` bounce; that path also requires the
+> saved HTTP port to be an integer.
 >
 > Troubleshooting:
 > - `system API unavailable (Could not lock ...)`: the tweak runs as
