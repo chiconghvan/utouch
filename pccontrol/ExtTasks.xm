@@ -971,7 +971,7 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
 
     typedef SCPreferencesRef (*ZXSCPrefsCreateFn)(CFAllocatorRef, CFStringRef, CFStringRef);
     typedef Boolean (*ZXSCPrefsLockFn)(SCPreferencesRef, Boolean);
-    typedef void (*ZXSCPrefsUnlockFn)(SCPreferencesRef);
+    typedef Boolean (*ZXSCPrefsUnlockFn)(SCPreferencesRef);
     typedef CFPropertyListRef (*ZXSCPrefsGetValueFn)(SCPreferencesRef, CFStringRef);
     typedef CFPropertyListRef (*ZXSCPrefsPathGetValueFn)(SCPreferencesRef, CFStringRef);
     typedef Boolean (*ZXSCPrefsSetValueFn)(SCPreferencesRef, CFStringRef, CFPropertyListRef);
@@ -1002,11 +1002,14 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
     CFStringRef kHTTPSProxy = ZXSCConst(sc, "kSCPropNetProxiesHTTPSProxy");
     CFStringRef kHTTPSPort = ZXSCConst(sc, "kSCPropNetProxiesHTTPSPort");
     CFStringRef kSOCKSEnable = ZXSCConst(sc, "kSCPropNetProxiesSOCKSEnable");
+    CFStringRef kSOCKSProxy = ZXSCConst(sc, "kSCPropNetProxiesSOCKSProxy");
+    CFStringRef kSOCKSPort = ZXSCConst(sc, "kSCPropNetProxiesSOCKSPort");
     if (!pCreate || !pLock || !pUnlock || !pGetValue || !pPathGetValue ||
         !pSetValue || !pCommit || !pApply || !pError ||
         !kCurSet || !kNetServices || !kCompNetwork || !kCompService ||
         !kUserName || !kProxies || !kHTTPEnable || !kHTTPProxy || !kHTTPPort ||
-        !kHTTPSEnable || !kHTTPSProxy || !kHTTPSPort || !kSOCKSEnable) {
+        !kHTTPSEnable || !kHTTPSProxy || !kHTTPSPort || !kSOCKSEnable ||
+        !kSOCKSProxy || !kSOCKSPort) {
         if (error) *error = [NSError errorWithDomain:@"com.zjx.zxtouchsp" code:999
             userInfo:@{NSLocalizedDescriptionKey: ZXExtError(@"Proxy API unavailable on this iOS (SystemConfiguration symbols missing).")}];
         return nil;
@@ -1036,11 +1039,28 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
                 NULL, (__bridge CFPropertyListRef)services,
                 kCFPropertyListMutableContainersAndLeaves));
             NSDictionary *setServices = currentSet[(__bridge NSString *)kCompNetwork][(__bridge NSString *)kCompService];
+            // Port of proxyswitcher-ng (PSNWiFiProxyHandler): a Wi-Fi service
+            // is identified by its Interface (Hardware=AirPort or
+            // Type=IEEE80211), not by UserDefinedName. The name is localised
+            // and user-renamable, so matching "Wi-Fi" misses real devices.
             for (NSString *key in setServices) {
                 NSDictionary *svc = services[key];
-                if (svc && [@"Wi-Fi" isEqualToString:svc[(__bridge NSString *)kUserName]]) {
+                NSDictionary *iface = svc ? svc[@"Interface"] : nil;
+                if ([@"AirPort" isEqualToString:iface[@"Hardware"]] ||
+                    [@"IEEE80211" isEqualToString:iface[@"Type"]]) {
                     wifiKey = key;
                     break;
+                }
+            }
+            if (!wifiKey) {
+                // Legacy fallback for prefs fixtures / older configs without
+                // an Interface dict.
+                for (NSString *key in setServices) {
+                    NSDictionary *svc = services[key];
+                    if (svc && [@"Wi-Fi" isEqualToString:svc[(__bridge NSString *)kUserName]]) {
+                        wifiKey = key;
+                        break;
+                    }
                 }
             }
             if (!wifiKey) fail = @"No Wi-Fi service in the current set.";
@@ -1051,20 +1071,61 @@ NSString *proxyFromRawData(UInt8 *eventData, NSError **error) {
                 proxies = [NSMutableDictionary dictionary];
                 nservices[wifiKey][(__bridge NSString *)kProxies] = proxies;
             }
+            // Idempotent apply (proxyswitcher-ng shouldChangeProxyDict):
+            // skip the commit+apply round-trip when the live state already
+            // matches. Type-strict so a stale string port (older builds
+            // wrote strings the stack ignores) forces a clean rewrite
+            // instead of crashing on -isEqualToNumber:.
+            NSString *sHTTPEnable = (__bridge NSString *)kHTTPEnable;
+            NSString *sHTTPProxy = (__bridge NSString *)kHTTPProxy;
+            NSString *sHTTPPort = (__bridge NSString *)kHTTPPort;
+            NSString *sHTTPSEnable = (__bridge NSString *)kHTTPSEnable;
+            NSString *sHTTPSProxy = (__bridge NSString *)kHTTPSProxy;
+            NSString *sHTTPSPort = (__bridge NSString *)kHTTPSPort;
+            NSString *sSOCKSProxy = (__bridge NSString *)kSOCKSProxy;
+            BOOL alreadyApplied = NO;
             if (clear) {
-                [proxies removeAllObjects];
+                alreadyApplied = (proxies.count == 0);
             } else {
-                proxies[(__bridge NSString *)kHTTPEnable] = @1;
-                proxies[(__bridge NSString *)kHTTPProxy] = host;
-                proxies[(__bridge NSString *)kHTTPPort] = @(port);
-                proxies[(__bridge NSString *)kHTTPSEnable] = @1;
-                proxies[(__bridge NSString *)kHTTPSProxy] = host;
-                proxies[(__bridge NSString *)kHTTPSPort] = @(port);
-                proxies[(__bridge NSString *)kSOCKSEnable] = @0;
+                id v;
+                v = proxies[sHTTPEnable];
+                BOOL httpOk = [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@1];
+                v = proxies[sHTTPProxy];
+                httpOk = httpOk && [v isKindOfClass:[NSString class]] && [(NSString *)v isEqualToString:host];
+                v = proxies[sHTTPPort];
+                httpOk = httpOk && [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@(port)];
+                v = proxies[sHTTPSEnable];
+                httpOk = httpOk && [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@1];
+                v = proxies[sHTTPSProxy];
+                httpOk = httpOk && [v isKindOfClass:[NSString class]] && [(NSString *)v isEqualToString:host];
+                v = proxies[sHTTPSPort];
+                httpOk = httpOk && [v isKindOfClass:[NSNumber class]] && [(NSNumber *)v isEqualToNumber:@(port)];
+                alreadyApplied = httpOk && (proxies[sSOCKSProxy] == nil);
             }
-            if (!pSetValue(prefs, kNetServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
-            else if (!pCommit(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", pError()];
-            else if (!pApply(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", pError()];
+            if (alreadyApplied) {
+                // Nothing to stage: unlock and report success.
+            } else if (clear) {
+                [proxies removeAllObjects];
+                if (!pSetValue(prefs, kNetServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
+                else if (!pCommit(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", pError()];
+                else if (!pApply(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", pError()];
+            } else {
+                proxies[sHTTPEnable] = @1;
+                proxies[sHTTPProxy] = host;
+                proxies[sHTTPPort] = @(port);
+                proxies[sHTTPSEnable] = @1;
+                proxies[sHTTPSProxy] = host;
+                proxies[sHTTPSPort] = @(port);
+                // HTTP mode must not coexist with SOCKS keys: drop them
+                // entirely instead of leaving a stale proxy behind with
+                // SOCKSEnable=0.
+                [proxies removeObjectForKey:(__bridge NSString *)kSOCKSEnable];
+                [proxies removeObjectForKey:sSOCKSProxy];
+                [proxies removeObjectForKey:(__bridge NSString *)kSOCKSPort];
+                if (!pSetValue(prefs, kNetServices, (__bridge CFPropertyListRef)nservices)) fail = @"Could not stage proxy change.";
+                else if (!pCommit(prefs)) fail = [NSString stringWithFormat:@"Commit failed: %d.", pError()];
+                else if (!pApply(prefs)) fail = [NSString stringWithFormat:@"Apply failed: %d.", pError()];
+            }
         }
     } @catch (NSException *e) {
         fail = [@"Proxy change failed: " stringByAppendingString:e.reason ?: @"unknown"];

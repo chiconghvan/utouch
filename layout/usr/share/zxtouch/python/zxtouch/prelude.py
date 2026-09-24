@@ -1545,6 +1545,9 @@ def load(path):
 def wifi_proxies(data):
     # Live Proxies dict of the Wi-Fi service in the current network set.
     # iOS applies per-service proxies for Wi-Fi; the Global dict is ignored.
+    # Follows proxyswitcher-ng (PSNWiFiProxyHandler): match by Interface
+    # (Hardware=AirPort or Type=IEEE80211) — UserDefinedName is localised
+    # and user-renamable — with a name fallback for old fixtures.
     cur = data.get("CurrentSet")
     sets = data.get("Sets")
     services = data.get("NetworkServices")
@@ -1559,13 +1562,25 @@ def wifi_proxies(data):
         fail("current set has no Network/Service")
     if not isinstance(members, dict):
         fail("current set services is not a dict")
+    def _proxies_of(svc_id):
+        svc = services.get(svc_id)
+        if not isinstance(svc, dict):
+            return None
+        proxies = svc.setdefault("Proxies", {})
+        if not isinstance(proxies, dict):
+            fail("Wi-Fi Proxies is not a dict")
+        return proxies
+    for svc_id in members:
+        svc = services.get(svc_id)
+        if not isinstance(svc, dict):
+            continue
+        iface = svc.get("Interface")
+        if isinstance(iface, dict) and (iface.get("Hardware") == "AirPort" or iface.get("Type") == "IEEE80211"):
+            return _proxies_of(svc_id)
     for svc_id in members:
         svc = services.get(svc_id)
         if isinstance(svc, dict) and svc.get("UserDefinedName") == "Wi-Fi":
-            proxies = svc.setdefault("Proxies", {})
-            if not isinstance(proxies, dict):
-                fail("Wi-Fi Proxies is not a dict")
-            return proxies
+            return _proxies_of(svc_id)
     fail("no Wi-Fi service in the current set")
 
 
@@ -1600,13 +1615,17 @@ def main():
         if not 0 < port < 65536:
             fail("port out of range: %d" % port)
         proxies = wifi_proxies(data)
+        # HTTP mode (proxyswitcher-ng): set HTTP+HTTPS, drop SOCKS keys so
+        # the two modes never coexist on the service.
         proxies["HTTPEnable"] = 1
         proxies["HTTPProxy"] = host
         proxies["HTTPPort"] = port
         proxies["HTTPSEnable"] = 1
         proxies["HTTPSProxy"] = host
         proxies["HTTPSPort"] = port
-        proxies["SOCKSEnable"] = 0
+        proxies.pop("SOCKSEnable", None)
+        proxies.pop("SOCKSProxy", None)
+        proxies.pop("SOCKSPort", None)
         want = host
     elif action == "proxy-svc-clear":
         wifi_proxies(data).clear()
@@ -1622,7 +1641,12 @@ def main():
     if action == "pref-set":
         got = str(check.get(key, "MISSING"))
     elif action == "proxy-svc-set":
-        got = str(wifi_proxies(check).get("HTTPProxy", "MISSING"))
+        _chk = wifi_proxies(check)
+        got = str(_chk.get("HTTPProxy", "MISSING"))
+        # Type-strict: a stale string port is ignored by the network stack,
+        # so treat it as a failed write rather than ZXOK.
+        if not isinstance(_chk.get("HTTPPort"), int):
+            fail("HTTPPort is not an int after write")
     else:
         proxy = ((check.get("Global") or {}).get("Proxy") or {})
         got = str(proxy.get("HTTPProxy", "MISSING"))
@@ -2055,9 +2079,12 @@ def setProxySystem(host, port):
 
     Host + port only, matching the IOSControl limit. The daemon
     (TASK_SETPROXY=53) writes the proxy into the Wi-Fi network service via
-    SCPreferences and applies it live. When the daemon is too old or the
-    system call refuses, falls back to the legacy Global-plist method. Never
-    raises.
+    SCPreferences and applies it live (commit + apply, no bounce needed).
+    The Wi-Fi service is found by Interface (Hardware=AirPort or
+    Type=IEEE80211, as in proxyswitcher-ng), with a UserDefinedName
+    fallback; HTTP mode sets HTTP+HTTPS keys and drops SOCKS keys so the
+    modes never coexist. When the daemon is too old or the system call
+    refuses, falls back to the same per-service plist edit. Never raises.
     """
     host = str(host).strip()
     if not host or not re.match(r"^[A-Za-z0-9._:-]+$", host):
